@@ -20,6 +20,8 @@ const WorkerProfile = () => {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
+  const [resetCredentials, setResetCredentials] = useState(null);
+  const [copiedReset, setCopiedReset] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -91,10 +93,11 @@ const WorkerProfile = () => {
   };
 
   const handleReset = async () => {
-    if (!confirm("Reset this worker's password? A temporary password will be emailed to them.")) return;
+    if (!confirm("Reset this worker's password? A temporary password will be generated and emailed to them. You will also see it here to share manually.")) return;
     try {
-      await axiosInstance.put(`/auth/reset-password/${worker._id}`);
-      toast.success("Password reset", `New credentials sent to ${worker.email}.`);
+      const { data } = await axiosInstance.put(`/auth/reset-password/${worker._id}`);
+      setResetCredentials({ password: data.tempPassword, email: data.workerEmail, name: data.workerName });
+      toast.success("Password reset", `Temporary password has been emailed to ${data.workerEmail}.`);
     } catch {
       toast.error("Error", "Could not reset password.");
     }
@@ -235,6 +238,33 @@ const WorkerProfile = () => {
           </div>
         </div>
       </div>
+
+      {resetCredentials && (
+        <div className="card p-5 border-2 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <h3 className="font-bold text-amber-800 dark:text-amber-300">Password Reset</h3>
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Copy and share these credentials with {resetCredentials.name} securely. This will not show again.</p>
+            </div>
+            <button onClick={() => setResetCredentials(null)} className="text-amber-400 hover:text-amber-600 p-1"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <div><p className="text-xs text-gray-400">Email</p><p className="text-sm font-medium text-gray-900 dark:text-slate-100">{resetCredentials.email}</p></div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div><p className="text-xs text-gray-400">Temporary Password</p><p className="text-lg font-bold text-gray-900 dark:text-slate-100 tracking-wider">{resetCredentials.password}</p></div>
+              <button
+                onClick={() => { navigator.clipboard.writeText(resetCredentials.password); setCopiedReset(true); setTimeout(() => setCopiedReset(false), 2000); }}
+                className="p-1.5 text-gray-400 hover:text-purple-600 rounded-lg"
+              >
+                {copiedReset ? <CheckCircle className="w-4 h-4 text-green-500" /> : <Key className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+          <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">Worker must change this password on next login.</p>
+        </div>
+      )}
 
       {latestMetric && (
         <div className="card p-6">
