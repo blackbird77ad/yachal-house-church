@@ -1,0 +1,41 @@
+import axiosInstance from "../utils/axiosInstance";
+
+export const saveDraft = async (data) => {
+  const response = await axiosInstance.post("/reports/draft", data);
+  return response.data;
+};
+
+export const submitReport = async (data) => {
+  const response = await axiosInstance.post("/reports/submit", data);
+  return response.data;
+};
+
+export const editReport = async (reportId, data) => {
+  const response = await axiosInstance.put(`/reports/edit/${reportId}`, data);
+  return response.data;
+};
+
+export const getMyReports = async (params = {}) => {
+  const response = await axiosInstance.get("/reports/my-reports", { params });
+  return response.data;
+};
+
+export const getMyDraft = async (params = {}) => {
+  const response = await axiosInstance.get("/reports/my-draft", { params });
+  return response.data;
+};
+
+export const getAllReports = async (params = {}) => {
+  const response = await axiosInstance.get("/reports", { params });
+  return response.data;
+};
+
+export const getReportById = async (reportId) => {
+  const response = await axiosInstance.get(`/reports/${reportId}`);
+  return response.data;
+};
+
+export const getReportPdfData = async (reportId) => {
+  const response = await axiosInstance.get(`/reports/${reportId}/pdf-data`);
+  return response.data;
+};
