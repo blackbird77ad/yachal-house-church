@@ -19,7 +19,29 @@ import { errorHandler } from "./middleware/errorHandler.js";
 
 const app = express();
 
-app.use(cors({ origin: env.clientUrl, credentials: true }));
+const allowedOrigins = [
+  "https://yachalhouse.com",
+  "https://www.yachalhouse.com",
+  "https://yachal-house-church.pages.dev",
+  ...(env.clientUrl ? [env.clientUrl] : []),
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    // In development allow any localhost
+    if (origin.startsWith("http://localhost") || origin.startsWith("http://127.0.0.1")) return callback(null, true);
+    callback(new Error(`CORS blocked: ${origin}`));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
+
+// Handle preflight requests for all routes
+app.options("*", cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
