@@ -19,47 +19,37 @@ import { errorHandler } from "./middleware/errorHandler.js";
 
 const app = express();
 
-// ✅ Allowed origins
 const allowedOrigins = [
-  "https://yachalhouse.com",
-  "https://www.yachalhouse.com",
   "https://yachal-house-church.pages.dev",
   ...(env.clientUrl ? [env.clientUrl] : []),
 ];
 
-// ✅ CORS (handles preflight automatically — no need for app.options("*"))
 app.use(cors({
   origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, curl)
     if (!origin) return callback(null, true);
-
     if (allowedOrigins.includes(origin)) return callback(null, true);
-
-    if (
-      origin.startsWith("http://localhost") ||
-      origin.startsWith("http://127.0.0.1")
-    ) return callback(null, true);
-
-    return callback(new Error(`CORS blocked: ${origin}`));
+    // In development allow any localhost
+    if (origin.startsWith("http://localhost") || origin.startsWith("http://127.0.0.1")) return callback(null, true);
+    callback(new Error(`CORS blocked: ${origin}`));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
 
-// ✅ Body parsers
+// Handle preflight requests for all routes
+app.options("*", cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Rate limiter
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
   message: { message: "Too many requests, please try again later." },
 });
-
 app.use("/api", limiter);
 
-// ✅ Routes
 app.use("/api/auth",           authRoute);
 app.use("/api/reports",        reportRoute);
 app.use("/api/workers",        workerRoute);
@@ -73,20 +63,10 @@ app.use("/api/roster",         rosterRoute);
 app.use("/api/media",          mediaRoute);
 app.use("/api/service-times",  serviceTimeRoute);
 
-// ✅ Health check
 app.get("/api/health", (req, res) => {
-  res.status(200).json({
-    status: "Yachal House API is running.",
-    timestamp: new Date(),
-  });
+  res.status(200).json({ status: "Yachal House API is running.", timestamp: new Date() });
 });
 
-// ✅ 404 handler (no "*" — FIXED)
-app.use((req, res) => {
-  res.status(404).json({ message: "Route not found" });
-});
-
-// ✅ Global error handler
 app.use(errorHandler);
 
 export default app;

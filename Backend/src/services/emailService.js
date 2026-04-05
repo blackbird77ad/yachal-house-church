@@ -2,7 +2,7 @@ import { resendClient as resend } from "../config/resend.js";
 import { env } from "../config/env.js";
 
 const FROM = env.resendFromEmail || "noreply@yachalhouse.com";
-const APP_URL = env.clientUrl || "https://yachalhouse.com";
+const APP_URL = env.clientUrl || "https://yachal-house-church.pages.dev";
 
 const send = async ({ to, subject, html }) => {
   try {
