@@ -1,8 +1,9 @@
 {
-  "name": "Yachal House",
-  "short_name": "Yachal House",
+  "name": "Yachal House Portal",
+  "short_name": "Yachal Portal",
   "description": "Yachal House Church Workers Portal",
-  "start_url": "/",
+  "start_url": "/login",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#4c1d95",
