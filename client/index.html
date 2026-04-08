@@ -10,6 +10,8 @@
     <meta name="theme-color" content="#4c1d95" />
     <meta name="mobile-web-app-capable" content="yes" />
 
+    <meta name="build-version" content="2026-04-07-auth-fix-1" />
+
     <!-- iOS PWA support -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -26,18 +28,19 @@
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
     <script>
-      // Register service worker
-      if ("serviceWorker" in navigator) {
-        window.addEventListener("load", () => {
-          navigator.serviceWorker.register("/sw.js")
-            .then(() => console.log("SW registered"))
-            .catch(() => {});
-        });
-      }
-
-      // Apply saved theme before paint to avoid flash
       const theme = localStorage.getItem("yahal_theme");
       if (theme === "dark") document.body.classList.add("dark");
+
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", async () => {
+          try {
+            const registration = await navigator.serviceWorker.register("/sw.js");
+            console.log("SW registered:", registration.scope);
+          } catch (error) {
+            console.error("SW registration failed:", error);
+          }
+        });
+      }
     </script>
   </body>
 </html>
