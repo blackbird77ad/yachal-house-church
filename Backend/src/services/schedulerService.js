@@ -5,6 +5,7 @@ import { processWeeklyMetrics } from "./metricsService.js";
 import { sendPortalOpenEmail, sendPortalClosingEmail, sendQualificationResultsEmail } from "./emailService.js";
 import { createBulkNotification } from "./notificationService.js";
 import User from "../models/userModel.js";
+import { autoCloseExpiredSessions } from "../controllers/attendanceController.js";
 import { sendPushToMany } from "./pushService.js";
 
 const getThisWeekMonday = () => {
@@ -120,6 +121,8 @@ export const initScheduler = () => {
   cron.schedule("0 0 * * 5", openPortal, { timezone: "Africa/Accra" });         // Friday midnight
   cron.schedule("0 12 * * 1", sendClosingReminder, { timezone: "Africa/Accra" }); // Monday 12pm
   cron.schedule("59 14 * * 1", closePortalAndProcess, { timezone: "Africa/Accra" }); // Monday 2:59pm
+  // Every 15 mins check for expired front desk sessions (4hr auto-close)
+  cron.schedule("*/15 * * * *", autoCloseExpiredSessions, { timezone: "Africa/Accra" });
   console.log("Scheduler: Cron jobs initialized (Africa/Accra timezone)");
 };
 

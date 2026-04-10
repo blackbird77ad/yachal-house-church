@@ -196,3 +196,94 @@ export const sendPasswordResetRequestEmail = async (admins, worker) => {
     });
   }
 };
+
+export const sendFrontDeskReportEmail = async (recipients, session, stats, attendance, isAuto = false) => {
+  const serviceLabel = session.serviceType.charAt(0).toUpperCase() + session.serviceType.slice(1);
+  const dateStr = new Date(session.serviceDate).toLocaleDateString("en-GH", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const startTime = new Date(session.serviceStartTime).toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit" });
+  const closedTime = session.closedAt ? new Date(session.closedAt).toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit" }) : "N/A";
+  const supervisorCheckIn = session.supervisorCheckInTime ? new Date(session.supervisorCheckInTime).toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit" }) : "N/A";
+
+  const timingRows = [
+    { label: "60+ mins early",   value: stats.early60Plus,  color: "#065f46" },
+    { label: "30-60 mins early", value: stats.early30to60,  color: "#0369a1" },
+    { label: "15-30 mins early", value: stats.early15to30,  color: "#6d28d9" },
+    { label: "0-15 mins early",  value: stats.early0to15,   color: "#92400e" },
+    { label: "Late (after start)", value: stats.late,       color: "#991b1b" },
+  ].map((row) => `
+    <tr>
+      <td style="padding:8px 12px;font-size:14px;color:#374151;">${row.label}</td>
+      <td style="padding:8px 12px;font-size:16px;font-weight:bold;color:${row.color};">${row.value}</td>
+    </tr>
+  `).join("");
+
+  const workerRows = attendance.slice(0, 30).map((a, i) => {
+    const t = new Date(a.checkInTime).toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit" });
+    const bg = i % 2 === 0 ? "#ffffff" : "#f9fafb";
+    const badge = a.timingCategory === "late" ? "🔴 Late" : a.timingCategory === "early-60plus" ? "🟢 60+ early" : "🟡 On time";
+    return `<tr style="background:${bg};">
+      <td style="padding:6px 10px;font-size:13px;">${i + 1}</td>
+      <td style="padding:6px 10px;font-size:13px;font-weight:500;">${a.worker?.fullName || "Unknown"}</td>
+      <td style="padding:6px 10px;font-size:13px;color:#6b7280;">${a.worker?.workerId || ""}</td>
+      <td style="padding:6px 10px;font-size:13px;">${t}</td>
+      <td style="padding:6px 10px;font-size:12px;">${badge}</td>
+    </tr>`;
+  }).join("");
+
+  const html = base(`
+    <h2 style="margin:0 0 4px;color:#1f2937;font-size:22px;">Front Desk Report</h2>
+    <p style="color:#6b7280;font-size:14px;margin:0 0 24px;">${serviceLabel} Service - ${dateStr}${isAuto ? " (Auto-closed after 4 hours)" : ""}</p>
+
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+      <tr>
+        <td style="padding:4px 0;font-size:13px;color:#6b7280;width:160px;">Service Start Time</td>
+        <td style="font-size:14px;font-weight:600;color:#1f2937;">${startTime}</td>
+      </tr>
+      <tr>
+        <td style="padding:4px 0;font-size:13px;color:#6b7280;">Session Closed</td>
+        <td style="font-size:14px;font-weight:600;color:#1f2937;">${closedTime}</td>
+      </tr>
+      <tr>
+        <td style="padding:4px 0;font-size:13px;color:#6b7280;">Supervisor</td>
+        <td style="font-size:14px;font-weight:600;color:#1f2937;">${session.primarySupervisor?.fullName || "N/A"} (arrived ${supervisorCheckIn})</td>
+      </tr>
+    </table>
+
+    <h3 style="font-size:16px;color:#1f2937;margin:0 0 12px;">Attendance Summary</h3>
+    <div style="background:#f5f3ff;border-radius:8px;padding:16px;text-align:center;margin-bottom:20px;">
+      <p style="margin:0;font-size:40px;font-weight:bold;color:#4c1d95;">${stats.totalCheckedIn}</p>
+      <p style="margin:4px 0 0;color:#6b7280;font-size:13px;">Total Workers Checked In</p>
+    </div>
+
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin-bottom:24px;">
+      <tr style="background:#f3f4f6;">
+        <th style="padding:8px 12px;text-align:left;font-size:12px;color:#6b7280;">Timing</th>
+        <th style="padding:8px 12px;text-align:left;font-size:12px;color:#6b7280;">Count</th>
+      </tr>
+      ${timingRows}
+    </table>
+
+    ${attendance.length > 0 ? `
+    <h3 style="font-size:16px;color:#1f2937;margin:0 0 12px;">Worker Check-in List</h3>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin-bottom:24px;">
+      <tr style="background:#f3f4f6;">
+        <th style="padding:6px 10px;text-align:left;font-size:12px;color:#6b7280;">#</th>
+        <th style="padding:6px 10px;text-align:left;font-size:12px;color:#6b7280;">Name</th>
+        <th style="padding:6px 10px;text-align:left;font-size:12px;color:#6b7280;">ID</th>
+        <th style="padding:6px 10px;text-align:left;font-size:12px;color:#6b7280;">Time</th>
+        <th style="padding:6px 10px;text-align:left;font-size:12px;color:#6b7280;">Status</th>
+      </tr>
+      ${workerRows}
+      ${attendance.length > 30 ? `<tr><td colspan="5" style="padding:8px;text-align:center;font-size:12px;color:#6b7280;">... and ${attendance.length - 30} more. View full report in the dashboard.</td></tr>` : ""}
+    </table>
+    ` : ""}
+
+    <div style="text-align:center;margin:20px 0 0;">
+      <a href="${APP_URL}/admin/attendance" style="background:#4c1d95;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">View Full Report</a>
+    </div>
+  `);
+
+  for (const r of recipients) {
+    await send({ to: r.email, subject: `Front Desk Report - ${serviceLabel} Service, ${dateStr}`, html });
+  }
+};
