@@ -26,6 +26,7 @@ const adminLinks = [
   { to: "/admin/portal",      label: "Portal",       icon: Settings },
   { to: "/admin/report-types", label: "Report Types", icon: ClipboardList },
   { to: "/portal/front-desk", label: "Front Desk",   icon: MonitorCheck },
+  { to: "/admin/attendance",  label: "Attendance",   icon: Users },
 ];
 
 const roleBadge = {

@@ -26,6 +26,7 @@ import ReportTypes from "../pages/admin/ReportTypes";
 import PortalControl from "../pages/admin/PortalControl";
 import Qualification from "../pages/admin/Qualification";
 import RosterBuilder from "../pages/admin/RosterBuilder";
+import AttendanceHistory from "../pages/admin/AttendanceHistory";
 import NotFound from "../pages/NotFound";
 import ProtectedRoute from "../components/common/ProtectedRoute";
 import RoleGuard from "../components/common/RoleGuard";
@@ -98,6 +99,7 @@ const router = createBrowserRouter([
       { path: "/admin/portal", element: <PortalControl /> },
       { path: "/admin/qualification", element: <Qualification /> },
       { path: "/admin/roster", element: <RosterBuilder /> },
+      { path: "/admin/attendance", element: <AttendanceHistory /> },
     ],
   },
   { path: "*", element: <NotFound /> },
