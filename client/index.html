@@ -2,45 +2,71 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Yachal House</title>
 
-    <!-- PWA -->
+    <!-- PWA manifest -->
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#4c1d95" />
+
+    <!-- Theme colors -->
+    <meta name="theme-color" content="#4c1d95" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1e1b4b" media="(prefers-color-scheme: dark)" />
+
+    <!-- Android PWA -->
     <meta name="mobile-web-app-capable" content="yes" />
 
-    <meta name="build-version" content="2026-04-07-auth-fix-1" />
-
-    <!-- iOS PWA support -->
+    <!-- iOS PWA - critical for "Add to Home Screen" to work properly -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Yachal House" />
-    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+    <!-- iOS icons - Safari uses these not the manifest -->
+    <link rel="apple-touch-icon" href="/icons/icon-152.png" />
+    <link rel="apple-touch-icon" sizes="72x72"  href="/icons/icon-72.png" />
+    <link rel="apple-touch-icon" sizes="96x96"  href="/icons/icon-96.png" />
+    <link rel="apple-touch-icon" sizes="128x128" href="/icons/icon-128.png" />
+    <link rel="apple-touch-icon" sizes="144x144" href="/icons/icon-144.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png" />
+
+    <!-- iOS splash screens (optional but nice) -->
+    <meta name="apple-touch-fullscreen" content="yes" />
 
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="/yahal.png" />
 
-    <!-- SEO -->
-    <meta name="description" content="Yachal House Church Workers Portal - Ridge, Accra" />
+    <!-- SEO / Social -->
+    <meta name="description" content="Yachal House Church Workers Portal - Ridge, Accra, Ghana" />
+    <meta name="application-name" content="Yachal House" />
+
+    <!-- Prevent phone number auto-detection -->
+    <meta name="format-detection" content="telephone=no" />
+
+    <style>
+      /* Prevent flash of wrong theme */
+      body { margin: 0; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
     <script>
-  const theme = localStorage.getItem("yahal_theme");
-  if (theme === "dark") document.body.classList.add("dark");
-
-  if ("serviceWorker" in navigator) {
-    window.addEventListener("load", async () => {
+      // Apply saved theme before React loads to prevent flash
       try {
-        const registration = await navigator.serviceWorker.register("/sw.js");
-        console.log("SW registered:", registration.scope);
-      } catch (error) {
-        console.error("SW registration failed:", error);
+        const theme = localStorage.getItem("yahal_theme");
+        if (theme === "dark" || (!theme && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
+          document.body.classList.add("dark");
+        }
+      } catch(e) {}
+
+      // Register service worker
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js")
+            .then(reg => console.log("SW registered", reg.scope))
+            .catch(err => console.log("SW failed", err));
+        });
       }
-    });
-  }
-</script>
+    </script>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

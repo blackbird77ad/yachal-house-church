@@ -1,13 +1,17 @@
 {
-  "name": "Yachal House Portal",
-  "short_name": "Yachal Portal",
+  "name": "Yachal House",
+  "short_name": "Yachal House",
   "description": "Yachal House Church Workers Portal",
   "start_url": "/login",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
+  "background_color": "#f9fafb",
   "theme_color": "#4c1d95",
   "orientation": "portrait-primary",
+  "categories": [
+    "productivity",
+    "lifestyle"
+  ],
   "icons": [
     {
       "src": "/icons/icon-72.png",
@@ -56,6 +60,30 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Submit Report",
+      "short_name": "Submit",
+      "url": "/portal/submit-report",
+      "icons": [
+        {
+          "src": "/icons/icon-96.png",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "My Reports",
+      "short_name": "Reports",
+      "url": "/portal/my-reports",
+      "icons": [
+        {
+          "src": "/icons/icon-96.png",
+          "sizes": "96x96"
+        }
+      ]
     }
   ]
 }

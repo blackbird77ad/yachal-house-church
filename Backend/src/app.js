@@ -20,9 +20,13 @@ import { errorHandler } from "./middleware/errorHandler.js";
 const app = express();
 
 const allowedOrigins = [
+  "https://yachalhousegh.org",
+  "https://www.yachalhousegh.org",
+  "https://yachalhousegh.com",
+  "https://www.yachalhousegh.com",
   "https://yachal-house-church.pages.dev",
   ...(env.clientUrl ? [env.clientUrl] : []),
-];
+];  
 
 const corsOptions = {
   origin: (origin, callback) => {
