@@ -56,6 +56,7 @@ const userSchema = new mongoose.Schema(
         "evangelism",
         "cell",
         "unassigned",
+        "leadership",
       ],
       default: "unassigned",
     },
@@ -64,7 +65,6 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    mustChangePassword: { type: Boolean, default: false },
 
     additionalDepartments: [
       {
