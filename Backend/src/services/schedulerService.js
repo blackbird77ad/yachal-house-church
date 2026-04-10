@@ -101,18 +101,49 @@ const closePortalAndProcess = async () => {
     const qualified = metrics.filter((m) => m.isQualified);
     const disqualified = metrics.filter((m) => !m.isQualified);
 
-    const recipients = await User.find({ status: "approved", role: { $in: ["pastor", "admin", "moderator"] } }).select("email fullName");
+    const recipients = await User.find({ status: "approved", role: { $in: ["pastor", "admin", "moderator"] } }).select("_id email fullName");
     await sendQualificationResultsEmail(recipients, qualified, disqualified);
 
-    // Notify all workers results are ready (no details - just that processing is done)
-    const allWorkers = await User.find({ status: "approved" }).select("_id");
-    await createBulkNotification(allWorkers.map((w) => w._id), {
+    // Notify admin/mod/pastor with roster action prompt
+    const weekLabel = weekReference.toLocaleDateString("en-GH", { day: "numeric", month: "long", year: "numeric" });
+    await createBulkNotification(recipients.map((r) => r._id), {
       type: "qualification-result",
-      title: "Weekly reports processed",
-      message: "This week's report submission window has closed. Check your notifications for updates.",
-      link: "/portal/dashboard",
+      title: "Qualification results ready - Action required",
+      message: `Week ending ${weekLabel}: ${qualified.length} qualified, ${disqualified.length} not qualified. Please assign workers to the duty roster and publish it. Workers will be notified.`,
+      link: "/admin/qualification",
     });
 
+    // Push notification to admin/mod/pastor
+    try {
+      const { sendPushToMany } = await import("./pushService.js");
+      await sendPushToMany(recipients.map((r) => r._id), {
+        title: "Qualification results ready",
+        body: `${qualified.length} qualified. Assign workers to roster now.`,
+        url: "/admin/qualification",
+      });
+    } catch {}
+
+    // Notify all workers the portal has closed
+    const allWorkers = await User.find({ status: "approved", workerId: { $ne: "001" } }).select("_id");
+    await createBulkNotification(allWorkers.map((w) => w._id), {
+      type: "qualification-result",
+      title: "Portal closed for this week",
+      message: "Report submission is now closed. The duty roster will be published soon. Check your My Roster page.",
+      link: "/portal/roster",
+    });
+
+    // Notify admins to assign roster
+    await createBulkNotification(recipients.map((r) => r._id), {
+      type: "general",
+      title: "Qualification complete - assign roster now",
+      message: `This week's qualification is done. ${qualified.length} workers qualified. Go to Roster Builder to assign and publish the duty roster for Sunday.`,
+      link: "/admin/roster",
+    });
+    await sendPushToMany(recipients.map((r) => r._id), {
+      title: "Qualification done - assign roster",
+      body: `${qualified.length} workers qualified. Assign the duty roster now.`,
+      url: "/admin/roster",
+    });
     console.log("Scheduler: Portal closed and metrics processed. Results emailed to admin team.");
   } catch (err) { console.error("Scheduler closePortalAndProcess error:", err.message); }
 };

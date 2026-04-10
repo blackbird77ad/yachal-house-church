@@ -1,5 +1,5 @@
 import Roster from "../models/rosterModel.js";
-import { getWorkersByDepartmentForRoster } from "../services/qualificationService.js";
+import { getWorkersByDepartmentForRoster, getQualifiedWorkers, getDisqualifiedWorkersByCloseness, getWorkersWithNoSubmission } from "../services/qualificationService.js";
 import { createBulkNotification } from "../services/notificationService.js";
 import { sendRosterPublishedEmail } from "../services/emailService.js";
 import User from "../models/userModel.js";
@@ -26,14 +26,22 @@ export const getRosterBuilderData = async (req, res, next) => {
       return monday;
     })();
 
-    const { getQualifiedWorkers, getDisqualifiedWorkersByCloseness, getWorkersWithNoSubmission } = await import("../services/qualificationService.js");
     const [qualified, disqualified, noSubmission] = await Promise.all([
       getQualifiedWorkers(weekRef),
       getDisqualifiedWorkersByCloseness(weekRef),
       getWorkersWithNoSubmission(weekRef),
     ]);
 
-    res.status(200).json({ rosterData: { qualified, disqualified, noSubmission } });
+    // Exclude pastor (workerId 001) from all categories
+    const excludePastor = (list) => list.filter((m) => m.worker?.workerId !== "001");
+
+    res.status(200).json({
+      rosterData: {
+        qualified: excludePastor(qualified),
+        disqualified: excludePastor(disqualified),
+        noSubmission: excludePastor(noSubmission),
+      }
+    });
   } catch (error) {
     next(error);
   }

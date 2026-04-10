@@ -11,12 +11,14 @@ export const getQualifiedWorkers = async (weekReference) => {
     .populate("worker", "fullName workerId department isRotating additionalDepartments score")
     .sort({ totalScore: -1 });
 
-  return metrics.map((m) => ({
-    worker: m.worker,
-    totalScore: m.totalScore,
-    qualificationBreakdown: m.qualificationBreakdown,
-    submittedReport: true,
-  }));
+  return metrics
+    .filter((m) => m.worker?.workerId !== "001")
+    .map((m) => ({
+      worker: m.worker,
+      totalScore: m.totalScore,
+      qualificationBreakdown: m.qualificationBreakdown,
+      submittedReport: true,
+    }));
 };
 
 export const getDisqualifiedWorkersByCloseness = async (weekReference) => {
@@ -28,12 +30,14 @@ export const getDisqualifiedWorkersByCloseness = async (weekReference) => {
     .populate("worker", "fullName workerId department isRotating additionalDepartments score")
     .sort({ totalScore: -1 });
 
-  return metrics.map((m) => ({
-    worker: m.worker,
-    totalScore: m.totalScore,
-    qualificationBreakdown: m.qualificationBreakdown,
-    submittedReport: true,
-    missingCriteria: Object.entries(m.qualificationBreakdown || {})
+  return metrics
+    .filter((m) => m.worker?.workerId !== "001")
+    .map((m) => ({
+      worker: m.worker,
+      totalScore: m.totalScore,
+      qualificationBreakdown: m.qualificationBreakdown,
+      submittedReport: true,
+      missingCriteria: Object.entries(m.qualificationBreakdown || {})
       .filter(([, passed]) => !passed)
       .map(([key]) => key),
   }));
@@ -41,7 +45,7 @@ export const getDisqualifiedWorkersByCloseness = async (weekReference) => {
 
 export const getWorkersWithNoSubmission = async (weekReference) => {
   const workersWithMetrics = await Metrics.find({ weekReference, isLateSubmission: false }).distinct("worker");
-  const allWorkers = await User.find({ status: "approved", role: "worker" }).select("fullName workerId department");
+  const allWorkers = await User.find({ status: "approved", role: "worker", workerId: { $ne: "001" } }).select("fullName workerId department");
   return allWorkers
     .filter((w) => !workersWithMetrics.map(String).includes(String(w._id)))
     .map((w) => ({ worker: w, totalScore: 0, submittedReport: false, qualificationBreakdown: null }));
