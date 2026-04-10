@@ -42,6 +42,8 @@ export const createSession = async (req, res, next) => {
     // Close any previously open session
     await FrontDeskSession.updateMany({ isOpen: true }, { isOpen: false, closedAt: new Date(), closedBy: "auto" });
 
+    const { isDeputy, deputyFor } = req.body;
+
     const session = await FrontDeskSession.create({
       serviceType,
       specialServiceName: specialServiceName || "",
@@ -52,7 +54,26 @@ export const createSession = async (req, res, next) => {
       supervisorCheckInTime: new Date(),
       coSupervisors: coSupervisorId ? [coSupervisorId] : [],
       isOpen: true,
+      isDeputy: isDeputy || false,
+      deputyFor: deputyFor || null,
     });
+
+    // If deputy, notify admins immediately
+    if (isDeputy && deputyFor) {
+      try {
+        const admins = await User.find({
+          status: "approved",
+          role: { $in: ["pastor", "admin", "moderator"] },
+        }).select("_id email fullName");
+
+        await createBulkNotification(admins.map((a) => a._id), {
+          type: "general",
+          title: "Deputy front desk duty",
+          message: `${req.user.fullName} (${req.user.workerId}) is covering front desk duty for ${deputyFor} who could not attend.`,
+          link: "/admin/attendance",
+        });
+      } catch {}
+    }
 
     // Auto check-in the supervisor
     const { category, minutesBefore } = getTimingCategory(new Date(), start);

@@ -32,6 +32,8 @@ const FrontDesk = () => {
   const [time, setTime] = useState(new Date());
 
   const [selfWorker, setSelfWorker] = useState(null);
+  const [deputyFor, setDeputyFor] = useState(""); // name of assigned worker they are covering
+  const [showDeputyForm, setShowDeputyForm] = useState(false);
   const [partnerQuery, setPartnerQuery] = useState("");
   const [partnerWorker, setPartnerWorker] = useState(null);
   const [partnerArrived, setPartnerArrived] = useState(null);
@@ -229,6 +231,8 @@ const FrontDesk = () => {
         serviceStartTime: `${serviceDate}T${serviceStart}`,
         specialServiceName: specialName,
         coSupervisorId: partnerWorker?._id || null,
+        isDeputy: selfWorker?.isDeputy || false,
+        deputyFor: selfWorker?.deputyFor || null,
       });
       const newSession = data.session;
       setSession(newSession);
@@ -318,13 +322,81 @@ const FrontDesk = () => {
   );
 
   if (step === "unauthorized") return (
-    <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="card p-10 text-center max-w-md">
-        <Shield className="w-12 h-12 text-gray-300 dark:text-slate-600 mx-auto mb-4" />
-        <h2 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-2">Access Restricted</h2>
-        <p className="text-sm text-gray-500 dark:text-slate-400 leading-relaxed">
-          The Front Desk is only accessible to workers assigned to front desk duty in the published roster. Please check your duty roster or speak with your department leader.
-        </p>
+    <div className="flex items-center justify-center min-h-[60vh] px-4">
+      <div className="card p-8 w-full max-w-md text-center space-y-5">
+        <Shield className="w-12 h-12 text-gray-300 dark:text-slate-600 mx-auto" />
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-1">Access Restricted</h2>
+          <p className="text-sm text-gray-500 dark:text-slate-400 leading-relaxed">
+            You are not assigned to front desk duty in the published roster.
+          </p>
+        </div>
+
+        {!showDeputyForm ? (
+          <div className="space-y-3 pt-2">
+            <p className="text-xs text-gray-400 dark:text-slate-500">
+              Are you covering for an assigned worker who cannot make it?
+            </p>
+            <button
+              onClick={() => setShowDeputyForm(true)}
+              className="btn-outline w-full text-sm"
+            >
+              Yes — I'm covering for someone
+            </button>
+            <p className="text-xs text-gray-400 dark:text-slate-500 pt-1">
+              Otherwise please check your roster or speak with your department leader.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4 text-left">
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3">
+              <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+                This will be logged. You are taking responsibility for front desk duty on behalf of the assigned worker. The admin team will be notified.
+              </p>
+            </div>
+            <div>
+              <label className="form-label">Your name and Worker ID</label>
+              <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl px-4 py-3">
+                <p className="font-semibold text-purple-700 dark:text-purple-300 text-sm">{user?.fullName}</p>
+                <p className="text-xs text-purple-500">Worker ID: {user?.workerId}</p>
+              </div>
+            </div>
+            <div>
+              <label className="form-label">
+                Who are you covering for? <span className="text-red-400">*</span>
+              </label>
+              <input
+                className="input-field"
+                placeholder="Full name of the assigned worker"
+                value={deputyFor}
+                onChange={(e) => setDeputyFor(e.target.value)}
+                autoFocus
+              />
+              <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">
+                Enter the name of the worker who was assigned but cannot attend.
+              </p>
+            </div>
+            {authError && <p className="text-sm text-red-500">{authError}</p>}
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => { setShowDeputyForm(false); setDeputyFor(""); setAuthError(""); }}
+                className="btn-ghost flex-1"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (!deputyFor.trim()) { setAuthError("Please enter the name of the worker you are covering for."); return; }
+                  setSelfWorker({ fullName: user.fullName, workerId: user.workerId, _id: user._id, isDeputy: true, deputyFor: deputyFor.trim() });
+                  setStep("confirm-partner");
+                }}
+                className="btn-primary flex-1"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -343,6 +415,13 @@ const FrontDesk = () => {
           <p className="font-bold text-purple-700 dark:text-purple-300">{user?.fullName}</p>
           <p className="text-xs text-purple-500 mt-0.5">Worker ID: {user?.workerId}</p>
         </div>
+        {selfWorker?.isDeputy && (
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 text-left">
+            <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-0.5">Covering for:</p>
+            <p className="text-sm font-bold text-amber-800 dark:text-amber-300">{selfWorker.deputyFor}</p>
+            <p className="text-xs text-amber-600 dark:text-amber-500 mt-1">Admin team will be notified of this substitution.</p>
+          </div>
+        )}
         {authError && <p className="text-sm text-red-500">{authError}</p>}
         <button onClick={handleVerifySelf} className="btn-primary w-full">
           Yes, I'm on duty — Continue
@@ -534,6 +613,16 @@ const FrontDesk = () => {
           </button>
         </div>
       </div>
+
+      {/* Deputy warning banner */}
+      {selfWorker?.isDeputy && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 flex items-start gap-2">
+          <Shield className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            <strong>Deputy duty</strong> — You are covering for <strong>{selfWorker.deputyFor}</strong>. This has been logged and the admin team has been notified.
+          </p>
+        </div>
+      )}
 
       {/* Duty workers badges */}
       {(dutyWorkers.length > 0 || (partnerWorker && step === "active")) && (

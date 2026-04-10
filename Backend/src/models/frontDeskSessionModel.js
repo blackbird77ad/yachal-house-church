@@ -17,6 +17,10 @@ const frontDeskSessionSchema = new mongoose.Schema({
   closedBy:  { type: String, enum: ["manual", "auto", "force"], default: "manual" },
   closeReason: { type: String },  // reason given on force close
 
+  // Deputy tracking
+  isDeputy:  { type: Boolean, default: false },
+  deputyFor: { type: String }, // name of the assigned worker being covered
+
   // Computed stats (filled on close)
   stats: {
     totalCheckedIn:   { type: Number, default: 0 },

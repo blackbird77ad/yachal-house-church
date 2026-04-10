@@ -203,6 +203,9 @@ export const sendFrontDeskReportEmail = async (recipients, session, stats, atten
   const startTime = new Date(session.serviceStartTime).toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit" });
   const closedTime = session.closedAt ? new Date(session.closedAt).toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit" }) : "N/A";
   const supervisorCheckIn = session.supervisorCheckInTime ? new Date(session.supervisorCheckInTime).toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit" }) : "N/A";
+  const deputyLine = session.isDeputy && session.deputyFor
+    ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280;width:160px;">Deputy Cover</td><td style="font-size:14px;font-weight:600;color:#b45309;">${session.primarySupervisor?.fullName || "Unknown"} covered for ${session.deputyFor}</td></tr>`
+    : "";
 
   const timingRows = [
     { label: "60+ mins early",   value: stats.early60Plus,  color: "#065f46" },
