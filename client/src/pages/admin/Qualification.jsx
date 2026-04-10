@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { getQualifiedWorkers, getDisqualifiedWorkers, getAllMetrics, triggerManualProcessing } from "../../services/metricsService";
 import Loader from "../../components/common/Loader";
+import Pagination from "../../components/common/Pagination";
 import { getCriteriaStatus } from "../../utils/scoreHelpers";
 import { getWeekLabel, getWeekReference, formatDate } from "../../utils/formatDate";
 import { useToast, ToastContainer } from "../../components/common/Toast";
@@ -34,6 +35,9 @@ const Qualification = () => {
 
   // Current week state
   const [qualified, setQualified] = useState([]);
+  const [qualPage, setQualPage] = useState(1);
+  const [disqualPage, setDisqualPage] = useState(1);
+  const QUAL_PER_PAGE = 15;
   const [disqualified, setDisqualified] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -275,9 +279,22 @@ const Qualification = () => {
                 ))}
               </div>
               <div className="space-y-2">
-                {(resultTab === "qualified" ? qualified : disqualified).map((item, i) => (
-                  <WorkerRow key={item.worker?._id} item={item} index={i} isQualified={resultTab === "qualified"} />
-                ))}
+                {(() => {
+                  const list = resultTab === "qualified" ? qualified : disqualified;
+                  const pg = resultTab === "qualified" ? qualPage : disqualPage;
+                  const setPg = resultTab === "qualified" ? setQualPage : setDisqualPage;
+                  const paged = list.slice((pg-1)*QUAL_PER_PAGE, pg*QUAL_PER_PAGE);
+                  return (
+                    <>
+                      {paged.map((item, i) => (
+                        <WorkerRow key={item.worker?._id} item={item} index={(pg-1)*QUAL_PER_PAGE+i} isQualified={resultTab === "qualified"} />
+                      ))}
+                      <div className="px-4 pb-2">
+                        <Pagination page={pg} totalPages={Math.ceil(list.length/QUAL_PER_PAGE)} totalItems={list.length} perPage={QUAL_PER_PAGE} label={resultTab === "qualified" ? "qualified" : "not qualified"} onPage={setPg} />
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </>
           )}

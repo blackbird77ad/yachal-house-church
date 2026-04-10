@@ -10,6 +10,7 @@ import {
   adminCreateWorker, adminBulkCreateWorkers,
 } from "../../services/authService";
 import Loader from "../../components/common/Loader";
+import Pagination from "../../components/common/Pagination";
 import Modal from "../../components/common/Modal";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import { formatDate } from "../../utils/formatDate";
@@ -26,6 +27,10 @@ const Workers = () => {
 
   // ── Table state ───────────────────────────────────────────────
   const [workers, setWorkers] = useState([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalWorkers, setTotalWorkers] = useState(0);
+  const PER_PAGE = 20;
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -61,12 +66,14 @@ const Workers = () => {
     .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
 
   // ── Fetch workers ─────────────────────────────────────────────
-  const fetchWorkers = async () => {
+  const fetchWorkers = async (pg = page) => {
     setLoading(true);
     try {
       const params = statusFilter !== "all" ? { status: statusFilter } : {};
-      const { workers: data } = await getAllWorkers(params);
-      setWorkers(data || []);
+      const data = await getAllWorkers(params);
+      setWorkers(data.workers || []);
+      setTotalPages(data.totalPages || 1);
+      setTotalWorkers(data.total || (data.workers || []).length);
     } catch {
       toast.error("Error", "Could not load workers.");
     } finally {

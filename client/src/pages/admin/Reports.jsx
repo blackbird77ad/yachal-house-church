@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { getAllReports } from "../../services/reportService";
 import { getAllWorkers } from "../../services/workerService";
 import Loader from "../../components/common/Loader";
+import Pagination from "../../components/common/Pagination";
 import { formatDate, formatDateTime, getWeekLabel, getWeekReference } from "../../utils/formatDate";
 import { REPORT_TYPES } from "../../utils/constants";
 import { useToast, ToastContainer } from "../../components/common/Toast";
@@ -51,6 +52,10 @@ const getPeriodDates = (period) => {
 const Reports = () => {
   const { toasts, toast, removeToast } = useToast();
   const [reports, setReports] = useState([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalReports, setTotalReports] = useState(0);
+  const PER_PAGE = 20;
   const [workers, setWorkers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -69,7 +74,7 @@ const Reports = () => {
     getAllWorkers({ status: "approved" }).then(({ workers: w }) => setWorkers(w || [])).catch(() => {});
   }, []);
 
-  const fetchReports = async () => {
+  const fetchReports = async (pg = page) => {
     setLoading(true);
     setError("");
     try {
@@ -91,6 +96,8 @@ const Reports = () => {
 
       const data = await getAllReports(params);
       setReports(data.reports || []);
+      setTotalPages(data.totalPages || 1);
+      setTotalReports(data.total || (data.reports || []).length);
 
       if (data.reports?.length > 0) {
         const firstWeek = getWeekLabel(new Date(data.reports[0].weekReference));

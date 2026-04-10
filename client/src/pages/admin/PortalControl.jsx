@@ -5,12 +5,16 @@ import { overridePortal } from "../../services/adminService";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import { formatDateTime } from "../../utils/formatDate";
 import Loader from "../../components/common/Loader";
+import Pagination from "../../components/common/Pagination";
 import ServiceTimesManager from "./ServiceTimesManager";
 
 const PortalControl = () => {
   const { toasts, toast, removeToast } = useToast();
   const [portal, setPortal] = useState(null);
   const [history, setHistory] = useState([]);
+  const [histPage, setHistPage] = useState(1);
+  const HIST_PER_PAGE = 10;
+  const pagedHistory = history.slice((histPage-1)*HIST_PER_PAGE, histPage*HIST_PER_PAGE);
   const [loading, setLoading] = useState(true);
   const [reason, setReason] = useState("");
   const [acting, setActing] = useState(false);
@@ -182,7 +186,7 @@ const PortalControl = () => {
           <p className="text-sm text-gray-400 dark:text-slate-500 text-center py-6">No override history yet.</p>
         ) : (
           <div className="space-y-3">
-            {history.map((p) => (
+            {pagedHistory.map((p) => (
               <div key={p._id} className="flex items-start gap-3 p-4 bg-gray-50 dark:bg-slate-800 rounded-xl">
                 <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${p.isOpen ? "bg-green-500" : "bg-red-400"}`} />
                 <div className="flex-1 min-w-0">

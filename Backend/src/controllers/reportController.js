@@ -171,7 +171,7 @@ export const editSubmittedReport = async (req, res, next) => {
 
 export const getMyReports = async (req, res, next) => {
   try {
-    const { weekReference, reportType, status, weekType, limit } = req.query;
+    const { weekReference, reportType, status, weekType, limit = 20, page = 1 } = req.query;
     const filter = { submittedBy: req.user._id };
 
     if (weekReference) filter.weekReference = new Date(weekReference);
@@ -181,10 +181,12 @@ export const getMyReports = async (req, res, next) => {
     if (weekType === "late") filter.isLateSubmission = true;
 
     const query = Report.find(filter).sort({ createdAt: -1 });
-    if (limit) query.limit(Number(limit));
+    const skip = (Number(page) - 1) * Number(limit);
+    const total = await Report.countDocuments(filter);
+    query.skip(skip).limit(Number(limit));
 
     const reports = await query;
-    res.status(200).json({ reports });
+    res.status(200).json({ reports, total, page: Number(page), totalPages: Math.ceil(total / Number(limit)) });
   } catch (error) {
     next(error);
   }
@@ -234,7 +236,7 @@ export const getMyDraft = async (req, res, next) => {
 
 export const getAllReports = async (req, res, next) => {
   try {
-    const { weekReference, reportType, status, isLateSubmission, workerId, dateFrom, dateTo } = req.query;
+    const { weekReference, reportType, status, isLateSubmission, workerId, dateFrom, dateTo, page = 1, limit = 20 } = req.query;
     const filter = {};
 
     if (weekReference) filter.weekReference = new Date(weekReference);
@@ -251,10 +253,12 @@ export const getAllReports = async (req, res, next) => {
       if (dateTo) filter.submittedAt.$lte = new Date(dateTo);
     }
 
+    const total = await Report.countDocuments(filter);
     const reports = await Report.find(filter)
       .populate("submittedBy", "fullName workerId department")
       .sort({ weekReference: -1, submittedAt: -1 })
-      .limit(500);
+      .skip((Number(page) - 1) * Number(limit))
+      .limit(Number(limit));
 
     res.status(200).json({ reports });
   } catch (error) {

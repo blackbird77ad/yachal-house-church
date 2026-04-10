@@ -3,6 +3,7 @@ import { Calendar, Users, Clock, ChevronDown, ChevronUp, Download, AlertCircle }
 import axiosInstance from "../../utils/axiosInstance";
 import { useAuth } from "../../hooks/useAuth";
 import Loader from "../../components/common/Loader";
+import Pagination from "../../components/common/Pagination";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import { cn } from "../../utils/scoreHelpers";
 
@@ -26,6 +27,10 @@ const AttendanceHistory = () => {
   const isAdminLevel = ["pastor", "admin", "moderator"].includes(user?.role);
   const { toasts, toast, removeToast } = useToast();
   const [sessions, setSessions] = useState([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalSessions, setTotalSessions] = useState(0);
+  const PER_PAGE = 15;
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
   const [expandedAttendance, setExpandedAttendance] = useState({});
@@ -38,18 +43,21 @@ const AttendanceHistory = () => {
     if (!isAdminLevel) { setLoading(false); return; }
     setLoading(true);
     try {
-      const params = new URLSearchParams({ limit: 50 });
+      const params = new URLSearchParams({ limit: PER_PAGE, page });
       if (dateFrom) params.append("dateFrom", dateFrom);
       if (dateTo) params.append("dateTo", dateTo + "T23:59:59");
       const { data } = await axiosInstance.get(`/attendance/history?${params}`);
       let list = data.sessions || [];
+      setTotalPages(data.totalPages || 1);
+      setTotalSessions(data.total || list.length);
       if (serviceFilter !== "all") list = list.filter((s) => s.serviceType === serviceFilter);
       setSessions(list);
     } catch { toast.error("Error", "Could not load attendance history."); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchSessions(); }, [serviceFilter, dateFrom, dateTo]);
+  useEffect(() => { setPage(1); }, [serviceFilter, dateFrom, dateTo]);
+  useEffect(() => { fetchSessions(); }, [serviceFilter, dateFrom, dateTo, page]);
 
   const fetchDetails = async (sessionId) => {
     if (expandedAttendance[sessionId]) {
@@ -239,6 +247,11 @@ const AttendanceHistory = () => {
               </div>
             );
           })}
+        </div>
+      )}
+      {totalPages > 1 && (
+        <div className="card px-5">
+          <Pagination page={page} totalPages={totalPages} totalItems={totalSessions} perPage={PER_PAGE} label="sessions" onPage={setPage} />
         </div>
       )}
     </div>

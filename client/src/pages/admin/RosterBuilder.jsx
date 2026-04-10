@@ -3,6 +3,7 @@ import { Save, Send, Copy, CheckCircle, ChevronDown, ChevronUp, X, Users, UserPl
 import axiosInstance from "../../utils/axiosInstance";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import Loader from "../../components/common/Loader";
+import Pagination from "../../components/common/Pagination";
 import { getWeekLabel, getWeekReference } from "../../utils/formatDate";
 import Modal from "../../components/common/Modal";
 import { cn } from "../../utils/scoreHelpers";
@@ -40,6 +41,8 @@ const RosterBuilder = () => {
   const [rosterId, setRosterId] = useState(null);
   const [published, setPublished] = useState(false);
   const [workerModal, setWorkerModal] = useState(null);
+  const [modalPage, setModalPage] = useState(1);
+  const MODAL_PER_PAGE = 10;
   const [workerSearch, setWorkerSearch] = useState("");
   const [whatsappText, setWhatsappText] = useState("");
   const [showWhatsapp, setShowWhatsapp] = useState(false);
@@ -282,7 +285,7 @@ const RosterBuilder = () => {
                   )}
                 </div>
                 <button
-                  onClick={(e) => { e.stopPropagation(); setWorkerSearch(""); setWorkerModal(dept.value); }}
+                  onClick={(e) => { e.stopPropagation(); setWorkerSearch(""); setWorkerModal(dept.value); setModalPage(1); }}
                   className="btn-outline text-xs py-1.5 px-3 flex items-center gap-1.5 flex-shrink-0"
                 >
                   <UserPlus className="w-3.5 h-3.5" /> Assign
@@ -341,7 +344,8 @@ const RosterBuilder = () => {
                     <CheckCircle className="w-3.5 h-3.5" /> Qualified this week ({qualifiedFiltered.length})
                   </p>
                   <div className="space-y-1.5">
-                    {qualifiedFiltered.filter((item) => item?.worker?._id).map((item) => <WorkerItem key={item.worker._id} item={item} dept={workerModal} />)}
+                    {qualifiedFiltered.filter((item) => item?.worker?._id).slice((modalPage-1)*MODAL_PER_PAGE, modalPage*MODAL_PER_PAGE).map((item) => <WorkerItem key={item.worker._id} item={item} dept={workerModal} />)}
+                      {Math.ceil(qualifiedFiltered.length/MODAL_PER_PAGE) > 1 && <Pagination page={modalPage} totalPages={Math.ceil(qualifiedFiltered.length/MODAL_PER_PAGE)} totalItems={qualifiedFiltered.length} perPage={MODAL_PER_PAGE} label="qualified" onPage={setModalPage} />}
                   </div>
                 </div>
               )}

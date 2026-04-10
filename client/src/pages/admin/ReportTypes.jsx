@@ -3,6 +3,7 @@ import { Plus, Edit2, Trash2, ToggleLeft, ToggleRight, Save, X } from "lucide-re
 import { getAllReportTypes, createReportType, updateReportType, deleteReportType } from "../../services/reportTypeService";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import Loader from "../../components/common/Loader";
+import Pagination from "../../components/common/Pagination";
 import Modal from "../../components/common/Modal";
 
 const FIELD_TYPES = ["text", "textarea", "number", "date", "time", "select", "checkbox", "radio"];
@@ -12,6 +13,9 @@ const emptyField = { label: "", fieldName: "", fieldType: "text", required: fals
 const ReportTypes = () => {
   const { toasts, toast, removeToast } = useToast();
   const [types, setTypes] = useState([]);
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 15;
+  const paginatedTypes = types.slice((page-1)*PER_PAGE, page*PER_PAGE);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -132,6 +136,9 @@ const ReportTypes = () => {
           </div>
         </div>
       </Modal>
+      <div className="px-4 pb-2">
+        <Pagination page={page} totalPages={Math.ceil(types.length/PER_PAGE)} totalItems={types.length} perPage={PER_PAGE} label="report types" onPage={setPage} />
+      </div>
     </div>
   );
 };
