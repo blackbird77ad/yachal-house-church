@@ -14,6 +14,30 @@ const InstallPrompt = () => {
     // Already dismissed
     if (localStorage.getItem("yahal_install_dismissed")) return;
 
+    // Wait for tour to be dismissed first - check every second
+    const waitForTour = setInterval(() => {
+      // Read role from stored user
+      let role = "worker";
+      try {
+        const stored = localStorage.getItem("yahal_user");
+        if (stored) role = JSON.parse(stored)?.role || "worker";
+      } catch {}
+      const tourDone = localStorage.getItem(`yahal_tour_done_${role}`);
+      if (tourDone) {
+        clearInterval(waitForTour);
+        // Show install prompt 5 seconds after tour is done
+        setTimeout(() => setShow(true), 5000);
+      }
+    }, 1000);
+
+    // Fallback - show after 60s regardless
+    const fallback = setTimeout(() => {
+      clearInterval(waitForTour);
+      setShow(true);
+    }, 60000);
+
+    return () => { clearInterval(waitForTour); clearTimeout(fallback); };
+
     const ua = navigator.userAgent.toLowerCase();
     const isIOS = /iphone|ipad|ipod/.test(ua);
     const isAndroid = /android/.test(ua);
@@ -29,9 +53,7 @@ const InstallPrompt = () => {
       setDeferredPrompt(e);
     });
 
-    // Show after 3 seconds
-    const t = setTimeout(() => setShow(true), 3000);
-    return () => clearTimeout(t);
+    // timing handled above
   }, []);
 
   const dismiss = () => {

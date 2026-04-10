@@ -204,6 +204,13 @@ export const closeSession = async (req, res, next) => {
     session.closedBy = force ? "force" : "manual";
     session.closeReason = closeReason || null;
     session.stats = stats;
+
+    // If session has no supervisor (old data), set the closing user
+    if (!session.primarySupervisor) {
+      session.primarySupervisor = req.user._id;
+      session.supervisorCheckInTime = session.createdAt || new Date();
+    }
+
     await session.save();
 
     await sendReportToAdmins(session, stats, false);

@@ -8,7 +8,7 @@ const frontDeskSessionSchema = new mongoose.Schema({
   autoCloseTime:      { type: Date, required: true }, // serviceStartTime + 4 hours
 
   // Supervisors
-  primarySupervisor:  { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  primarySupervisor:  { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   supervisorCheckInTime: { type: Date },
   coSupervisors:      [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 
