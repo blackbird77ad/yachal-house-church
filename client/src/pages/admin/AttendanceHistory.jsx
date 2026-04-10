@@ -102,20 +102,29 @@ const AttendanceHistory = () => {
       </div>
 
       {/* Filters */}
-      <div className="card p-4 flex flex-col sm:flex-row gap-3">
-        <select className="input-field sm:w-44" value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)}>
-          {SERVICE_TYPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-        </select>
-        <div className="flex gap-2 flex-1">
-          <div className="flex-1">
-            <input type="date" className="input-field" placeholder="From" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+      <div className="card p-4 space-y-3">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="sm:w-44">
+            <label className="form-label">Service Type</label>
+            <select className="input-field" value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)}>
+              {SERVICE_TYPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
           </div>
-          <div className="flex-1">
-            <input type="date" className="input-field" placeholder="To" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          <div className="flex-1 grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label">From Date</label>
+              <input type="date" className="input-field" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            </div>
+            <div>
+              <label className="form-label">To Date</label>
+              <input type="date" className="input-field" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            </div>
           </div>
         </div>
         {(dateFrom || dateTo) && (
-          <button onClick={() => { setDateFrom(""); setDateTo(""); }} className="btn-ghost text-sm whitespace-nowrap">Clear</button>
+          <button onClick={() => { setDateFrom(""); setDateTo(""); }} className="btn-ghost text-sm">
+            Clear date filter
+          </button>
         )}
       </div>
 

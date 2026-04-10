@@ -22,6 +22,7 @@ import RosterBuilder from "../pages/admin/RosterBuilder";
 import AttendanceHistory from "../pages/admin/AttendanceHistory";
 import NotFound from "../pages/NotFound";
 import TourGuide from "../components/common/TourGuide";
+import { RouteError } from "../components/common/ErrorBoundary";
 import SupportFooter from "../components/common/SupportFooter";
 import ProtectedRoute from "../components/common/ProtectedRoute";
 import RoleGuard from "../components/common/RoleGuard";
@@ -43,7 +44,9 @@ const PrivateLayout = () => (
   </div>
 );
 
-const router = createBrowserRouter([
+const router = createBrowserRouter([{
+  errorElement: <RouteError />,
+  children: [
   {
     element: <AuthLayout />,
     children: [
@@ -81,7 +84,7 @@ const router = createBrowserRouter([
   },
   { path: "/", element: <Navigate to="/login" replace /> },
   { path: "*", element: <NotFound /> },
-]);
+]}]);
 
 const AppRouter = () => <RouterProvider router={router} />;
 export default AppRouter;
