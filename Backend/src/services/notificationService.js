@@ -13,7 +13,6 @@ export const createNotification = async (userId, { type, title, message, link, s
       isRead: false,
     });
   } catch (err) {
-    console.error("createNotification error:", err.message);
   }
 };
 
@@ -30,6 +29,41 @@ export const createBulkNotification = async (userIds, { type, title, message, li
     }));
     return await Notification.insertMany(docs, { ordered: false });
   } catch (err) {
-    console.error("createBulkNotification error:", err.message);
+  }
+};
+
+export const getUnreadCount = async (userId) => {
+  try {
+    return await Notification.countDocuments({ recipient: userId, isRead: false });
+  } catch (err) {
+    return 0;
+  }
+};
+
+export const markAsRead = async (notificationId, userId) => {
+  try {
+    return await Notification.findOneAndUpdate(
+      { _id: notificationId, recipient: userId },
+      { isRead: true, readAt: new Date() },
+      { new: true }
+    );
+  } catch (err) {
+  }
+};
+
+export const markAllAsRead = async (userId) => {
+  try {
+    return await Notification.updateMany(
+      { recipient: userId, isRead: false },
+      { isRead: true, readAt: new Date() }
+    );
+  } catch (err) {
+  }
+};
+
+export const deleteNotification = async (notificationId, userId) => {
+  try {
+    return await Notification.findOneAndDelete({ _id: notificationId, recipient: userId });
+  } catch (err) {
   }
 };

@@ -18,7 +18,8 @@
     "mongoose": "^8.4.1",
     "node-cron": "^3.0.3",
     "resend": "^3.2.0",
-    "uuid": "^10.0.0"
+    "uuid": "^10.0.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "nodemon": "^3.1.3"

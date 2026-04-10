@@ -5,6 +5,7 @@ import { processWeeklyMetrics } from "./metricsService.js";
 import { sendPortalOpenEmail, sendPortalClosingEmail, sendQualificationResultsEmail } from "./emailService.js";
 import { createBulkNotification } from "./notificationService.js";
 import User from "../models/userModel.js";
+import { sendPushToMany } from "./pushService.js";
 
 const getThisWeekMonday = () => {
   const now = new Date();
@@ -50,6 +51,11 @@ const openPortal = async () => {
       link: "/portal/submit-report",
     });
     await sendPortalOpenEmail(workers);
+    await sendPushToMany(workers.map((w) => w._id), {
+      title: "Portal is now open",
+      body: "Submit your weekly report before Monday 2:59pm.",
+      url: "/portal/submit-report",
+    });
     console.log("Scheduler: Portal opened for week of", weekReference.toDateString());
   } catch (err) { console.error("Scheduler openPortal error:", err.message); }
 };
@@ -65,6 +71,11 @@ const sendClosingReminder = async () => {
       link: "/portal/submit-report",
     });
     await sendPortalClosingEmail(workers);
+    await sendPushToMany(workers.map((w) => w._id), {
+      title: "Portal closes in 3 hours",
+      body: "Submit your report now. Portal closes at 2:59pm today.",
+      url: "/portal/submit-report",
+    });
     console.log("Scheduler: Monday 12pm closing reminder sent");
   } catch (err) { console.error("Scheduler closingReminder error:", err.message); }
 };

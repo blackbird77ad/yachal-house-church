@@ -15,6 +15,7 @@ import attendanceRoute from "./routes/attendanceRoute.js";
 import rosterRoute from "./routes/rosterRoute.js";
 import mediaRoute from "./routes/mediaRoute.js";
 import serviceTimeRoute from "./routes/serviceTimeRoute.js";
+import pushRoute from "./routes/pushRoute.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
 const app = express();
@@ -26,23 +27,18 @@ const allowedOrigins = [
   "https://www.yachalhousegh.com",
   "https://yachal-house-church.pages.dev",
   ...(env.clientUrl ? [env.clientUrl] : []),
-];  
+];
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, curl)
     if (!origin) return callback(null, true);
-
     if (allowedOrigins.includes(origin)) return callback(null, true);
-
-    // In development allow localhost
     if (
       origin.startsWith("http://localhost") ||
       origin.startsWith("http://127.0.0.1")
     ) {
       return callback(null, true);
     }
-
     return callback(new Error(`CORS blocked: ${origin}`));
   },
   credentials: true,
@@ -51,8 +47,6 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-
-// Handle preflight requests for all routes
 app.options("/{*any}", cors(corsOptions));
 
 app.use(express.json());
@@ -66,18 +60,19 @@ const limiter = rateLimit({
 
 app.use("/api", limiter);
 
-app.use("/api/auth", authRoute);
-app.use("/api/reports", reportRoute);
-app.use("/api/workers", workerRoute);
-app.use("/api/admin", adminRoute);
-app.use("/api/metrics", metricsRoute);
+app.use("/api/auth",          authRoute);
+app.use("/api/reports",       reportRoute);
+app.use("/api/workers",       workerRoute);
+app.use("/api/admin",         adminRoute);
+app.use("/api/metrics",       metricsRoute);
 app.use("/api/notifications", notificationRoute);
-app.use("/api/report-types", reportTypeRoute);
-app.use("/api/portal", portalRoute);
-app.use("/api/attendance", attendanceRoute);
-app.use("/api/roster", rosterRoute);
-app.use("/api/media", mediaRoute);
+app.use("/api/report-types",  reportTypeRoute);
+app.use("/api/portal",        portalRoute);
+app.use("/api/attendance",    attendanceRoute);
+app.use("/api/roster",        rosterRoute);
+app.use("/api/media",         mediaRoute);
 app.use("/api/service-times", serviceTimeRoute);
+app.use("/api/push",          pushRoute);
 
 app.get("/api/health", (req, res) => {
   res.status(200).json({
