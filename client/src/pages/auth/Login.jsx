@@ -175,17 +175,7 @@ const Login = () => {
         )}
       </div>
 
-      <p className="mt-10 text-xs text-gray-300 dark:text-slate-700">
-        Built by{" "}
-        <a
-          href="https://thebrandhelper.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:text-gray-400 dark:hover:text-slate-500 transition-colors"
-        >
-          thebrandhelper.com
-        </a>
-      </p>
+    
     </div>
   );
 };
