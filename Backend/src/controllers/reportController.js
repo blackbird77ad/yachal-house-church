@@ -90,7 +90,67 @@ export const submitReport = async (req, res, next) => {
     }
 
     if (reportData.evangelismData?.souls) {
-      reportData.evangelismData.totalSouls = reportData.evangelismData.souls.length;
+      const souls = reportData.evangelismData.souls;
+      reportData.evangelismData.totalSouls = souls.length;
+      // Only souls aged 12+ count toward qualification
+      reportData.evangelismData.qualifyingSouls = souls.filter(
+        (s) => !s.age || s.age >= 12
+      ).length;
+
+      // Church attendees - only 12+ count toward the 4-person requirement
+      if (reportData.churchAttendees) {
+        reportData.churchAttendees = reportData.churchAttendees.map((a) => ({
+          ...a,
+          countsForQualification: !a.age || a.age >= 12,
+        }));
+      }
+
+      // Partner duplicate check - if partners listed, check if any soul
+      // (matched by fullName + phone + status) was already submitted by a partner
+      const partners = reportData.evangelismData?.evangelismPartners || [];
+      if (partners.length > 0 && souls.length > 0) {
+        // Find reports submitted by workers whose names match the listed partners
+        const partnerReports = await Report.find({
+          reportType: "evangelism",
+          weekReference,
+          status: "submitted",
+          submittedBy: { $ne: req.user._id },
+        }).populate("submittedBy", "fullName");
+
+        // Filter to only reports from listed partners
+        const partnerSubmissions = partnerReports.filter((r) =>
+          partners.some((p) =>
+            r.submittedBy?.fullName?.toLowerCase().includes(p.toLowerCase().trim())
+          )
+        );
+
+        if (partnerSubmissions.length > 0) {
+          const duplicates = [];
+          for (const soul of souls) {
+            for (const pr of partnerSubmissions) {
+              const alreadyClaimed = pr.evangelismData?.souls?.some(
+                (ps) =>
+                  ps.fullName?.toLowerCase().trim() === soul.fullName?.toLowerCase().trim() &&
+                  ps.status === soul.status &&
+                  ps.phone && soul.phone &&
+                  ps.phone.replace(/\s+/g, "") === soul.phone.replace(/\s+/g, "")
+              );
+              if (alreadyClaimed) {
+                duplicates.push({
+                  soul: soul.fullName,
+                  claimedBy: pr.submittedBy?.fullName,
+                });
+              }
+            }
+          }
+          if (duplicates.length > 0) {
+            return res.status(400).json({
+              message: `${duplicates.length} person(s) in your report have already been submitted by your evangelism partner(s). Each person can only be claimed by one partner. Please remove them from your report.`,
+              duplicates,
+            });
+          }
+        }
+      }
     }
 
     let report = await Report.findOne({

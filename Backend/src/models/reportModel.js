@@ -3,22 +3,24 @@ import mongoose from "mongoose";
 const soulSchema = new mongoose.Schema(
   {
     fullName: { type: String, required: true, trim: true },
+    age:      { type: Number },  // must be 12+ to count toward qualification
     status: {
       type: String,
       enum: ["saved", "filled", "saved-not-filled", "already-saved", "already-saved-not-filled"],
       required: true,
     },
     location: { type: String, trim: true },
-    phone: { type: String, trim: true },
+    phone:    { type: String, trim: true },
   },
   { _id: false }
 );
 
 const churchAttendeeSchema = new mongoose.Schema(
   {
-    fullName: { type: String, required: true, trim: true },
+    fullName:        { type: String, required: true, trim: true },
+    age:             { type: Number },  // must be 12+ to count toward qualification
     attendedTuesday: { type: Boolean, default: false },
-    attendedSunday: { type: Boolean, default: false },
+    attendedSunday:  { type: Boolean, default: false },
     attendedSpecial: { type: Boolean, default: false },
   },
   { _id: false }
@@ -102,9 +104,11 @@ const reportSchema = new mongoose.Schema(
     },
 
     evangelismData: {
-      souls: [soulSchema],
-      scriptures: [{ type: String }],
-      totalSouls: { type: Number, default: 0 },
+      souls:              [soulSchema],
+      scriptures:         [{ type: String }],
+      totalSouls:         { type: Number, default: 0 },
+      qualifyingSouls:    { type: Number, default: 0 }, // souls aged 12+
+      evangelismPartners: [{ type: String, trim: true }], // partner names for this week
     },
 
     followUpData: {

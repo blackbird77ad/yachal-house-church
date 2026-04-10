@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect } from "react";
-import { Save, Send, Copy, CheckCircle, ChevronDown, ChevronUp, X, Users, UserPlus, Calendar, MapPin, Clock, AlertCircle } from "lucide-react";
+import { Save, Send, Copy, CheckCircle, ChevronDown, ChevronUp, X, Users, UserPlus, Calendar, MapPin, Clock, AlertCircle, Plus } from "lucide-react";
 import axiosInstance from "../../utils/axiosInstance";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import Loader from "../../components/common/Loader";
@@ -43,6 +43,14 @@ const RosterBuilder = () => {
   const [workerModal, setWorkerModal] = useState(null);
   const [modalPage, setModalPage] = useState(1);
   const MODAL_PER_PAGE = 10;
+  const [customDepts, setCustomDepts] = useState([]);
+  const [showAddDept, setShowAddDept] = useState(false);
+  const [newDeptName, setNewDeptName] = useState("");
+
+  const allDepartments = [
+    ...DEPARTMENTS,
+    ...customDepts,
+  ];
   const [workerSearch, setWorkerSearch] = useState("");
   const [whatsappText, setWhatsappText] = useState("");
   const [showWhatsapp, setShowWhatsapp] = useState(false);
@@ -107,8 +115,24 @@ const RosterBuilder = () => {
     specialServiceName: specialName,
     specialLocation,
     notes,
-    slots: DEPARTMENTS.map((d) => ({ department: d.value, assignments: slots[d.value]?.assignments || [] })).filter((s) => s.assignments.length > 0),
+    slots: allDepartments.map((d) => ({ department: d.value, assignments: slots[d.value]?.assignments || [] })).filter((s) => s.assignments.length > 0),
   });
+
+  const handleAddDept = () => {
+    const name = newDeptName.trim();
+    if (!name) return;
+    const value = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    if (allDepartments.some((d) => d.value === value)) {
+      toast.warning("Already exists", "A department with that name already exists.");
+      return;
+    }
+    const newDept = { value, label: name };
+    setCustomDepts((prev) => [...prev, newDept]);
+    setSlots((prev) => ({ ...prev, [value]: { assignments: [] } }));
+    setShowAddDept(false);
+    setNewDeptName("");
+    toast.success("Added", `"${name}" department added to this roster.`);
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -259,7 +283,7 @@ const RosterBuilder = () => {
 
       {/* Department slots */}
       <div className="space-y-3">
-        {DEPARTMENTS.map((dept) => {
+        {allDepartments.map((dept) => {
           const assigned = slots[dept.value]?.assignments || [];
           const isExpanded = expanded[dept.value];
 

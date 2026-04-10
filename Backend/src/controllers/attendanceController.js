@@ -1,347 +1,238 @@
-import Attendance from "../models/attendanceModel.js";
-import FrontDeskSession from "../models/frontDeskSessionModel.js";
+import Report from "../models/reportModel.js";
+import Metrics from "../models/metricsModel.js";
 import User from "../models/userModel.js";
-import { sendFrontDeskReportEmail } from "../services/emailService.js";
-import { createBulkNotification } from "../services/notificationService.js";
-import { sendPushToMany } from "../services/pushService.js";
 
-// ── Timing helper ─────────────────────────────────────────────────────────────
-const getTimingCategory = (checkInTime, serviceStartTime) => {
-  const diffMs = new Date(serviceStartTime) - new Date(checkInTime);
-  const diffMins = Math.round(diffMs / 60000);
-  if (diffMins >= 60)  return { category: "early-60plus",   minutesBefore: diffMins };
-  if (diffMins >= 30)  return { category: "early-30to60",   minutesBefore: diffMins };
-  if (diffMins >= 15)  return { category: "early-15to30",   minutesBefore: diffMins };
-  if (diffMins >= 0)   return { category: "early-0to15",    minutesBefore: diffMins };
-  return                      { category: "late",            minutesBefore: diffMins };
+const CRITERIA = {
+  MIN_SOULS:            4,   // must be aged 12+
+  MIN_FELLOWSHIP_HOURS: 2,
+  MIN_CELL_HOURS:       2,
+  MIN_ATTENDANCE:       4,
 };
 
-// ── Compute and save session stats ────────────────────────────────────────────
-const computeStats = async (sessionId) => {
-  const records = await Attendance.find({ session: sessionId });
-  const stats = {
-    totalCheckedIn: records.length,
-    early60Plus:    records.filter((r) => r.timingCategory === "early-60plus").length,
-    early30to60:    records.filter((r) => r.timingCategory === "early-30to60").length,
-    early15to30:    records.filter((r) => r.timingCategory === "early-15to30").length,
-    early0to15:     records.filter((r) => r.timingCategory === "early-0to15").length,
-    late:           records.filter((r) => r.timingCategory === "late").length,
-    onDuty:         records.filter((r) => r.isOnDuty).length,
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const getWeekRef = (date = new Date()) => {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(d.setDate(diff));
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+};
+
+// Count souls aged 12+ from evangelism data
+const countQualifyingSouls = (evangelismData) => {
+  if (!evangelismData?.souls?.length) return 0;
+  return evangelismData.souls.filter(
+    (s) => !s.age || s.age >= 12
+  ).length;
+};
+
+// Count church attendees aged 12+ across all services
+const countQualifyingAttendees = (churchAttendees) => {
+  if (!churchAttendees?.length) return 0;
+  return churchAttendees.filter((a) => !a.age || a.age >= 12).length;
+};
+
+// Count attendance from front-desk verified records + church attendees
+const countServiceAttendance = (report) => {
+  let count = 0;
+
+  // Service attendance from attendance records
+  if (report.serviceAttendance?.length) {
+    count += report.serviceAttendance.filter((s) => s.attended).length;
+  }
+
+  // Church attendees (people brought to church) aged 12+ per service
+  if (report.churchAttendees?.length) {
+    const qualifying = report.churchAttendees.filter((a) => !a.age || a.age >= 12);
+    qualifying.forEach((a) => {
+      if (a.attendedTuesday) count++;
+      if (a.attendedSunday) count++;
+      if (a.attendedSpecial) count++;
+    });
+  }
+
+  return count;
+};
+
+// Compute fellowship hours from fellowshipPrayerData
+const getFellowshipHours = (report) => {
+  if (!report.fellowshipPrayerData?.duration) return 0;
+  return report.fellowshipPrayerData.duration / 60; // duration stored in minutes
+};
+
+// Compute cell hours from cellData
+const getCellHours = (report) => {
+  if (!report.cellData?.didAttend) return 0;
+  // Cell meeting assumed 2 hours if attended - adjust if you store duration
+  return 2;
+};
+
+// ── Core processing ───────────────────────────────────────────────────────────
+export const processWeeklyMetrics = async (weekReference) => {
+  const week = weekReference instanceof Date ? weekReference : new Date(weekReference);
+
+  const reports = await Report.find({
+    weekReference: week,
+    status: "submitted",
+    isLateSubmission: false,
+  }).populate("submittedBy", "fullName workerId department _id");
+
+  // Group by worker
+  const byWorker = {};
+  for (const report of reports) {
+    if (!report.submittedBy) continue;
+    const wId = report.submittedBy._id.toString();
+    if (!byWorker[wId]) {
+      byWorker[wId] = { worker: report.submittedBy, reports: [] };
+    }
+    byWorker[wId].reports.push(report);
+  }
+
+  for (const [workerId, { worker, reports: workerReports }] of Object.entries(byWorker)) {
+    // Skip pastor (001)
+    if (worker.workerId === "001") continue;
+
+    let totalSouls = 0;
+    let qualifyingSouls = 0;
+    let fellowshipHours = 0;
+    let cellHours = 0;
+    let serviceAttendance = 0;
+    let reportSubmitted = true;
+
+    for (const r of workerReports) {
+      if (r.reportType === "evangelism") {
+        totalSouls += r.evangelismData?.souls?.length || 0;
+        qualifyingSouls += countQualifyingSouls(r.evangelismData);
+        serviceAttendance += countServiceAttendance(r);
+      }
+      if (r.reportType === "fellowship-prayer") {
+        fellowshipHours += getFellowshipHours(r);
+      }
+      if (r.reportType === "cell") {
+        cellHours += getCellHours(r);
+      }
+    }
+
+    const soulsQualified = qualifyingSouls >= CRITERIA.MIN_SOULS;
+    const fellowshipQualified = fellowshipHours >= CRITERIA.MIN_FELLOWSHIP_HOURS;
+    const cellQualified = cellHours >= CRITERIA.MIN_CELL_HOURS;
+    const attendanceQualified = serviceAttendance >= CRITERIA.MIN_ATTENDANCE;
+    const reportQualified = reportSubmitted;
+
+    const qualificationBreakdown = {
+      soulsQualified,
+      fellowshipQualified,
+      cellQualified,
+      attendanceQualified,
+      reportQualified,
+    };
+
+    const isQualified =
+      soulsQualified &&
+      fellowshipQualified &&
+      cellQualified &&
+      attendanceQualified &&
+      reportQualified;
+
+    const passedCount = Object.values(qualificationBreakdown).filter(Boolean).length;
+    const totalScore = Math.round((passedCount / 5) * 100);
+
+    await Metrics.findOneAndUpdate(
+      { worker: worker._id, weekReference: week, isLateSubmission: false },
+      {
+        worker: worker._id,
+        weekReference: week,
+        isLateSubmission: false,
+        totalSouls,
+        qualifyingSouls,
+        fellowshipHours,
+        cellHours,
+        serviceAttendance,
+        isQualified,
+        qualificationBreakdown,
+        totalScore,
+        reportSubmitted,
+      },
+      { upsert: true, new: true }
+    );
+
+    // Update worker's isQualified flag
+    await User.findByIdAndUpdate(worker._id, { isQualified, score: totalScore });
+  }
+};
+
+// Process late submission metrics for a single worker
+export const processLateMetrics = async (userId, weekReference) => {
+  const week = weekReference instanceof Date ? weekReference : new Date(weekReference);
+
+  const reports = await Report.find({
+    submittedBy: userId,
+    weekReference: week,
+    status: "submitted",
+    isLateSubmission: true,
+  });
+
+  if (!reports.length) return;
+
+  const worker = await User.findById(userId).select("fullName workerId department");
+  if (!worker || worker.workerId === "001") return;
+
+  let totalSouls = 0;
+  let qualifyingSouls = 0;
+  let fellowshipHours = 0;
+  let cellHours = 0;
+  let serviceAttendance = 0;
+
+  for (const r of reports) {
+    if (r.reportType === "evangelism") {
+      totalSouls += r.evangelismData?.souls?.length || 0;
+      qualifyingSouls += countQualifyingSouls(r.evangelismData);
+      serviceAttendance += countServiceAttendance(r);
+    }
+    if (r.reportType === "fellowship-prayer") {
+      fellowshipHours += getFellowshipHours(r);
+    }
+    if (r.reportType === "cell") {
+      cellHours += getCellHours(r);
+    }
+  }
+
+  const qualificationBreakdown = {
+    soulsQualified: qualifyingSouls >= CRITERIA.MIN_SOULS,
+    fellowshipQualified: fellowshipHours >= CRITERIA.MIN_FELLOWSHIP_HOURS,
+    cellQualified: cellHours >= CRITERIA.MIN_CELL_HOURS,
+    attendanceQualified: serviceAttendance >= CRITERIA.MIN_ATTENDANCE,
+    reportQualified: true,
   };
-  return stats;
+
+  const isQualified = Object.values(qualificationBreakdown).every(Boolean);
+  const passedCount = Object.values(qualificationBreakdown).filter(Boolean).length;
+  const totalScore = Math.round((passedCount / 5) * 100);
+
+  await Metrics.findOneAndUpdate(
+    { worker: userId, weekReference: week, isLateSubmission: true },
+    {
+      worker: userId,
+      weekReference: week,
+      isLateSubmission: true,
+      totalSouls,
+      qualifyingSouls,
+      fellowshipHours,
+      cellHours,
+      serviceAttendance,
+      isQualified,
+      qualificationBreakdown,
+      totalScore,
+      reportSubmitted: true,
+    },
+    { upsert: true, new: true }
+  );
 };
 
-// ── Create session ────────────────────────────────────────────────────────────
-export const createSession = async (req, res, next) => {
-  try {
-    const { serviceType, specialServiceName, serviceDate, serviceStartTime, coSupervisorId } = req.body;
-
-    const start = new Date(serviceStartTime);
-    const autoClose = new Date(start.getTime() + 4 * 60 * 60 * 1000); // 4 hours
-
-    // Close any previously open session
-    await FrontDeskSession.updateMany({ isOpen: true }, { isOpen: false, closedAt: new Date(), closedBy: "auto" });
-
-    const { isDeputy, deputyFor } = req.body;
-
-    const session = await FrontDeskSession.create({
-      serviceType,
-      specialServiceName: specialServiceName || "",
-      serviceDate: new Date(serviceDate),
-      serviceStartTime: start,
-      autoCloseTime: autoClose,
-      primarySupervisor: req.user._id,
-      supervisorCheckInTime: new Date(),
-      coSupervisors: coSupervisorId ? [coSupervisorId] : [],
-      isOpen: true,
-      isDeputy: isDeputy || false,
-      deputyFor: deputyFor || null,
-    });
-
-    // If deputy, notify admins immediately
-    if (isDeputy && deputyFor) {
-      try {
-        const admins = await User.find({
-          status: "approved",
-          role: { $in: ["pastor", "admin", "moderator"] },
-        }).select("_id email fullName");
-
-        await createBulkNotification(admins.map((a) => a._id), {
-          type: "general",
-          title: "Deputy front desk duty",
-          message: `${req.user.fullName} (${req.user.workerId}) is covering front desk duty for ${deputyFor} who could not attend.`,
-          link: "/admin/attendance",
-        });
-      } catch {}
-    }
-
-    // Auto check-in the supervisor
-    const { category, minutesBefore } = getTimingCategory(new Date(), start);
-    await Attendance.create({
-      worker: req.user._id,
-      session: session._id,
-      serviceType,
-      serviceDate: new Date(serviceDate),
-      checkInTime: new Date(),
-      timingCategory: category,
-      minutesBeforeService: minutesBefore,
-      isOnDuty: true,
-      verifiedByFrontDesk: true,
-      loggedBy: req.user._id,
-    });
-
-    res.status(201).json({ message: "Front desk session opened.", session });
-  } catch (error) { next(error); }
-};
-
-// ── Check in a worker ─────────────────────────────────────────────────────────
-export const checkInWorker = async (req, res, next) => {
-  try {
-    const { identifier, sessionId, isOnDuty, notes } = req.body;
-
-    const session = await FrontDeskSession.findById(sessionId);
-    if (!session || !session.isOpen) {
-      return res.status(400).json({ message: "Front desk session is not open." });
-    }
-
-    // Find by workerId or name
-    const isId = /^\d+$/.test(identifier?.trim());
-    const worker = isId
-      ? await User.findOne({ workerId: identifier.trim(), status: "approved" })
-      : await User.findOne({
-          fullName: { $regex: identifier.trim(), $options: "i" },
-          status: "approved",
-        });
-
-    if (!worker) {
-      return res.status(404).json({ message: "No approved worker found. Check the ID or name." });
-    }
-
-    const existing = await Attendance.findOne({ worker: worker._id, session: sessionId });
-    if (existing) {
-      return res.status(400).json({
-        message: `${worker.fullName} is already checked in at ${new Date(existing.checkInTime).toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit" })}.`,
-        alreadyCheckedIn: true,
-        worker: { fullName: worker.fullName, workerId: worker.workerId },
-      });
-    }
-
-    const now = new Date();
-    const { category, minutesBefore } = getTimingCategory(now, session.serviceStartTime);
-
-    const attendance = await Attendance.create({
-      worker: worker._id,
-      session: sessionId,
-      serviceType: session.serviceType,
-      serviceDate: session.serviceDate,
-      checkInTime: now,
-      timingCategory: category,
-      minutesBeforeService: minutesBefore,
-      isOnDuty: isOnDuty || false,
-      verifiedByFrontDesk: true,
-      loggedBy: req.user._id,
-      notes: notes || "",
-    });
-
-    const timeStr = now.toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit" });
-    const timingMsg =
-      category === "late"
-        ? `Late by ${Math.abs(minutesBefore)} min`
-        : `${minutesBefore} min before service`;
-
-    res.status(201).json({
-      message: `${worker.fullName} checked in at ${timeStr} (${timingMsg}).`,
-      worker: { fullName: worker.fullName, workerId: worker.workerId, department: worker.department },
-      attendance,
-      timingCategory: category,
-    });
-  } catch (error) { next(error); }
-};
-
-// ── Get active session ────────────────────────────────────────────────────────
-export const getActiveSession = async (req, res, next) => {
-  try {
-    const session = await FrontDeskSession.findOne({ isOpen: true })
-      .populate("primarySupervisor", "fullName workerId")
-      .populate("coSupervisors", "fullName workerId")
-      .sort({ createdAt: -1 });
-
-    res.status(200).json({ session: session || null });
-  } catch (error) { next(error); }
-};
-
-// ── Get session attendance list ───────────────────────────────────────────────
-export const getSessionAttendance = async (req, res, next) => {
-  try {
-    const attendance = await Attendance.find({ session: req.params.sessionId })
-      .populate("worker", "fullName workerId department")
-      .populate("loggedBy", "fullName")
-      .sort({ checkInTime: 1 });
-
-    res.status(200).json({ attendance });
-  } catch (error) { next(error); }
-};
-
-// ── Get attendance history ────────────────────────────────────────────────────
-export const getAttendanceHistory = async (req, res, next) => {
-  try {
-    const { limit = 15, page = 1, dateFrom, dateTo } = req.query;
-    const filter = {};
-    if (dateFrom || dateTo) {
-      filter.serviceDate = {};
-      if (dateFrom) filter.serviceDate.$gte = new Date(dateFrom);
-      if (dateTo)   filter.serviceDate.$lte = new Date(dateTo);
-    }
-
-    const skip = (Number(page) - 1) * Number(limit);
-    const [sessions, total] = await Promise.all([
-      FrontDeskSession.find(filter)
-        .populate("primarySupervisor", "fullName workerId")
-        .sort({ serviceDate: -1 })
-        .skip(skip)
-        .limit(Number(limit)),
-      FrontDeskSession.countDocuments(filter),
-    ]);
-
-    res.status(200).json({ sessions, total, page: Number(page), totalPages: Math.ceil(total / Number(limit)) });
-  } catch (error) { next(error); }
-};
-
-// ── Close session manually ────────────────────────────────────────────────────
-export const closeSession = async (req, res, next) => {
-  try {
-    const { force, closeReason } = req.body;
-    const isAdminLevel = ["pastor", "admin", "moderator"].includes(req.user?.role);
-
-    const session = await FrontDeskSession.findById(req.params.sessionId)
-      .populate("primarySupervisor", "fullName workerId email")
-      .populate("coSupervisors", "fullName workerId email");
-
-    if (!session) return res.status(404).json({ message: "Session not found." });
-
-    // If already closed
-    if (!session.isOpen) {
-      return res.status(400).json({ message: "This session is already closed." });
-    }
-
-    const stats = await computeStats(session._id);
-    session.isOpen = false;
-    session.closedAt = new Date();
-    session.closedBy = force ? "force" : "manual";
-    session.closeReason = closeReason || null;
-    session.stats = stats;
-
-    // If session has no supervisor (old data), set the closing user
-    if (!session.primarySupervisor) {
-      session.primarySupervisor = req.user._id;
-      session.supervisorCheckInTime = session.createdAt || new Date();
-    }
-
-    await session.save();
-
-    await sendReportToAdmins(session, stats, false);
-
-    res.status(200).json({ message: "Session closed. Report sent to admin team.", stats });
-  } catch (error) { next(error); }
-};
-
-// ── Auto close after 4 hours (called by scheduler) ───────────────────────────
-export const autoCloseExpiredSessions = async () => {
-  try {
-    const now = new Date();
-    const expiredSessions = await FrontDeskSession.find({
-      isOpen: true,
-      autoCloseTime: { $lte: now },
-    })
-      .populate("primarySupervisor", "fullName workerId email")
-      .populate("coSupervisors", "fullName workerId email");
-
-    for (const session of expiredSessions) {
-      const stats = await computeStats(session._id);
-      session.isOpen = false;
-      session.closedAt = now;
-      session.closedBy = "auto";
-      session.stats = stats;
-      await session.save();
-
-      await sendReportToAdmins(session, stats, true);
-    }
-
-    if (expiredSessions.length > 0) {
-      console.log(`Auto-closed ${expiredSessions.length} expired front desk session(s)`);
-    }
-  } catch (err) {
-    console.error("autoCloseExpiredSessions error:", err.message);
-  }
-};
-
-// ── Send report to admin/mod/pastor ──────────────────────────────────────────
-const sendReportToAdmins = async (session, stats, isAuto = false) => {
-  try {
-    const admins = await User.find({
-      status: "approved",
-      role: { $in: ["pastor", "admin", "moderator"] },
-    }).select("_id email fullName");
-
-    const attendance = await Attendance.find({ session: session._id })
-      .populate("worker", "fullName workerId department")
-      .sort({ checkInTime: 1 });
-
-    // Email
-    await sendFrontDeskReportEmail(admins, session, stats, attendance, isAuto);
-
-    // In-app notification
-    const serviceLabel = `${session.serviceType.charAt(0).toUpperCase() + session.serviceType.slice(1)} Service`;
-    const dateStr = new Date(session.serviceDate).toLocaleDateString("en-GH", { weekday: "long", day: "numeric", month: "long" });
-    await createBulkNotification(admins.map((a) => a._id), {
-      type: "general",
-      title: `Front Desk Report - ${serviceLabel}`,
-      message: `${dateStr}: ${stats.totalCheckedIn} workers checked in. ${stats.late} late. ${isAuto ? "Auto-closed after 4 hours." : ""}`,
-      link: "/admin/attendance",
-    });
-
-    // Push notification
-    await sendPushToMany(admins.map((a) => a._id), {
-      title: `Front Desk Report - ${serviceLabel}`,
-      body: `${stats.totalCheckedIn} workers checked in. ${stats.late} arrived late.`,
-      url: "/admin/attendance",
-    });
-  } catch (err) {
-    console.error("sendReportToAdmins error:", err.message);
-  }
-};
-
-// ── Get single session with full stats ───────────────────────────────────────
-export const getSessionReport = async (req, res, next) => {
-  try {
-    const session = await FrontDeskSession.findById(req.params.sessionId)
-      .populate("primarySupervisor", "fullName workerId department")
-      .populate("coSupervisors", "fullName workerId department");
-
-    if (!session) return res.status(404).json({ message: "Session not found." });
-
-    const attendance = await Attendance.find({ session: session._id })
-      .populate("worker", "fullName workerId department")
-      .populate("loggedBy", "fullName")
-      .sort({ checkInTime: 1 });
-
-    const stats = session.isOpen ? await computeStats(session._id) : session.stats;
-
-    res.status(200).json({ session, attendance, stats });
-  } catch (error) { next(error); }
-};
-
-// ── Search worker for check-in ───────────────────────────────────────────────
-export const searchWorkerForCheckIn = async (req, res, next) => {
-  try {
-    const { q } = req.query;
-    if (!q || q.length < 1) return res.status(200).json({ workers: [] });
-
-    const isId = /^\d+$/.test(q.trim());
-    const workers = isId
-      ? await User.find({ workerId: q.trim(), status: "approved" }).select("fullName workerId department").limit(5)
-      : await User.find({ fullName: { $regex: q.trim(), $options: "i" }, status: "approved" }).select("fullName workerId department").limit(8);
-
-    res.status(200).json({ workers });
-  } catch (error) { next(error); }
+export const getLateMetricsSummary = async (weekReference) => {
+  const week = weekReference instanceof Date ? weekReference : new Date(weekReference);
+  return Metrics.find({ weekReference: week, isLateSubmission: true })
+    .populate("worker", "fullName workerId department")
+    .sort({ totalScore: -1 });
 };
