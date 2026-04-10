@@ -1,8 +1,8 @@
 import { resendClient as resend } from "../config/resend.js";
 import { env } from "../config/env.js";
 
-const FROM = env.RESEND_FROM_EMAIL || "noreply@yachalhouse.com";
-const APP_URL = env.clientUrl || "https://yachal-house-church.pages.dev";
+const FROM = env.resendFromEmail || "noreply@yachalhouse.com";
+const APP_URL = env.clientUrl || "https://yachalhousegh.com";
 
 const send = async ({ to, subject, html }) => {
   try {

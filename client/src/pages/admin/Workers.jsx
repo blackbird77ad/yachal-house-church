@@ -192,7 +192,7 @@ const Workers = () => {
       w.fullName, w.email, password, w.workerId,
       (w.department || "").replace(/-/g, " "),
       w.role || "worker",
-      "https://yachal-house-church.pages.dev/login",
+      "https://yachalhousegh.com/login",
     ]));
     const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -413,7 +413,7 @@ const Workers = () => {
                 { label: "Full Name", value: createdWorker.fullName },
                 { label: "Email", value: createdWorker.email },
                 { label: "Password", value: createdWorker.password },
-                { label: "Login URL", value: "https://yachal-house-church.pages.dev/login" },
+                { label: "Login URL", value: "https://yachalhousegh.com/login" },
               ].map(({ label, value }) => (
                 <div key={label} className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
