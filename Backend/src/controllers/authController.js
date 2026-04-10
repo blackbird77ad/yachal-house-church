@@ -44,6 +44,26 @@ export const register = async (req, res, next) => {
       password: hashed, phone, status: "pending", role: "worker",
     });
 
+    // Notify all admin/mod/pastor of new registration
+    try {
+      const admins = await User.find({
+        status: "approved",
+        role: { $in: ["pastor", "admin", "moderator"] },
+      }).select("_id");
+
+      if (admins.length > 0) {
+        const { createBulkNotification } = await import("../services/notificationService.js");
+        await createBulkNotification(admins.map((a) => a._id), {
+          type: "general",
+          title: "New worker registration",
+          message: `${fullName} has registered and is awaiting approval.`,
+          link: "/admin/workers",
+        });
+      }
+    } catch (notifErr) {
+      console.error("Registration notification error:", notifErr.message);
+    }
+
     res.status(201).json({
       message: "Registration successful. Your account is pending approval.",
       user: { _id: user._id, fullName: user.fullName, email: user.email, status: user.status },
