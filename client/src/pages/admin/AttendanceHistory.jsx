@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Calendar, Users, Clock, ChevronDown, ChevronUp, Download, AlertCircle } from "lucide-react";
 import axiosInstance from "../../utils/axiosInstance";
+import { useAuth } from "../../hooks/useAuth";
 import Loader from "../../components/common/Loader";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import { cn } from "../../utils/scoreHelpers";
@@ -21,6 +22,8 @@ const SERVICE_TYPES = [
 ];
 
 const AttendanceHistory = () => {
+  const { user } = useAuth();
+  const isAdminLevel = ["pastor", "admin", "moderator"].includes(user?.role);
   const { toasts, toast, removeToast } = useToast();
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -32,6 +35,7 @@ const AttendanceHistory = () => {
   const [dateTo, setDateTo] = useState("");
 
   const fetchSessions = async () => {
+    if (!isAdminLevel) { setLoading(false); return; }
     setLoading(true);
     try {
       const params = new URLSearchParams({ limit: 50 });

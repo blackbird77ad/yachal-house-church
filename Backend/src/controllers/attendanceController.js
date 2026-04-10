@@ -184,20 +184,38 @@ export const getAttendanceHistory = async (req, res, next) => {
 // ── Close session manually ────────────────────────────────────────────────────
 export const closeSession = async (req, res, next) => {
   try {
+    const { force, closeReason } = req.body;
+    const isAdminLevel = ["pastor", "admin", "moderator"].includes(req.user?.role);
+
     const session = await FrontDeskSession.findById(req.params.sessionId)
       .populate("primarySupervisor", "fullName workerId email")
       .populate("coSupervisors", "fullName workerId email");
 
     if (!session) return res.status(404).json({ message: "Session not found." });
 
+    // If already closed
+    if (!session.isOpen) {
+      return res.status(400).json({ message: "This session is already closed." });
+    }
+
+    // Check permission: must be duty worker or admin/mod/pastor
+    const isDutyWorker =
+      session.primarySupervisor?._id?.toString() === req.user._id.toString() ||
+      session.coSupervisors?.some((c) => c._id?.toString() === req.user._id.toString());
+
+    if (!isDutyWorker && !isAdminLevel) {
+      return res.status(403).json({ message: "Only duty workers or admin can close this session." });
+    }
+
     const stats = await computeStats(session._id);
     session.isOpen = false;
     session.closedAt = new Date();
-    session.closedBy = "manual";
+    session.closedBy = force && isAdminLevel ? "force" : "manual";
+    session.closeReason = closeReason || null;
     session.stats = stats;
     await session.save();
 
-    await sendReportToAdmins(session, stats);
+    await sendReportToAdmins(session, stats, false, force && isAdminLevel);
 
     res.status(200).json({ message: "Session closed. Report sent to admin team.", stats });
   } catch (error) { next(error); }

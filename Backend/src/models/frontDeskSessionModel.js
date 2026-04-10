@@ -14,7 +14,8 @@ const frontDeskSessionSchema = new mongoose.Schema({
 
   isOpen:    { type: Boolean, default: true },
   closedAt:  { type: Date },
-  closedBy:  { type: String, enum: ["manual", "auto"], default: "manual" },
+  closedBy:  { type: String, enum: ["manual", "auto", "force"], default: "manual" },
+  closeReason: { type: String },  // reason given on force close
 
   // Computed stats (filled on close)
   stats: {

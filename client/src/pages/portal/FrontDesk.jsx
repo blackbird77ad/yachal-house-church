@@ -1,9 +1,5 @@
 ﻿import { useState, useEffect, useRef, useCallback } from "react";
-import {
-  Maximize2, Minimize2, UserCheck, Clock, Users,
-  CheckCircle, Search, LogOut, Shield, AlertCircle,
-  RefreshCw, Download, ChevronDown, ChevronUp
-} from "lucide-react";
+import { Maximize2, Minimize2, UserCheck, CheckCircle, Search, LogOut, Shield, RefreshCw, Download, AlertCircle, UserPlus } from "lucide-react";
 import axiosInstance from "../../utils/axiosInstance";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast, ToastContainer } from "../../components/common/Toast";
@@ -17,15 +13,6 @@ const TIMING_LABELS = {
   "late":         { label: "Late",             cls: "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border-red-200" },
 };
 
-// ── Steps ────────────────────────────────────────────────────────────────────
-// "checking"      - loading, checking active session & role
-// "unauthorized"  - not admin/mod/pastor and not in roster for front-desk
-// "auth-1"        - first person: enter Worker ID to confirm assignment
-// "auth-2"        - second person: enter their Worker ID
-// "setup"         - admin/mod/pastor sets service start/end time (first open)
-// "active"        - session open, full view or maximized check-in
-// "force-close"   - admin/mod/pastor can force close
-
 const INACTIVITY_MS = 3 * 60 * 60 * 1000; // 3 hours
 
 const FrontDesk = () => {
@@ -33,58 +20,51 @@ const FrontDesk = () => {
   const { toasts, toast, removeToast } = useToast();
   const isAdminLevel = ["pastor", "admin", "moderator"].includes(user?.role);
 
-  // ── Core state ─────────────────────────────────────────────────────────────
-  const [step, setStep]       = useState("checking");
+  const [step, setStep] = useState("checking");
+  // steps: checking | unauthorized | auth-self | confirm-partner | setup | active
+
   const [session, setSession] = useState(null);
   const [attendance, setAttendance] = useState([]);
-  const [dutyWorkers, setDutyWorkers] = useState([]); // the 2 on-duty workers
+  const [dutyWorkers, setDutyWorkers] = useState([]);
   const [maximized, setMaximized] = useState(false);
+  const [stats, setStats] = useState(null);
+  const [time, setTime] = useState(new Date());
 
-  // Auth step state
-  const [auth1Id, setAuth1Id]   = useState("");
-  const [auth1Worker, setAuth1Worker] = useState(null);
-  const [auth2Id, setAuth2Id]   = useState("");
-  const [auth2Worker, setAuth2Worker] = useState(null);
+  // Auth state
+  const [selfWorker, setSelfWorker] = useState(null);
+  const [partnerQuery, setPartnerQuery] = useState("");
+  const [partnerWorker, setPartnerWorker] = useState(null);
+  const [partnerArrived, setPartnerArrived] = useState(null); // true | false | null
   const [authError, setAuthError] = useState("");
   const [verifying, setVerifying] = useState(false);
+  const [hasPartner, setHasPartner] = useState(null); // true | false | null
 
   // Setup state
-  const [serviceType, setServiceType]   = useState("sunday");
-  const [serviceDate, setServiceDate]   = useState(new Date().toISOString().split("T")[0]);
+  const [serviceType, setServiceType] = useState("sunday");
+  const [serviceDate, setServiceDate] = useState(new Date().toISOString().split("T")[0]);
   const [serviceStart, setServiceStart] = useState("");
-  const [serviceEnd, setServiceEnd]     = useState("");
-  const [specialName, setSpecialName]   = useState("");
-  const [creating, setCreating]         = useState(false);
+  const [specialName, setSpecialName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [showForceClose, setShowForceClose] = useState(false);
+  const [forceReason, setForceReason] = useState("");
+  const [forceReasonOther, setForceReasonOther] = useState("");
 
   // Check-in state
-  const [query, setQuery]           = useState("");
+  const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState([]);
   const [checkingIn, setCheckingIn] = useState(false);
   const [lastCheckIn, setLastCheckIn] = useState(null);
   const inputRef = useRef(null);
-
-  // Stats
-  const [stats, setStats] = useState(null);
-  const [time, setTime]   = useState(new Date());
-
-  // Inactivity timer
   const inactivityRef = useRef(null);
 
-  // ── Clock ─────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const t = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
+  useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t); }, []);
 
-  // ── Reset inactivity timer ─────────────────────────────────────────────────
   const resetInactivity = useCallback(() => {
     if (inactivityRef.current) clearTimeout(inactivityRef.current);
-    if (step === "active" && !isAdminLevel) {
-      inactivityRef.current = setTimeout(() => {
-        handleAutoClose();
-      }, INACTIVITY_MS);
+    if (step === "active") {
+      inactivityRef.current = setTimeout(handleAutoClose, INACTIVITY_MS);
     }
-  }, [step, isAdminLevel]);
+  }, [step]);
 
   useEffect(() => {
     window.addEventListener("mousemove", resetInactivity);
@@ -97,10 +77,7 @@ const FrontDesk = () => {
     };
   }, [resetInactivity]);
 
-  // ── On mount: check active session ────────────────────────────────────────
-  useEffect(() => {
-    checkSession();
-  }, []);
+  useEffect(() => { checkSession(); }, []);
 
   const checkSession = async () => {
     try {
@@ -109,30 +86,18 @@ const FrontDesk = () => {
         setSession(data.session);
         await fetchAttendance(data.session._id);
         setStep("active");
-      } else {
-        // No active session - check authorization
-        if (isAdminLevel) {
-          setStep("auth-1"); // admin can open but still must confirm 2 duty workers
-        } else {
-          // Check if worker is assigned to front-desk in latest roster
-          try {
-            const { data: rosterData } = await axiosInstance.get("/roster/my-assignment");
-            const assignedToFrontDesk = rosterData.roster?.myAssignments?.some(
-              (a) => a.department === "front-desk"
-            );
-            if (assignedToFrontDesk) {
-              setStep("auth-1");
-            } else {
-              setStep("unauthorized");
-            }
-          } catch {
-            setStep("unauthorized");
-          }
-        }
+        return;
       }
-    } catch {
-      setStep("unauthorized");
-    }
+      // No active session - check if user can open one
+      if (isAdminLevel) { setStep("auth-self"); return; }
+      // Check roster assignment
+      try {
+        const { data: rd } = await axiosInstance.get("/roster/my-assignment");
+        const assigned = rd.roster?.myAssignments?.some((a) => a.department === "front-desk");
+        if (assigned) setStep("auth-self");
+        else setStep("unauthorized");
+      } catch { setStep("unauthorized"); }
+    } catch { setStep("unauthorized"); }
   };
 
   const fetchAttendance = async (sessionId) => {
@@ -140,160 +105,132 @@ const FrontDesk = () => {
       const { data } = await axiosInstance.get(`/attendance/session/${sessionId}`);
       const list = data.attendance || [];
       setAttendance(list);
-      computeStats(list);
       setDutyWorkers(list.filter((a) => a.isOnDuty));
+      setStats({
+        total:   list.length,
+        early60: list.filter((a) => a.timingCategory === "early-60plus").length,
+        early30: list.filter((a) => a.timingCategory === "early-30to60").length,
+        early15: list.filter((a) => a.timingCategory === "early-15to30").length,
+        early0:  list.filter((a) => a.timingCategory === "early-0to15").length,
+        late:    list.filter((a) => a.timingCategory === "late").length,
+        onDuty:  list.filter((a) => a.isOnDuty).length,
+      });
     } catch {}
   };
 
-  const computeStats = (list) => {
-    setStats({
-      total:    list.length,
-      early60:  list.filter((a) => a.timingCategory === "early-60plus").length,
-      early30:  list.filter((a) => a.timingCategory === "early-30to60").length,
-      early15:  list.filter((a) => a.timingCategory === "early-15to30").length,
-      early0:   list.filter((a) => a.timingCategory === "early-0to15").length,
-      late:     list.filter((a) => a.timingCategory === "late").length,
-      onDuty:   list.filter((a) => a.isOnDuty).length,
-    });
+  // Step: verify self
+  const handleVerifySelf = async () => {
+    if (!user?.workerId) { setAuthError("Could not find your Worker ID."); return; }
+    if (user.workerId === "001") { setAuthError("Worker ID 001 cannot operate the front desk."); return; }
+    setSelfWorker({ fullName: user.fullName, workerId: user.workerId, _id: user._id });
+    setStep("confirm-partner");
   };
 
-  // ── Auth step 1: verify first duty worker ────────────────────────────────
-  const handleAuth1 = async () => {
-    if (!auth1Id.trim()) return;
-    setVerifying(true);
-    setAuthError("");
+  // Step: confirm partner
+  const handlePartnerSearch = async () => {
+    if (!partnerQuery.trim()) return;
+    setVerifying(true); setAuthError("");
     try {
-      const { data } = await axiosInstance.get(`/attendance/search?q=${auth1Id.trim()}`);
-      const worker = data.workers?.[0];
-      if (!worker) { setAuthError("No worker found with that ID."); return; }
-      if (worker.workerId === "001") { setAuthError("Worker ID 001 cannot open the front desk."); return; }
-      setAuth1Worker(worker);
-      setStep("auth-2");
-    } catch { setAuthError("Could not verify ID. Try again."); }
+      const { data } = await axiosInstance.get(`/attendance/search?q=${partnerQuery.trim()}`);
+      const w = data.workers?.[0];
+      if (!w) { setAuthError("No worker found."); return; }
+      if (w.workerId === "001") { setAuthError("Worker ID 001 cannot be assigned front desk duty."); return; }
+      if (w.workerId === user.workerId) { setAuthError("You cannot add yourself as partner."); return; }
+      setPartnerWorker(w);
+    } catch { setAuthError("Could not verify. Try again."); }
     finally { setVerifying(false); }
   };
 
-  // ── Auth step 2: verify second duty worker ───────────────────────────────
-  const handleAuth2 = async () => {
-    if (!auth2Id.trim()) return;
-    if (auth2Id.trim() === auth1Id.trim()) { setAuthError("Both duty workers must be different people."); return; }
-    setVerifying(true);
-    setAuthError("");
-    try {
-      const { data } = await axiosInstance.get(`/attendance/search?q=${auth2Id.trim()}`);
-      const worker = data.workers?.[0];
-      if (!worker) { setAuthError("No worker found with that ID."); return; }
-      if (worker.workerId === "001") { setAuthError("Worker ID 001 cannot be assigned front desk duty."); return; }
-      setAuth2Worker(worker);
-      setStep("setup");
-    } catch { setAuthError("Could not verify ID. Try again."); }
-    finally { setVerifying(false); }
-  };
+  const proceedToSetup = () => setStep("setup");
 
-  // ── Create session ────────────────────────────────────────────────────────
+  // Create session
   const handleCreateSession = async () => {
     if (!serviceStart) { toast.warning("Required", "Set the service start time."); return; }
     setCreating(true);
     try {
+      const coIds = [];
+      if (partnerWorker) coIds.push(partnerWorker._id);
       const { data } = await axiosInstance.post("/attendance/session", {
-        serviceType, serviceDate, serviceStartTime: `${serviceDate}T${serviceStart}`,
+        serviceType, serviceDate,
+        serviceStartTime: `${serviceDate}T${serviceStart}`,
         specialServiceName: specialName,
-        coSupervisorId: auth2Worker?._id,
-        dutyWorkerIds: [auth1Worker?._id, auth2Worker?._id].filter(Boolean),
-        serviceEndTime: serviceEnd ? `${serviceDate}T${serviceEnd}` : null,
+        coSupervisorId: coIds[0] || null,
       });
       setSession(data.session);
-      // Auto check in both duty workers
       await fetchAttendance(data.session._id);
       setStep("active");
       toast.success("Session opened", "Front desk is now active.");
-    } catch (err) { toast.error("Error", err.response?.data?.message || "Could not open session."); }
+      // If partner is already arrived, check them in on duty
+      if (partnerWorker && partnerArrived) {
+        await axiosInstance.post("/attendance/check-in", {
+          identifier: partnerWorker.workerId,
+          sessionId: data.session._id,
+          isOnDuty: true,
+        });
+        await fetchAttendance(data.session._id);
+      }
+    } catch (err) { toast.error("Error", err.response?.data?.message || "Could not open."); }
     finally { setCreating(false); }
   };
 
-  // ── Check in a worker ─────────────────────────────────────────────────────
+  // Check in
   const handleCheckIn = async (identifier) => {
     if (!session || !identifier?.trim()) return;
-    setCheckingIn(true);
-    setSuggestions([]);
-    setQuery("");
+    setCheckingIn(true); setSuggestions([]); setQuery("");
     try {
       const { data } = await axiosInstance.post("/attendance/check-in", {
-        identifier: identifier.trim(),
-        sessionId: session._id,
-        isOnDuty: false,
+        identifier: identifier.trim(), sessionId: session._id, isOnDuty: false,
       });
       setLastCheckIn({ worker: data.worker, timing: data.timingCategory, message: data.message });
       fetchAttendance(session._id);
-    } catch (err) {
-      toast.error("Error", err.response?.data?.message || "Could not check in.");
-    } finally { setCheckingIn(false); }
+    } catch (err) { toast.error("Error", err.response?.data?.message || "Could not check in."); }
+    finally { setCheckingIn(false); }
   };
 
-  // ── Close session ─────────────────────────────────────────────────────────
   const handleClose = async (force = false) => {
-    if (!session) return;
-    const msg = force ? "Force close this session? Report will be sent to admin team." : "Close this session? Report will be sent to admin team.";
-    if (!confirm(msg)) return;
+    if (!confirm(force ? "Force close session?" : "Close session? Report will be sent to admin team.")) return;
     try {
       await axiosInstance.put(`/attendance/close/${session._id}`);
-      toast.success("Session closed", "Report sent to admin team.");
-      setSession(null); setAttendance([]); setStats(null);
-      setLastCheckIn(null); setStep("auth-1"); setDutyWorkers([]);
-    } catch (err) { toast.error("Error", err.response?.data?.message || "Could not close session."); }
+      toast.success("Closed", "Session closed. Report sent.");
+      setSession(null); setAttendance([]); setStats(null); setLastCheckIn(null);
+      setDutyWorkers([]); setStep("auth-self");
+    } catch (err) { toast.error("Error", err.response?.data?.message || "Could not close."); }
   };
 
   const handleAutoClose = async () => {
     if (!session) return;
-    try {
-      await axiosInstance.put(`/attendance/close/${session._id}`);
-      setSession(null); setAttendance([]); setStats(null);
-      setStep("auth-1"); setDutyWorkers([]);
-    } catch {}
+    try { await axiosInstance.put(`/attendance/close/${session._id}`); } catch {}
+    setSession(null); setAttendance([]); setStats(null); setStep("auth-self");
   };
 
-  // ── Search suggestions ────────────────────────────────────────────────────
   useEffect(() => {
-    if (!query.trim() || query.length < 1) { setSuggestions([]); return; }
+    if (!query.trim()) { setSuggestions([]); return; }
     const t = setTimeout(async () => {
       try {
         const { data } = await axiosInstance.get(`/attendance/search?q=${query.trim()}`);
-        const checkedIds = attendance.map((a) => a.worker?._id);
-        setSuggestions((data.workers || []).filter((w) => !checkedIds.includes(w._id)));
+        const checked = attendance.map((a) => a.worker?._id);
+        setSuggestions((data.workers || []).filter((w) => !checked.includes(w._id)));
       } catch {}
     }, 300);
     return () => clearTimeout(t);
   }, [query, attendance]);
 
-  // Focus input when maximized
-  useEffect(() => {
-    if (maximized && inputRef.current) inputRef.current.focus();
-  }, [maximized]);
+  useEffect(() => { if (maximized && inputRef.current) inputRef.current.focus(); }, [maximized]);
 
-  const timeStr = (iso) => iso ? new Date(iso).toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit" }) : "N/A";
+  const timeStr = (iso) => iso ? new Date(iso).toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit" }) : "";
   const isDutyWorker = session && dutyWorkers.some((d) => d.worker?._id === user?._id);
   const canClose = isAdminLevel || isDutyWorker;
 
-  // ── CSV export ────────────────────────────────────────────────────────────
   const downloadCSV = () => {
-    const rows = [["#", "Name", "Worker ID", "Department", "Time", "Timing", "On Duty"]];
-    attendance.forEach((a, i) => rows.push([
-      i + 1, a.worker?.fullName, a.worker?.workerId,
-      a.worker?.department?.replace(/-/g, " "),
-      timeStr(a.checkInTime),
-      TIMING_LABELS[a.timingCategory]?.label, a.isOnDuty ? "Yes" : "No",
-    ]));
+    const rows = [["#","Name","Worker ID","Department","Time","Timing","On Duty"]];
+    attendance.forEach((a, i) => rows.push([i+1, a.worker?.fullName, a.worker?.workerId, a.worker?.department?.replace(/-/g," "), timeStr(a.checkInTime), TIMING_LABELS[a.timingCategory]?.label, a.isOnDuty?"Yes":"No"]));
     const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url;
-    a.download = `frontdesk-${session?.serviceType}-${session?.serviceDate?.split("T")[0]}.csv`;
-    a.click(); URL.revokeObjectURL(url);
+    a.download = `frontdesk-${session?.serviceType}-${serviceDate}.csv`; a.click();
+    URL.revokeObjectURL(url);
   };
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // RENDER
-  // ═══════════════════════════════════════════════════════════════════════════
 
   // ── Unauthorized ──────────────────────────────────────────────────────────
   if (step === "unauthorized") return (
@@ -302,77 +239,109 @@ const FrontDesk = () => {
         <Shield className="w-12 h-12 text-gray-300 dark:text-slate-600 mx-auto mb-4" />
         <h2 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-2">Access Restricted</h2>
         <p className="text-sm text-gray-500 dark:text-slate-400 leading-relaxed">
-          The Front Desk is only accessible to workers assigned to front desk duty in the published roster, or to admin, moderator and pastor. Please check your duty roster or contact your leader.
+          The Front Desk is only accessible to workers assigned to front desk duty in the published roster. Please check your duty roster or speak with your department leader.
         </p>
       </div>
     </div>
   );
 
-  // ── Auth step 1 ───────────────────────────────────────────────────────────
-  if (step === "auth-1") return (
+  // ── Auth self ─────────────────────────────────────────────────────────────
+  if (step === "auth-self") return (
     <div className="flex items-center justify-center min-h-[60vh] px-4">
-      <div className="card p-8 w-full max-w-sm text-center">
-        <div className="w-14 h-14 bg-purple-100 dark:bg-purple-900/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+      <div className="card p-8 w-full max-w-sm text-center space-y-5">
+        <div className="w-14 h-14 bg-purple-100 dark:bg-purple-900/30 rounded-2xl flex items-center justify-center mx-auto">
           <UserCheck className="w-7 h-7 text-purple-600 dark:text-purple-400" />
         </div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-1">Front Desk Duty</h2>
-        <p className="text-sm text-gray-500 dark:text-slate-400 mb-6 leading-relaxed">
-          Only 2 workers are allowed on front desk duty. Enter your Worker ID to confirm you are assigned to this role.
-        </p>
-        <div className="space-y-3">
-          <div>
-            <label className="form-label text-left block">First Duty Worker - Worker ID</label>
-            <input
-              className="input-field text-center text-lg font-mono tracking-widest"
-              placeholder="e.g. 042"
-              value={auth1Id}
-              onChange={(e) => { setAuth1Id(e.target.value); setAuthError(""); }}
-              onKeyDown={(e) => e.key === "Enter" && handleAuth1()}
-              autoFocus
-            />
-          </div>
-          {authError && <p className="text-sm text-red-500">{authError}</p>}
-          <button onClick={handleAuth1} disabled={verifying || !auth1Id.trim()} className="btn-primary w-full">
-            {verifying ? "Verifying..." : "Confirm"}
-          </button>
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-1">Front Desk Duty</h2>
+          <p className="text-sm text-gray-500 dark:text-slate-400">Confirm you are opening the front desk for today's service.</p>
         </div>
+        <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-4">
+          <p className="font-bold text-purple-700 dark:text-purple-300">{user?.fullName}</p>
+          <p className="text-xs text-purple-500">Worker ID: {user?.workerId}</p>
+        </div>
+        {authError && <p className="text-sm text-red-500">{authError}</p>}
+        <button onClick={handleVerifySelf} className="btn-primary w-full">Yes, I'm on duty — Continue</button>
+        <p className="text-xs text-gray-400 dark:text-slate-500">If you are not assigned to front desk duty, please check your roster or contact your leader.</p>
       </div>
     </div>
   );
 
-  // ── Auth step 2 ───────────────────────────────────────────────────────────
-  if (step === "auth-2") return (
+  // ── Confirm partner ───────────────────────────────────────────────────────
+  if (step === "confirm-partner") return (
     <div className="flex items-center justify-center min-h-[60vh] px-4">
-      <div className="card p-8 w-full max-w-sm text-center">
-        <div className="w-14 h-14 bg-green-100 dark:bg-green-900/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <CheckCircle className="w-7 h-7 text-green-600 dark:text-green-400" />
+      <div className="card p-8 w-full max-w-sm space-y-5">
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-3 text-center">
+          <p className="text-sm font-semibold text-green-700 dark:text-green-400">{selfWorker?.fullName} — confirmed on duty</p>
         </div>
-        <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3 mb-5">
-          <p className="text-sm font-semibold text-green-700 dark:text-green-400">{auth1Worker?.fullName} confirmed</p>
-          <p className="text-xs text-green-600 dark:text-green-400">ID: {auth1Worker?.workerId}</p>
+        <div>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-slate-100 mb-1">Do you have a partner on duty?</h2>
+          <p className="text-sm text-gray-500 dark:text-slate-400">Front desk can be operated by 1 or 2 workers. If a second person is assigned, confirm them now.</p>
         </div>
-        <h2 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-1">Second Duty Worker</h2>
-        <p className="text-sm text-gray-500 dark:text-slate-400 mb-6 leading-relaxed">
-          A second worker must be confirmed. Enter the second duty worker's Worker ID.
-        </p>
-        <div className="space-y-3">
-          <div>
-            <label className="form-label text-left block">Second Duty Worker - Worker ID</label>
-            <input
-              className="input-field text-center text-lg font-mono tracking-widest"
-              placeholder="e.g. 078"
-              value={auth2Id}
-              onChange={(e) => { setAuth2Id(e.target.value); setAuthError(""); }}
-              onKeyDown={(e) => e.key === "Enter" && handleAuth2()}
-              autoFocus
-            />
+
+        {hasPartner === null && (
+          <div className="flex gap-3">
+            <button onClick={() => setHasPartner(false)} className="btn-outline flex-1">No, just me</button>
+            <button onClick={() => setHasPartner(true)} className="btn-primary flex-1">Yes, I have a partner</button>
           </div>
-          {authError && <p className="text-sm text-red-500">{authError}</p>}
-          <button onClick={handleAuth2} disabled={verifying || !auth2Id.trim()} className="btn-primary w-full">
-            {verifying ? "Verifying..." : "Confirm"}
-          </button>
-          <button onClick={() => { setStep("auth-1"); setAuth1Worker(null); setAuth1Id(""); }} className="btn-ghost w-full text-sm">Back</button>
-        </div>
+        )}
+
+        {hasPartner === false && (
+          <button onClick={proceedToSetup} className="btn-primary w-full">Continue — Open Solo</button>
+        )}
+
+        {hasPartner === true && (
+          <div className="space-y-3">
+            {!partnerWorker ? (
+              <>
+                <div>
+                  <label className="form-label">Partner's Worker ID or Name</label>
+                  <input
+                    className="input-field"
+                    placeholder="Enter Worker ID or name"
+                    value={partnerQuery}
+                    onChange={(e) => { setPartnerQuery(e.target.value); setAuthError(""); }}
+                    onKeyDown={(e) => e.key === "Enter" && handlePartnerSearch()}
+                    autoFocus
+                  />
+                </div>
+                {authError && <p className="text-sm text-red-500">{authError}</p>}
+                <button onClick={handlePartnerSearch} disabled={verifying || !partnerQuery.trim()} className="btn-primary w-full">
+                  {verifying ? "Searching..." : "Find Partner"}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-3 text-center">
+                  <p className="text-sm font-semibold text-blue-700 dark:text-blue-400">{partnerWorker.fullName}</p>
+                  <p className="text-xs text-blue-500">Worker ID: {partnerWorker.workerId}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Has {partnerWorker.fullName} arrived yet?</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setPartnerArrived(false)}
+                      className={cn("flex-1 py-2 rounded-xl border-2 text-sm font-medium transition-all", partnerArrived === false ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400" : "border-gray-100 dark:border-slate-700 text-gray-500")}
+                    >
+                      Not yet
+                    </button>
+                    <button
+                      onClick={() => setPartnerArrived(true)}
+                      className={cn("flex-1 py-2 rounded-xl border-2 text-sm font-medium transition-all", partnerArrived === true ? "border-green-400 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400" : "border-gray-100 dark:border-slate-700 text-gray-500")}
+                    >
+                      Yes, here
+                    </button>
+                  </div>
+                </div>
+                {partnerArrived !== null && (
+                  <button onClick={proceedToSetup} className="btn-primary w-full">Continue to Setup</button>
+                )}
+                <button onClick={() => { setPartnerWorker(null); setPartnerQuery(""); setPartnerArrived(null); }} className="btn-ghost w-full text-sm">Change partner</button>
+              </>
+            )}
+            <button onClick={() => { setHasPartner(null); setPartnerWorker(null); setPartnerQuery(""); setPartnerArrived(null); }} className="text-xs text-gray-400 hover:text-gray-600 w-full text-center">Go back</button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -380,48 +349,42 @@ const FrontDesk = () => {
   // ── Setup ─────────────────────────────────────────────────────────────────
   if (step === "setup") return (
     <div className="flex items-center justify-center min-h-[60vh] px-4">
-      <div className="card p-8 w-full max-w-md">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-1">Set Up Service</h2>
-        <p className="text-sm text-gray-500 dark:text-slate-400 mb-5">
-          Duty workers confirmed: <strong>{auth1Worker?.fullName}</strong> and <strong>{auth2Worker?.fullName}</strong>. Set the service details to open the front desk.
-        </p>
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="form-label">Service Type</label>
-              <select className="input-field" value={serviceType} onChange={(e) => setServiceType(e.target.value)}>
-                <option value="sunday">Sunday Service</option>
-                <option value="tuesday">Tuesday Service</option>
-                <option value="special">Special Service</option>
-              </select>
-            </div>
-            <div>
-              <label className="form-label">Service Date</label>
-              <input type="date" className="input-field" value={serviceDate} onChange={(e) => setServiceDate(e.target.value)} />
-            </div>
-          </div>
-          {serviceType === "special" && (
-            <div>
-              <label className="form-label">Special Service Name</label>
-              <input className="input-field" placeholder="e.g. Easter Sunday" value={specialName} onChange={(e) => setSpecialName(e.target.value)} />
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="form-label">Start Time <span className="text-red-400">*</span></label>
-              <input type="time" className="input-field" value={serviceStart} onChange={(e) => setServiceStart(e.target.value)} />
-            </div>
-            <div>
-              <label className="form-label">End Time <span className="text-gray-400 font-normal">(optional)</span></label>
-              <input type="time" className="input-field" value={serviceEnd} onChange={(e) => setServiceEnd(e.target.value)} />
-            </div>
-          </div>
-          <p className="text-xs text-gray-400 dark:text-slate-500">If no end time is set, the session auto-closes after 3 hours of inactivity.</p>
-          <button onClick={handleCreateSession} disabled={creating || !serviceStart} className="btn-primary w-full py-3 flex items-center justify-center gap-2">
-            {creating ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-            {creating ? "Opening..." : "Open Front Desk"}
-          </button>
+      <div className="card p-8 w-full max-w-md space-y-4">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-1">Service Details</h2>
+          <p className="text-sm text-gray-500 dark:text-slate-400">
+            Duty: <strong>{selfWorker?.fullName}</strong>{partnerWorker ? ` and ${partnerWorker.fullName}` : ""}
+          </p>
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="form-label">Service Type</label>
+            <select className="input-field" value={serviceType} onChange={(e) => setServiceType(e.target.value)}>
+              <option value="sunday">Sunday Service</option>
+              <option value="tuesday">Tuesday Service</option>
+              <option value="special">Special Service</option>
+            </select>
+          </div>
+          <div>
+            <label className="form-label">Date</label>
+            <input type="date" className="input-field" value={serviceDate} onChange={(e) => setServiceDate(e.target.value)} />
+          </div>
+        </div>
+        {serviceType === "special" && (
+          <div>
+            <label className="form-label">Special Service Name</label>
+            <input className="input-field" placeholder="e.g. Easter Sunday" value={specialName} onChange={(e) => setSpecialName(e.target.value)} />
+          </div>
+        )}
+        <div>
+          <label className="form-label">Service Start Time <span className="text-red-400">*</span></label>
+          <input type="time" className="input-field" value={serviceStart} onChange={(e) => setServiceStart(e.target.value)} />
+          <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Session auto-closes after 3 hours of inactivity if not manually closed.</p>
+        </div>
+        <button onClick={handleCreateSession} disabled={creating || !serviceStart} className="btn-primary w-full py-3 flex items-center justify-center gap-2">
+          {creating ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+          {creating ? "Opening..." : "Open Front Desk"}
+        </button>
       </div>
     </div>
   );
@@ -433,7 +396,7 @@ const FrontDesk = () => {
     </div>
   );
 
-  // ── Active session ─────────────────────────────────────────────────────────
+  // ── Active ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5 animate-fade-in">
       <ToastContainer toasts={toasts} onClose={removeToast} />
@@ -442,45 +405,51 @@ const FrontDesk = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="section-title">Front Desk</h1>
-          <p className="section-subtitle font-mono font-bold text-purple-600 dark:text-purple-400">
-            {time.toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-            {" · "}
-            <span className="font-normal text-gray-400 dark:text-slate-500 font-sans">
-              {session?.serviceType?.charAt(0).toUpperCase() + session?.serviceType?.slice(1)} Service
+          <p className="section-subtitle">
+            <span className="font-mono font-bold text-purple-600 dark:text-purple-400">
+              {time.toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
             </span>
+            {" · "}
+            {session?.serviceType?.charAt(0).toUpperCase() + session?.serviceType?.slice(1)} Service
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {canClose && (
+          {isDutyWorker && (
             <button onClick={() => handleClose(false)} className="btn-outline text-sm text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-1.5">
-              <LogOut className="w-4 h-4" /> Close Session
+              <LogOut className="w-4 h-4" /> End Session
             </button>
           )}
-          {isAdminLevel && !canClose && (
-            <button onClick={() => handleClose(true)} className="btn-outline text-sm text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 flex items-center gap-1.5">
+          {isAdminLevel && (
+            <button onClick={() => setShowForceClose(true)} className="btn-outline text-sm text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 flex items-center gap-1.5">
               <Shield className="w-4 h-4" /> Force Close
             </button>
           )}
         </div>
       </div>
 
-      {/* Duty workers badge */}
+      {/* Duty workers */}
       {dutyWorkers.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {dutyWorkers.map((d) => (
             <div key={d._id} className="flex items-center gap-2 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl px-3 py-1.5">
-              <div className="w-5 h-5 rounded-full bg-purple-600 text-white text-xs font-bold flex items-center justify-center">
-                {d.worker?.fullName?.charAt(0)}
-              </div>
+              <div className="w-5 h-5 rounded-full bg-purple-600 text-white text-xs font-bold flex items-center justify-center">{d.worker?.fullName?.charAt(0)}</div>
               <span className="text-xs font-semibold text-purple-700 dark:text-purple-400">{d.worker?.fullName}</span>
-              <span className="text-xs text-purple-500 dark:text-purple-500">On Duty</span>
+              <span className="text-xs text-purple-400">On Duty</span>
             </div>
           ))}
+          {/* Show partner expected but not yet arrived */}
+          {partnerWorker && !dutyWorkers.some((d) => d.worker?.workerId === partnerWorker.workerId) && (
+            <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-1.5">
+              <div className="w-5 h-5 rounded-full bg-amber-400 text-white text-xs font-bold flex items-center justify-center">{partnerWorker.fullName?.charAt(0)}</div>
+              <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">{partnerWorker.fullName}</span>
+              <span className="text-xs text-amber-400">Expected</span>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Stats row */}
-      {stats && (
+      {/* Stats - admin/mod/pastor only */}
+      {isAdminLevel && stats && (
         <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
           {[
             { label: "Total",     value: stats.total,   color: "text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20" },
@@ -499,48 +468,25 @@ const FrontDesk = () => {
         </div>
       )}
 
-      {/* Check-in section with maximize */}
-      <div className={cn(
-        "card overflow-hidden transition-all duration-300",
-        maximized ? "fixed inset-0 z-50 rounded-none flex flex-col" : ""
-      )}>
-        {/* Check-in header */}
-        <div className={cn(
-          "flex items-center justify-between border-b border-gray-100 dark:border-slate-700",
-          maximized ? "px-6 py-4 bg-white dark:bg-slate-800" : "px-5 py-4"
-        )}>
-          <div className="flex items-center gap-3">
+      {/* Check-in card with maximize */}
+      <div className={cn("card overflow-hidden transition-all duration-300", maximized ? "fixed inset-0 z-50 rounded-none flex flex-col" : "")}>
+        <div className={cn("flex items-center justify-between border-b border-gray-100 dark:border-slate-700", maximized ? "px-6 py-4 bg-white dark:bg-slate-800" : "px-5 py-4")}>
+          <div className="flex items-center gap-2">
             <UserCheck className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-            <div>
-              <h2 className="font-bold text-gray-900 dark:text-slate-100">Check In Worker</h2>
-              {maximized && (
-                <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
-                  Type Worker ID or name · Press Enter or click Check In
-                </p>
-              )}
-            </div>
+            <h2 className="font-bold text-gray-900 dark:text-slate-100">Check In Worker</h2>
           </div>
-          <button
-            onClick={() => setMaximized(!maximized)}
-            className="p-2 rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors"
-            title={maximized ? "Minimize" : "Maximize check-in screen"}
-          >
+          <button onClick={() => setMaximized(!maximized)} className="p-2 rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors" title={maximized ? "Minimize" : "Maximize"}>
             {maximized ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
           </button>
         </div>
 
-        {/* Check-in input */}
-        <div className={cn(
-          "relative",
-          maximized ? "flex-1 flex flex-col items-center justify-center px-6 py-8 bg-gray-50 dark:bg-slate-900" : "p-5"
-        )}>
+        <div className={cn("relative", maximized ? "flex-1 flex flex-col items-center justify-center px-6 py-8 bg-gray-50 dark:bg-slate-900" : "p-5")}>
           {maximized && lastCheckIn && (
             <div className={cn("mb-6 px-5 py-4 rounded-2xl border text-center w-full max-w-md", TIMING_LABELS[lastCheckIn.timing]?.cls)}>
               <p className="text-lg font-bold">{lastCheckIn.worker?.fullName}</p>
               <p className="text-sm">{lastCheckIn.message}</p>
             </div>
           )}
-
           <div className={cn("relative", maximized ? "w-full max-w-md" : "")}>
             <form onSubmit={(e) => { e.preventDefault(); if (query.trim()) handleCheckIn(query); }}>
               <div className="relative">
@@ -554,31 +500,14 @@ const FrontDesk = () => {
                   autoComplete="off"
                   autoFocus={maximized}
                 />
-                <button
-                  type="submit"
-                  disabled={checkingIn || !query.trim()}
-                  className={cn(
-                    "absolute right-2 top-1/2 -translate-y-1/2 btn-primary",
-                    maximized ? "px-4 py-2 text-sm" : "px-3 py-1.5 text-xs"
-                  )}
-                >
+                <button type="submit" disabled={checkingIn || !query.trim()} className={cn("absolute right-2 top-1/2 -translate-y-1/2 btn-primary", maximized ? "px-4 py-2 text-sm" : "px-3 py-1.5 text-xs")}>
                   {checkingIn ? "..." : "Check In"}
                 </button>
               </div>
-
-              {/* Suggestions */}
               {suggestions.length > 0 && (
                 <div className="absolute left-0 right-0 top-14 z-20 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-2xl shadow-2xl overflow-hidden">
                   {suggestions.map((w) => (
-                    <button
-                      key={w._id}
-                      type="button"
-                      onClick={() => { handleCheckIn(w.workerId); }}
-                      className={cn(
-                        "w-full flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors text-left",
-                        maximized ? "px-5 py-4" : "px-4 py-3"
-                      )}
-                    >
+                    <button key={w._id} type="button" onClick={() => handleCheckIn(w.workerId)} className={cn("w-full flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors text-left", maximized ? "px-5 py-4" : "px-4 py-3")}>
                       <div className={cn("rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 font-bold flex items-center justify-center flex-shrink-0", maximized ? "w-10 h-10 text-base" : "w-8 h-8 text-sm")}>
                         {w.fullName?.charAt(0)}
                       </div>
@@ -592,82 +521,105 @@ const FrontDesk = () => {
                 </div>
               )}
             </form>
-
             {!maximized && lastCheckIn && (
-              <div className={cn("mt-3 p-3 rounded-xl border text-sm", TIMING_LABELS[lastCheckIn.timing]?.cls)}>
-                {lastCheckIn.message}
-              </div>
+              <div className={cn("mt-3 p-3 rounded-xl border text-sm", TIMING_LABELS[lastCheckIn.timing]?.cls)}>{lastCheckIn.message}</div>
             )}
-
-            {maximized && (
-              <p className="text-center text-xs text-gray-400 dark:text-slate-500 mt-4">
-                Press <kbd className="bg-gray-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-xs">Enter</kbd> or click Check In to confirm
-              </p>
-            )}
+            {maximized && <p className="text-center text-xs text-gray-400 dark:text-slate-500 mt-4">Press <kbd className="bg-gray-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-xs">Enter</kbd> or click Check In</p>}
           </div>
         </div>
       </div>
 
-      {/* Attendance list - only shown when NOT maximized */}
+      {/* Force close modal */}
+      {showForceClose && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm space-y-4 animate-slide-up">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                <Shield className="w-5 h-5 text-red-600 dark:text-red-400" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-slate-100">Force Close Session</h3>
+                <p className="text-xs text-gray-400 dark:text-slate-500">A report will be sent to the admin team.</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-gray-700 dark:text-slate-300">Reason for closing</p>
+              {[
+                { value: "end-of-service", label: "End of service" },
+                { value: "attendance-over", label: "Attendance recording complete" },
+                { value: "other", label: "Other (type below)" },
+              ].map((opt) => (
+                <label key={opt.value} className={cn("flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all", forceReason === opt.value ? "border-red-400 bg-red-50 dark:bg-red-900/20" : "border-gray-100 dark:border-slate-700 hover:border-gray-300")}>
+                  <input type="radio" name="reason" value={opt.value} checked={forceReason === opt.value} onChange={(e) => setForceReason(e.target.value)} className="accent-red-500" />
+                  <span className="text-sm text-gray-700 dark:text-slate-300">{opt.label}</span>
+                </label>
+              ))}
+              {forceReason === "other" && (
+                <input className="input-field text-sm" placeholder="Describe the reason..." value={forceReasonOther} onChange={(e) => setForceReasonOther(e.target.value)} autoFocus />
+              )}
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => { setShowForceClose(false); setForceReason(""); setForceReasonOther(""); }} className="btn-ghost flex-1">Cancel</button>
+              <button onClick={handleForceClose} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg transition-colors">Force Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Attendance table - admin/mod/pastor sees full table, workers see simple count */}
       {!maximized && (
         <div className="card overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 dark:border-slate-700 flex items-center justify-between">
             <h2 className="font-bold text-gray-900 dark:text-slate-100">Checked In ({attendance.length})</h2>
             <div className="flex gap-2">
-              <button onClick={() => fetchAttendance(session._id)} className="p-1.5 text-gray-400 hover:text-purple-600 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20" title="Refresh">
-                <RefreshCw className="w-4 h-4" />
-              </button>
-              <button onClick={downloadCSV} className="p-1.5 text-gray-400 hover:text-green-600 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20" title="Download CSV">
-                <Download className="w-4 h-4" />
-              </button>
+              <button onClick={() => fetchAttendance(session._id)} className="p-1.5 text-gray-400 hover:text-purple-600 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20" title="Refresh"><RefreshCw className="w-4 h-4" /></button>
+              {isAdminLevel && <button onClick={downloadCSV} className="p-1.5 text-gray-400 hover:text-green-600 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20" title="Download CSV"><Download className="w-4 h-4" /></button>}
             </div>
           </div>
-
           {attendance.length === 0 ? (
             <div className="p-10 text-center text-gray-400 dark:text-slate-500 text-sm">No workers checked in yet.</div>
-          ) : (
+          ) : isAdminLevel ? (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr>
-                    {["#", "Worker", "Department", "Time", "Timing", "On Duty"].map((h) => (
-                      <th key={h} className="table-header whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
+                  <tr>{["#","Worker","Department","Time","Timing","On Duty"].map((h) => <th key={h} className="table-header whitespace-nowrap">{h}</th>)}</tr>
                 </thead>
                 <tbody>
                   {attendance.map((a, i) => (
                     <tr key={a._id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50">
-                      <td className="table-cell text-xs text-gray-400">{i + 1}</td>
+                      <td className="table-cell text-xs text-gray-400">{i+1}</td>
                       <td className="table-cell">
                         <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 font-bold flex items-center justify-center text-xs flex-shrink-0">
-                            {a.worker?.fullName?.charAt(0)}
-                          </div>
+                          <div className="w-7 h-7 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 font-bold flex items-center justify-center text-xs flex-shrink-0">{a.worker?.fullName?.charAt(0)}</div>
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">{a.worker?.fullName}</p>
-                            <p className="text-xs text-gray-400 dark:text-slate-500">{a.worker?.workerId}</p>
+                            <p className="text-xs text-gray-400">{a.worker?.workerId}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="table-cell text-xs capitalize">{a.worker?.department?.replace(/-/g, " ")}</td>
+                      <td className="table-cell text-xs capitalize">{a.worker?.department?.replace(/-/g," ")}</td>
                       <td className="table-cell font-mono text-sm">{timeStr(a.checkInTime)}</td>
-                      <td className="table-cell">
-                        <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium", TIMING_LABELS[a.timingCategory]?.cls)}>
-                          {TIMING_LABELS[a.timingCategory]?.label}
-                        </span>
-                      </td>
-                      <td className="table-cell">
-                        {a.isOnDuty ? (
-                          <span className="badge-success text-xs">On Duty</span>
-                        ) : (
-                          <span className="text-xs text-gray-300 dark:text-slate-600">—</span>
-                        )}
-                      </td>
+                      <td className="table-cell"><span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium", TIMING_LABELS[a.timingCategory]?.cls)}>{TIMING_LABELS[a.timingCategory]?.label}</span></td>
+                      <td className="table-cell">{a.isOnDuty ? <span className="badge-success text-xs">On Duty</span> : <span className="text-xs text-gray-300 dark:text-slate-600">—</span>}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+          ) : (
+            // Workers only see names and times — no stats breakdown
+            <div className="divide-y divide-gray-50 dark:divide-slate-800 max-h-80 overflow-y-auto">
+              {attendance.map((a, i) => (
+                <div key={a._id} className="flex items-center gap-3 px-4 py-3">
+                  <span className="text-xs text-gray-300 dark:text-slate-600 w-5">{i+1}</span>
+                  <div className="w-7 h-7 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 font-bold flex items-center justify-center text-xs flex-shrink-0">{a.worker?.fullName?.charAt(0)}</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">{a.worker?.fullName}</p>
+                    <p className="text-xs text-gray-400">{a.worker?.workerId}</p>
+                  </div>
+                  <span className="font-mono text-sm text-gray-500 dark:text-slate-400 flex-shrink-0">{timeStr(a.checkInTime)}</span>
+                </div>
+              ))}
             </div>
           )}
         </div>

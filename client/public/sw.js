@@ -26,9 +26,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
       const keys = await caches.keys();
-      await Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-      );
+      await Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)));
       await self.clients.claim();
     })()
   );
@@ -41,17 +39,21 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
 
-  // Never cache API calls
+  // Never intercept API or Render backend
   if (url.hostname.includes("onrender.com") || url.pathname.startsWith("/api/")) return;
-  // Only cache same-origin
+
+  // Only handle same-origin
   if (url.origin !== self.location.origin) return;
 
+  // Navigation requests
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
         .then((res) => {
           if (res && res.ok) {
-            caches.open(CACHE_NAME).then((c) => c.put(request, res.clone()));
+            // Clone BEFORE doing anything else with the response
+            const toCache = res.clone();
+            caches.open(CACHE_NAME).then((c) => c.put(request, toCache));
           }
           return res;
         })
@@ -60,7 +62,7 @@ self.addEventListener("fetch", (event) => {
           if (cached) return cached;
           const shell = await caches.match(APP_SHELL);
           if (shell) return shell;
-          return new Response("Offline - please reconnect", {
+          return new Response("Offline", {
             status: 503,
             headers: { "Content-Type": "text/plain" },
           });
@@ -69,27 +71,32 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static assets: cache first
+  // Static assets — cache first, network fallback
   event.respondWith(
-    caches.match(request).then((cached) => {
+    (async () => {
+      const cached = await caches.match(request);
       if (cached) return cached;
-      return fetch(request).then((res) => {
+
+      try {
+        const res = await fetch(request);
         if (res && res.ok && res.type === "basic") {
-          caches.open(CACHE_NAME).then((c) => c.put(request, res.clone()));
+          // Clone BEFORE returning
+          const toCache = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(request, toCache));
         }
         return res;
-      }).catch(() => caches.match(request));
-    })
+      } catch {
+        return new Response("", { status: 503 });
+      }
+    })()
   );
 });
 
-// ── Push notifications ────────────────────────────────────────
+// Push notifications
 self.addEventListener("push", (event) => {
   if (!event.data) return;
-
   let data = {};
   try { data = event.data.json(); } catch { data = { title: "Yachal House", body: event.data.text() }; }
-
   event.waitUntil(
     self.registration.showNotification(data.title || "Yachal House", {
       body: data.body || "",
@@ -97,18 +104,12 @@ self.addEventListener("push", (event) => {
       badge: "/icons/icon-96.png",
       vibrate: [100, 50, 100],
       data: { url: data.url || "/portal/dashboard" },
-      actions: [
-        { action: "open", title: "Open" },
-        { action: "dismiss", title: "Dismiss" },
-      ],
     })
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  if (event.action === "dismiss") return;
-
   const url = event.notification.data?.url || "/portal/dashboard";
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
