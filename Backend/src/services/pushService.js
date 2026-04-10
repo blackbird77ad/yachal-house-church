@@ -2,14 +2,24 @@ import webpush from "web-push";
 import PushSubscription from "../models/pushSubscriptionModel.js";
 import { env } from "../config/env.js";
 
-webpush.setVapidDetails(
-  `mailto:${env.resendFrom}`,
-  env.vapidPublicKey,
-  env.vapidPrivateKey
-);
+// Only init VAPID if keys are set - prevents crash if not configured yet
+let vapidReady = false;
+if (env.vapidPublicKey && env.vapidPrivateKey) {
+  try {
+    webpush.setVapidDetails(
+      `mailto:${env.resendFrom}`,
+      env.vapidPublicKey,
+      env.vapidPrivateKey
+    );
+    vapidReady = true;
+  } catch (e) {
+    console.warn("VAPID setup failed - push notifications disabled:", e.message);
+  }
+}
 
 export const sendPushToUser = async (userId, { title, body, icon, url }) => {
   try {
+    if (!vapidReady) return;
     const subs = await PushSubscription.find({ user: userId });
     if (!subs.length) return;
 

@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { FileText, Clock, CheckCircle, AlertCircle, ChevronRight, Bell } from "lucide-react";
+import { FileText, Clock, CheckCircle, ChevronRight, Bell } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 import { getPortalStatus } from "../../services/portalService";
 import { getMyReports } from "../../services/reportService";
