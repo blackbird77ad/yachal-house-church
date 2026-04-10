@@ -1,12 +1,5 @@
-import { createBrowserRouter, RouterProvider, Outlet } from "react-router-dom";
-import Navbar from "../components/common/Navbar";
+import { createBrowserRouter, RouterProvider, Outlet, Navigate } from "react-router-dom";
 import PortalNavbar from "../components/common/PortalNavbar";
-import Footer from "../components/common/Footer";
-import SmartHome from "../pages/SmartHome";
-import ServiceTimes from "../pages/public/ServiceTimes";
-import Location from "../pages/public/Location";
-import Contact from "../pages/public/Contact";
-import Media from "../pages/public/Media";
 import Login from "../pages/auth/Login";
 import Register from "../pages/auth/Register";
 import Pending from "../pages/auth/Pending";
@@ -32,16 +25,6 @@ import ProtectedRoute from "../components/common/ProtectedRoute";
 import RoleGuard from "../components/common/RoleGuard";
 import { ADMIN_ROLES } from "../utils/constants";
 
-// Public pages with Navbar + Footer
-const PublicLayout = () => (
-  <div className="min-h-screen flex flex-col bg-white dark:bg-slate-900">
-    <Navbar />
-    <main className="flex-1"><Outlet /></main>
-    <Footer />
-  </div>
-);
-
-// Auth pages - completely bare, no navbar, no footer
 const AuthLayout = () => (
   <div className="min-h-screen bg-white dark:bg-slate-900">
     <Outlet />
@@ -57,16 +40,6 @@ const PrivateLayout = () => (
 );
 
 const router = createBrowserRouter([
-  {
-    element: <PublicLayout />,
-    children: [
-      { path: "/", element: <SmartHome /> },
-      { path: "/service-times", element: <ServiceTimes /> },
-      { path: "/location", element: <Location /> },
-      { path: "/contact", element: <Contact /> },
-      { path: "/media", element: <Media /> },
-    ],
-  },
   {
     element: <AuthLayout />,
     children: [
@@ -102,6 +75,7 @@ const router = createBrowserRouter([
       { path: "/admin/attendance", element: <AttendanceHistory /> },
     ],
   },
+  { path: "/", element: <Navigate to="/login" replace /> },
   { path: "*", element: <NotFound /> },
 ]);
 
