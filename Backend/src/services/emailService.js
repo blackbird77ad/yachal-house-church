@@ -1,4 +1,4 @@
-import resend from "../config/resend.js";
+import { resendClient as resend } from "../config/resend.js";
 import { env } from "../config/env.js";
 
 const FROM = env.resendFrom || "noreply@yachalhousegh.com";
