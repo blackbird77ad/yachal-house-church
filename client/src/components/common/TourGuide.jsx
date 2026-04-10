@@ -54,7 +54,7 @@ const WORKER_STEPS = [
   },
   {
     title: "You're all set!",
-    body: "If you need help, contact your leader or the technical support team. You can always revisit this tour from My Profile. God bless your service! 🙏",
+    body: "You can always revisit this tour from My Profile. God bless you! 🙏",
     icon: "🎉",
     position: "center",
   },
@@ -62,8 +62,8 @@ const WORKER_STEPS = [
 
 const ADMIN_STEPS = [
   {
-    title: "Welcome, Leader",
-    body: "This is your admin portal. You manage workers, reports, qualification, rosters and the front desk from here. Your worker portal is also accessible via the dropdown menu.",
+    title: "Welcome Sir / Ma",
+    body: "This is your admin portal. This is totally different from the workers portal. You manage workers, reports, qualification, rosters and the front desk from here. Your worker portal is also accessible via the dropdown menu.",
     icon: "👑",
     position: "center",
   },
@@ -117,7 +117,7 @@ const ADMIN_STEPS = [
   },
   {
     title: "You're ready to go!",
-    body: "You have full control of the system. For technical issues contact davida@thebrandhelper.com. You can restart this tour anytime from your profile dropdown. God bless your leadership! 🙏",
+    body: "You have full control of the system. For technical issues contact davida@thebrandhelper.com or 0501657205. You can restart this tour anytime from your profile dropdown. God bless You! 🙏",
     icon: "🚀",
     position: "center",
   },
