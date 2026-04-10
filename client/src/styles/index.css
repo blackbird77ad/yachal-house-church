@@ -251,3 +251,104 @@ a,
 .animate-fade-in   { animation: fade-in   0.2s ease-out; }
 .animate-slide-down { animation: slide-down 0.15s ease-out; }
 .animate-slide-up  { animation: slide-up  0.2s ease-out; }
+
+/* ── Universal Responsive Fixes ────────────────────────────────── */
+
+/* Prevent horizontal overflow on ALL screens */
+html, body, #root {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+/* Ensure everything fits within viewport */
+* {
+  box-sizing: border-box;
+  min-width: 0; /* allows flex children to shrink below content size */
+}
+
+/* Page container - tighter on small phones */
+.page-container {
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+
+@media (max-width: 380px) {
+  /* Extra small phones - iPhone SE, Galaxy A series */
+  .page-container {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .section-title {
+    font-size: 1.1rem;
+  }
+
+  .card {
+    border-radius: 0.75rem;
+  }
+
+  /* Tighten button text */
+  .btn-primary, .btn-outline, .btn-ghost {
+    font-size: 0.8rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+}
+
+/* Tables - always scrollable horizontally, never overflow page */
+.table-container,
+.overflow-x-auto {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+
+table {
+  min-width: 100%;
+  border-collapse: collapse;
+}
+
+/* Cards - never wider than viewport */
+.card {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Flex wrapping for button groups on small screens */
+@media (max-width: 480px) {
+  .flex.gap-2.flex-wrap,
+  .flex.gap-3.flex-wrap {
+    flex-wrap: wrap;
+  }
+
+  /* Stats grids compress nicely */
+  .grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Input fields always full width and readable */
+input, select, textarea {
+  max-width: 100%;
+  font-size: 16px !important; /* prevents iOS zoom on focus */
+}
+
+/* Modal always fits screen */
+.fixed.inset-0 > div[class*="max-w"] {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* Nav items don't overflow */
+nav a, nav button {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Notification bell number badge */
+@media (max-width: 380px) {
+  .section-subtitle {
+    font-size: 0.7rem;
+  }
+}

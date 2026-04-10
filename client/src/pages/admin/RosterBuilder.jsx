@@ -71,13 +71,13 @@ const RosterBuilder = () => {
   const noReportFiltered     = filteredWorkers.filter((w) => w.cat === "no-report");
 
   const isAssigned = (deptValue, workerId) =>
-    slots[deptValue]?.assignments?.some((a) => a.worker._id === workerId);
+    slots[deptValue]?.assignments?.some((a) => a.worker?._id === workerId);
 
   const toggleWorker = (deptValue, item) => {
     setSlots((prev) => {
       const existing = prev[deptValue]?.assignments || [];
-      const already = existing.find((a) => a.worker._id === item.worker._id);
-      if (already) return { ...prev, [deptValue]: { ...prev[deptValue], assignments: existing.filter((a) => a.worker._id !== item.worker._id) } };
+      const already = existing.find((a) => a.worker?._id === item.worker?._id);
+      if (already) return { ...prev, [deptValue]: { ...prev[deptValue], assignments: existing.filter((a) => a.worker?._id !== item.worker?._id) } };
       return { ...prev, [deptValue]: { ...prev[deptValue], assignments: [...existing, { worker: item.worker, isQualified: item.cat === "qualified", isCoordinator: false, totalScore: item.totalScore }] } };
     });
   };
@@ -85,14 +85,14 @@ const RosterBuilder = () => {
   const toggleCoordinator = (deptValue, workerId) => {
     setSlots((prev) => ({
       ...prev,
-      [deptValue]: { ...prev[deptValue], assignments: prev[deptValue].assignments.map((a) => a.worker._id === workerId ? { ...a, isCoordinator: !a.isCoordinator } : a) },
+      [deptValue]: { ...prev[deptValue], assignments: prev[deptValue].assignments.map((a) => a.worker?._id === workerId ? { ...a, isCoordinator: !a.isCoordinator } : a) },
     }));
   };
 
   const removeWorker = (deptValue, workerId) => {
     setSlots((prev) => ({
       ...prev,
-      [deptValue]: { ...prev[deptValue], assignments: prev[deptValue].assignments.filter((a) => a.worker._id !== workerId) },
+      [deptValue]: { ...prev[deptValue], assignments: prev[deptValue].assignments.filter((a) => a.worker?._id !== workerId) },
     }));
   };
 
@@ -137,7 +137,8 @@ const RosterBuilder = () => {
   };
 
   const WorkerItem = ({ item, dept }) => {
-    const assigned = isAssigned(dept, item.worker._id);
+    if (!item?.worker?._id) return null;
+  const assigned = isAssigned(dept, item.worker._id);
     const catColor = item.cat === "qualified"
       ? "border-green-200 dark:border-green-800 hover:border-green-400 bg-green-50 dark:bg-green-900/10"
       : item.cat === "disqualified"
@@ -276,7 +277,7 @@ const RosterBuilder = () => {
                   </div>
                   {assigned.length > 0 && (
                     <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5 truncate">
-                      {assigned.map((a) => a.worker.fullName).join(", ")}
+                      {assigned.map((a) => a.worker?.fullName || "Unknown").join(", ")}
                     </p>
                   )}
                 </div>
@@ -292,7 +293,7 @@ const RosterBuilder = () => {
               {isExpanded && assigned.length > 0 && (
                 <div className="border-t border-gray-100 dark:border-slate-700 p-4 space-y-2">
                   {assigned.map((a) => (
-                    <div key={a.worker._id} className={cn("flex items-center gap-3 p-3 rounded-xl border",
+                    <div key={a.worker?._id || Math.random()} className={cn("flex items-center gap-3 p-3 rounded-xl border",
                       a.isQualified ? "border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10" : "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10"
                     )}>
                       <div className={cn("w-8 h-8 rounded-full font-bold flex items-center justify-center text-sm flex-shrink-0",
@@ -340,7 +341,7 @@ const RosterBuilder = () => {
                     <CheckCircle className="w-3.5 h-3.5" /> Qualified this week ({qualifiedFiltered.length})
                   </p>
                   <div className="space-y-1.5">
-                    {qualifiedFiltered.map((item) => <WorkerItem key={item.worker._id} item={item} dept={workerModal} />)}
+                    {qualifiedFiltered.filter((item) => item?.worker?._id).map((item) => <WorkerItem key={item.worker._id} item={item} dept={workerModal} />)}
                   </div>
                 </div>
               )}
@@ -350,7 +351,7 @@ const RosterBuilder = () => {
                     <Users className="w-3.5 h-3.5" /> Not qualified ({disqualifiedFiltered.length})
                   </p>
                   <div className="space-y-1.5">
-                    {disqualifiedFiltered.map((item) => <WorkerItem key={item.worker._id} item={item} dept={workerModal} />)}
+                    {disqualifiedFiltered.filter((item) => item?.worker?._id).map((item) => <WorkerItem key={item.worker._id} item={item} dept={workerModal} />)}
                   </div>
                 </div>
               )}
@@ -360,7 +361,7 @@ const RosterBuilder = () => {
                     <AlertCircle className="w-3.5 h-3.5" /> No report submitted ({noReportFiltered.length})
                   </p>
                   <div className="space-y-1.5">
-                    {noReportFiltered.map((item) => <WorkerItem key={item.worker._id} item={item} dept={workerModal} />)}
+                    {noReportFiltered.filter((item) => item?.worker?._id).map((item) => <WorkerItem key={item.worker._id} item={item} dept={workerModal} />)}
                   </div>
                 </div>
               )}

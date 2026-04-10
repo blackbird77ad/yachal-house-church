@@ -12,7 +12,7 @@ export const getQualifiedWorkers = async (weekReference) => {
     .sort({ totalScore: -1 });
 
   return metrics
-    .filter((m) => m.worker?.workerId !== "001")
+    .filter((m) => m.worker && m.worker._id && m.worker?.workerId !== "001")
     .map((m) => ({
       worker: m.worker,
       totalScore: m.totalScore,
@@ -31,7 +31,7 @@ export const getDisqualifiedWorkersByCloseness = async (weekReference) => {
     .sort({ totalScore: -1 });
 
   return metrics
-    .filter((m) => m.worker?.workerId !== "001")
+    .filter((m) => m.worker && m.worker._id && m.worker?.workerId !== "001")
     .map((m) => ({
       worker: m.worker,
       totalScore: m.totalScore,
