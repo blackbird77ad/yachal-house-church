@@ -3,9 +3,10 @@ import { NavLink, Link, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, FileText, Clock, Calendar, Bell, User,
   MonitorCheck, Users, Shield, Settings, ClipboardList,
-  LogOut, ChevronDown, Menu, X, Sun, Moon,
+  LogOut, ChevronDown, Menu, X, Sun, Moon, Lightbulb,
 } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
+import { useRestartTour } from "./TourGuide";
 import NotificationBell from "./NotificationBell";
 import { cn } from "../../utils/scoreHelpers";
 
@@ -39,6 +40,7 @@ const roleBadge = {
 const PortalNavbar = () => {
   const { user, logout, isAdminLevel } = useAuth();
   const navigate = useNavigate();
+  const restartTour = useRestartTour();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [dark, setDark] = useState(() => document.body.classList.contains("dark"));
@@ -171,6 +173,14 @@ const PortalNavbar = () => {
                         <User className="w-4 h-4 text-purple-500" />
                         My Profile
                       </Link>
+
+                      <button
+                        onClick={restartTour}
+                        className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700 w-full text-left transition-colors"
+                      >
+                        <Lightbulb className="w-4 h-4 text-amber-500" />
+                        Restart Tour
+                      </button>
 
                       <div className="border-t border-gray-100 dark:border-slate-700 my-1" />
 

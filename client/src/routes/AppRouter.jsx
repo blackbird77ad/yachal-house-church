@@ -21,6 +21,8 @@ import Qualification from "../pages/admin/Qualification";
 import RosterBuilder from "../pages/admin/RosterBuilder";
 import AttendanceHistory from "../pages/admin/AttendanceHistory";
 import NotFound from "../pages/NotFound";
+import TourGuide from "../components/common/TourGuide";
+import SupportFooter from "../components/common/SupportFooter";
 import ProtectedRoute from "../components/common/ProtectedRoute";
 import RoleGuard from "../components/common/RoleGuard";
 import { ADMIN_ROLES } from "../utils/constants";
@@ -34,8 +36,10 @@ const AuthLayout = () => (
 // Private portal with PortalNavbar only
 const PrivateLayout = () => (
   <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-slate-900">
+    <TourGuide />
     <PortalNavbar />
     <main className="flex-1 page-container"><Outlet /></main>
+    <SupportFooter />
   </div>
 );
 
