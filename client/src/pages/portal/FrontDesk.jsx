@@ -148,6 +148,13 @@ const FrontDesk = () => {
   };
 
   // ── Close session (normal + force) ────────────────────────────────────
+  const resetSessionState = () => {
+    setSession(null); setAttendance([]); setStats(null);
+    setLastCheckIn(null); setDutyWorkers([]);
+    setShowForceClose(false); setForceReason(""); setForceReasonOther("");
+    setStep("auth-self");
+  };
+
   const closeSession = async ({ force = false, reason = null } = {}) => {
     const s = sessionRef.current;
     if (!s) return;
@@ -158,12 +165,16 @@ const FrontDesk = () => {
         closeReason: reason,
       });
       toast.success("Session closed", "Report sent to admin team.");
-      setSession(null); setAttendance([]); setStats(null);
-      setLastCheckIn(null); setDutyWorkers([]);
-      setShowForceClose(false); setForceReason(""); setForceReasonOther("");
-      setStep("auth-self");
+      resetSessionState();
     } catch (err) {
-      toast.error("Error", err.response?.data?.message || "Could not close session.");
+      const msg = err.response?.data?.message || "";
+      // If already closed, treat as success - state just needs to reset
+      if (err.response?.status === 400 && msg.toLowerCase().includes("already closed")) {
+        toast.success("Session closed", "Session was already closed.");
+        resetSessionState();
+      } else {
+        toast.error("Error", msg || "Could not close session.");
+      }
     } finally { setClosing(false); }
   };
 
@@ -503,7 +514,7 @@ const FrontDesk = () => {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Duty workers can end the session */}
+          {/* Duty workers: normal end session */}
           {isDutyWorker && (
             <button
               onClick={handleEndSession}
@@ -514,15 +525,13 @@ const FrontDesk = () => {
               {closing ? "Closing..." : "End Session"}
             </button>
           )}
-          {/* Admin/mod/pastor force close - always visible to them */}
-          {isAdminLevel && (
-            <button
-              onClick={() => setShowForceClose(true)}
-              className="btn-outline text-sm text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-1.5"
-            >
-              <Shield className="w-4 h-4" /> Force Close
-            </button>
-          )}
+          {/* Force close - visible to ALL users on this page */}
+          <button
+            onClick={() => setShowForceClose(true)}
+            className="btn-outline text-sm text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-1.5"
+          >
+            <Shield className="w-4 h-4" /> Force Close
+          </button>
         </div>
       </div>
 

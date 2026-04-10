@@ -23,6 +23,7 @@ import AttendanceHistory from "../pages/admin/AttendanceHistory";
 import NotFound from "../pages/NotFound";
 import TourGuide from "../components/common/TourGuide";
 import { RouteError } from "../components/common/ErrorBoundary";
+import InstallPrompt from "../components/common/InstallPrompt";
 import SupportFooter from "../components/common/SupportFooter";
 import ProtectedRoute from "../components/common/ProtectedRoute";
 import RoleGuard from "../components/common/RoleGuard";
@@ -38,6 +39,7 @@ const AuthLayout = () => (
 const PrivateLayout = () => (
   <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-slate-900">
     <TourGuide />
+    <InstallPrompt />
     <PortalNavbar />
     <main className="flex-1 page-container"><Outlet /></main>
     <SupportFooter />
