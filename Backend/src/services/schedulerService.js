@@ -7,6 +7,9 @@ import { createBulkNotification } from "./notificationService.js";
 import User from "../models/userModel.js";
 import { autoCloseExpiredSessions } from "../controllers/attendanceController.js";
 import { sendPushToMany } from "./pushService.js";
+import FrontDeskSession from "../models/frontDeskSessionModel.js";
+import Attendance from "../models/attendanceModel.js";
+import PushSubscription from "../models/pushSubscriptionModel.js";
 
 const getThisWeekMonday = () => {
   const now = new Date();
@@ -148,12 +151,61 @@ const closePortalAndProcess = async () => {
   } catch (err) { console.error("Scheduler closePortalAndProcess error:", err.message); }
 };
 
+
+// ── Data cleanup — runs every Sunday at 3am ───────────────────────────────
+const runCleanup = async () => {
+  try {
+    const now = new Date();
+
+    // 1. Read notifications — handled automatically by MongoDB TTL on readAt field
+    //    (deleted 15 days after readAt is set). No manual cleanup needed.
+    const notifDeleted = 0;
+
+    // 2. Unread notifications older than 30 days — clean up manually
+    const unreadCutoff = new Date(now - 30 * 24 * 60 * 60 * 1000);
+    const { deletedCount: oldNotifDeleted } = await Notification.deleteMany({
+      isRead: false,
+      createdAt: { $lt: unreadCutoff },
+    });
+
+    // 3. Delete closed front desk sessions older than 6 months
+    const sessionCutoff = new Date(now - 180 * 24 * 60 * 60 * 1000);
+    const { deletedCount: sessionsDeleted } = await FrontDeskSession.deleteMany({
+      isOpen: false,
+      createdAt: { $lt: sessionCutoff },
+    });
+
+    // 4. Delete orphaned attendance records (no session)
+    const activeSessions = await FrontDeskSession.find({}).distinct("_id");
+    const { deletedCount: attendanceDeleted } = await Attendance.deleteMany({
+      session: { $nin: activeSessions },
+      createdAt: { $lt: sessionCutoff },
+    });
+
+    // 5. Delete duplicate push subscriptions (keep latest per user)
+    const pushSubs = await PushSubscription.aggregate([
+      { $sort: { createdAt: -1 } },
+      { $group: { _id: "$user", latestId: { $first: "$_id" }, allIds: { $push: "$_id" } } },
+      { $match: { "allIds.1": { $exists: true } } }, // has more than 1
+    ]);
+    for (const sub of pushSubs) {
+      const toDelete = sub.allIds.filter((id) => id.toString() !== sub.latestId.toString());
+      if (toDelete.length) await PushSubscription.deleteMany({ _id: { $in: toDelete } });
+    }
+
+    console.log(`Cleanup done: ${notifDeleted + oldNotifDeleted} notifications, ${sessionsDeleted} sessions, ${attendanceDeleted} attendance records removed.`);
+  } catch (err) {
+    console.error("Cleanup error:", err.message);
+  }
+};
+
 export const initScheduler = () => {
   cron.schedule("0 0 * * 5", openPortal, { timezone: "Africa/Accra" });         // Friday midnight
   cron.schedule("0 12 * * 1", sendClosingReminder, { timezone: "Africa/Accra" }); // Monday 12pm
   cron.schedule("59 14 * * 1", closePortalAndProcess, { timezone: "Africa/Accra" }); // Monday 2:59pm
   // Every 15 mins check for expired front desk sessions (4hr auto-close)
   cron.schedule("*/15 * * * *", autoCloseExpiredSessions, { timezone: "Africa/Accra" });
+  cron.schedule("0 3 * * 0", runCleanup, { timezone: "Africa/Accra" }); // Sunday 3am cleanup
   console.log("Scheduler: Cron jobs initialized (Africa/Accra timezone)");
 };
 

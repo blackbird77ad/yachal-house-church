@@ -4,13 +4,28 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ═══════════════════════════════════════════════════════════════
+   BASE — Applied universally across every screen
+   ═══════════════════════════════════════════════════════════════ */
 @layer base {
-  * {
+
+  /* Box model — every element respects its container */
+  *, *::before, *::after {
     box-sizing: border-box;
+    min-width: 0;           /* flex/grid children can shrink below content size */
+    min-height: 0;
   }
 
+  /* Root — no horizontal overflow ever */
   html {
     @apply scroll-smooth;
+    overflow-x: hidden;
+    max-width: 100vw;
+    /* Use dynamic viewport height — accounts for mobile browser chrome */
+    height: 100%;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    overscroll-behavior-y: contain;  /* prevent pull-to-refresh on iOS PWA */
   }
 
   body {
@@ -18,337 +33,362 @@
     background-color: var(--bg-base);
     color: var(--text-primary);
     transition: background-color 0.2s ease, color 0.2s ease;
+    overflow-x: hidden;
+    max-width: 100vw;
+    min-height: 100dvh;   /* dynamic viewport — works on mobile with address bar */
+    -webkit-tap-highlight-color: transparent;  /* no tap flash on mobile */
+    touch-action: manipulation;               /* faster taps, no 300ms delay */
   }
 
   body.dark {
     @apply bg-slate-900 text-slate-100;
   }
 
-  h1, h2, h3, h4, h5, h6 {
-    @apply font-semibold tracking-tight;
+  /* #root fills the whole viewport */
+  #root {
+    min-height: 100dvh;
+    overflow-x: hidden;
+    max-width: 100vw;
+    display: flex;
+    flex-direction: column;
   }
 
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+    /* Prevent long words breaking layout */
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+
+  p, span, li {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+
+  /* Inputs — 16px prevents iOS auto-zoom, works everywhere */
   input, textarea, select {
     @apply outline-none;
+    font-size: 16px;        /* critical — iOS zooms in if < 16px */
+    max-width: 100%;
+    width: 100%;
+    touch-action: manipulation;
   }
 
   a {
     @apply transition-colors duration-200;
+    touch-action: manipulation;
   }
 
-  button {
+  /* Buttons — minimum 44×44px tap target (Apple HIG / Material Design) */
+  button, [role="button"] {
     @apply transition-all duration-200 cursor-pointer;
+    touch-action: manipulation;
+    min-height: 44px;
   }
 
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+  /* Images never overflow */
+  img, video, canvas, svg {
+    max-width: 100%;
+    height: auto;
+    display: block;
   }
 
-  ::-webkit-scrollbar-track {
-    background: var(--bg-muted);
+  /* Tables always scroll, never overflow */
+  table {
+    border-collapse: collapse;
+    width: 100%;
   }
 
-  ::-webkit-scrollbar-thumb {
-    background: var(--border-strong);
-    border-radius: 3px;
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg-muted); }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+  /* iOS safe area variables */
+  :root {
+    --safe-top:    env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left:   env(safe-area-inset-left, 0px);
+    --safe-right:  env(safe-area-inset-right, 0px);
   }
 
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
+  /* Smooth momentum scroll on iOS */
+  .overflow-y-auto, .overflow-x-auto, .overflow-y-scroll {
+    -webkit-overflow-scrolling: touch;
   }
 }
 
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENTS — Reusable classes
+   ═══════════════════════════════════════════════════════════════ */
 @layer components {
+
+  /* ── Buttons ── */
   .btn-primary {
-    @apply bg-primary-700 hover:bg-primary-800 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-primary-700 hover:bg-primary-800 active:bg-primary-900 text-white font-medium px-4 py-2.5 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2;
+    min-height: 44px;
+    touch-action: manipulation;
   }
-
   .btn-secondary {
-    @apply bg-secondary-600 hover:bg-secondary-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-secondary-600 hover:bg-secondary-700 active:bg-secondary-800 text-white font-medium px-4 py-2.5 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2;
+    min-height: 44px;
   }
-
   .btn-outline {
-    @apply border border-primary-700 text-primary-700 hover:bg-primary-50 font-medium px-4 py-2 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply border border-primary-700 text-primary-700 hover:bg-primary-50 active:bg-primary-100 dark:hover:bg-primary-950 font-medium px-4 py-2.5 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2;
+    min-height: 44px;
   }
-
   .btn-ghost {
-    @apply text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-slate-700 font-medium px-4 py-2 rounded-lg transition-all duration-200;
+    @apply text-gray-600 hover:bg-gray-100 active:bg-gray-200 dark:text-gray-300 dark:hover:bg-slate-700 font-medium px-4 py-2.5 rounded-lg transition-all duration-200 inline-flex items-center justify-center gap-2;
+    min-height: 44px;
   }
-
   .btn-danger {
-    @apply bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-medium px-4 py-2.5 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2;
+    min-height: 44px;
   }
 
+  /* ── Inputs ── */
   .input-field {
-    @apply w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-primary-700 focus:border-transparent transition-all duration-200;
+    @apply w-full px-3 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-primary-700 focus:border-transparent transition-all duration-200;
+    font-size: 16px;     /* prevents iOS zoom */
+    min-height: 44px;
+    max-width: 100%;
   }
 
+  /* ── Cards ── */
   .card {
     @apply bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-card;
+    max-width: 100%;
+    overflow: hidden;
   }
-
   .card-hover {
     @apply card hover:shadow-card-hover transition-shadow duration-200;
   }
 
-  .badge-success {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200;
-  }
+  /* ── Badges ── */
+  .badge-success { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200; }
+  .badge-danger  { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200; }
+  .badge-warning { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200; }
+  .badge-info    { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200; }
+  .badge-primary { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-700 dark:bg-primary-950 dark:text-primary-300; }
 
-  .badge-danger {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200;
-  }
-
-  .badge-warning {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200;
-  }
-
-  .badge-info {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200;
-  }
-
-  .badge-primary {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-700 dark:bg-primary-950 dark:text-primary-300;
-  }
-
+  /* ── Page layout ── */
   .page-container {
-    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6;
+    @apply max-w-7xl mx-auto py-6;
+    /* Fluid horizontal padding: safe areas on notch phones + comfortable breathing room */
+    padding-left:  max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+    width: 100%;
   }
 
-  .section-title {
-    @apply text-2xl font-semibold text-gray-900 dark:text-slate-100;
-  }
+  /* ── Typography ── */
+  .section-title    { @apply text-xl sm:text-2xl font-semibold text-gray-900 dark:text-slate-100; }
+  .section-subtitle { @apply text-sm text-gray-500 dark:text-slate-400 mt-1; }
+  .form-label       { @apply block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1; }
+  .form-error       { @apply text-sm text-red-600 dark:text-red-400 mt-1; }
+  .divider          { @apply border-t border-gray-200 dark:border-slate-700 my-4; }
 
-  .section-subtitle {
-    @apply text-sm text-gray-500 dark:text-slate-400 mt-1;
-  }
-
-  .form-label {
-    @apply block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1;
-  }
-
-  .form-error {
-    @apply text-sm text-red-600 dark:text-red-400 mt-1;
-  }
-
-  .divider {
-    @apply border-t border-gray-200 dark:border-slate-700 my-4;
-  }
-
+  /* ── Tables ── */
   .table-container {
     @apply overflow-x-auto rounded-xl border border-gray-200 dark:border-slate-700;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
   }
-
-  .table-header {
-    @apply bg-gray-50 dark:bg-slate-900 text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider px-4 py-3 text-left;
-  }
-
-  .table-cell {
-    @apply px-4 py-3 text-sm text-gray-900 dark:text-slate-200 border-t border-gray-100 dark:border-slate-700;
-  }
+  .table-header { @apply bg-gray-50 dark:bg-slate-900 text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider px-4 py-3 text-left whitespace-nowrap; }
+  .table-cell   { @apply px-4 py-3 text-sm text-gray-900 dark:text-slate-200 border-t border-gray-100 dark:border-slate-700; }
 }
 
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILITIES
+   ═══════════════════════════════════════════════════════════════ */
 @layer utilities {
   .text-gradient {
     @apply bg-gradient-to-r from-primary-700 to-brand-purple bg-clip-text text-transparent;
   }
+  /* Full dynamic viewport height — the right way on mobile */
+  .min-h-screen { min-height: 100dvh; }
+  .h-screen     { height: 100dvh; }
 }
 
-/* ── PWA & Mobile ─────────────────────────────────────────────── */
 
-/* iOS safe area insets for notch/home bar */
-:root {
-  --safe-top: env(safe-area-inset-top, 0px);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --safe-left: env(safe-area-inset-left, 0px);
-  --safe-right: env(safe-area-inset-right, 0px);
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE BREAKPOINTS
+   Full device coverage:
+   320px  — Galaxy A03, old iPhones
+   375px  — iPhone SE 2, iPhone 12 mini
+   390px  — iPhone 14/15
+   414px  — iPhone Plus models
+   430px  — iPhone 15 Pro Max
+   480px  — small Android
+   600px  — large Android, foldable outer
+   768px  — tablets portrait
+   1024px — tablets landscape, small laptops
+   1280px — standard desktop
+   1440px — large desktop
+   1920px — full HD
+   2560px — 4K / ultrawide
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 320px and below (very small phones) ── */
+@media (max-width: 320px) {
+  .page-container { padding-left: 0.5rem; padding-right: 0.5rem; }
+  .section-title  { font-size: 1rem; }
+  .card           { border-radius: 0.5rem; }
+  .btn-primary, .btn-outline, .btn-ghost, .btn-danger {
+    font-size: 0.75rem;
+    padding-left: 0.6rem;
+    padding-right: 0.6rem;
+  }
+  .table-header, .table-cell { padding-left: 0.5rem; padding-right: 0.5rem; }
 }
 
-/* Prevent pull-to-refresh on iOS when installed as PWA */
-html {
-  overscroll-behavior-y: contain;
+/* ── 321px – 375px (iPhone SE, compact phones) ── */
+@media (min-width: 321px) and (max-width: 375px) {
+  .page-container { padding-left: 0.75rem; padding-right: 0.75rem; }
+  .section-title  { font-size: 1.1rem; }
+  .table-header, .table-cell { padding-left: 0.625rem; padding-right: 0.625rem; }
 }
 
-/* Prevent text size adjustment on orientation change */
-body {
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
+/* ── 376px – 480px (standard phones) ── */
+@media (min-width: 376px) and (max-width: 480px) {
+  .page-container { padding-left: 1rem; padding-right: 1rem; }
 }
 
-/* Prevent iOS tap highlight */
-* {
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* Smooth scrolling momentum on iOS */
-.overflow-y-auto,
-.overflow-x-auto {
-  -webkit-overflow-scrolling: touch;
-}
-
-/* Sticky nav accounts for iOS safe area */
-nav.sticky {
-  padding-top: var(--safe-top);
-}
-
-/* Page container bottom padding for iOS home bar */
-.page-container {
-  padding-bottom: calc(1.5rem + var(--safe-bottom));
-}
-
-/* Fix 100vh on mobile (address bar causes issues) */
-.min-h-screen {
-  min-height: 100dvh;
-}
-
-/* Touch-friendly tap targets — min 44px */
-button,
-a,
-[role="button"] {
-  min-height: 36px;
-}
-
-/* Mobile table — hide less important cols handled per-component */
+/* ── Everything up to 640px: stack, wrap, full-width ── */
 @media (max-width: 640px) {
-  .table-header,
-  .table-cell {
+  /* Flex rows become columns */
+  .flex-row-mobile-col {
+    flex-direction: column !important;
+  }
+
+  /* Button groups wrap */
+  .flex.gap-2, .flex.gap-3 {
+    flex-wrap: wrap;
+  }
+
+  /* Grids collapse to 1 column */
+  .grid-cols-2, .grid-cols-3, .grid-cols-4 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Table padding tighter */
+  .table-header, .table-cell {
     padding-left: 0.75rem;
     padding-right: 0.75rem;
+    font-size: 0.75rem;
+  }
+
+  /* Cards full-width with tighter padding */
+  .card { border-radius: 0.75rem; }
+
+  /* Modals fill screen on mobile */
+  [role="dialog"] > div,
+  .modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 1rem 1rem 0 0 !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    max-height: 92dvh !important;
+    overflow-y: auto !important;
   }
 }
 
-/* PWA standalone mode — hide browser chrome artifacts */
+/* ── 641px – 768px (large phones, small tablets) ── */
+@media (min-width: 641px) and (max-width: 768px) {
+  .page-container { padding-left: 1.5rem; padding-right: 1.5rem; }
+}
+
+/* ── 769px – 1023px (tablets) ── */
+@media (min-width: 769px) and (max-width: 1023px) {
+  .page-container { padding-left: 2rem; padding-right: 2rem; }
+}
+
+/* ── 1024px and above (desktop) ── */
+@media (min-width: 1024px) {
+  .page-container { padding-left: 2rem; padding-right: 2rem; }
+}
+
+/* ── 1440px and above (large desktop) ── */
+@media (min-width: 1440px) {
+  .page-container { padding-left: 2.5rem; padding-right: 2.5rem; }
+}
+
+/* ── 4K / ultrawide ── */
+@media (min-width: 2560px) {
+  .page-container { max-width: 1800px; }
+  .section-title  { font-size: 2rem; }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PWA / NATIVE APP MODES
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Standalone PWA — no browser chrome */
 @media (display-mode: standalone) {
   body {
     user-select: none;
     -webkit-user-select: none;
   }
-
-  /* Allow text selection in inputs and content areas */
   input, textarea, [contenteditable], p, span, h1, h2, h3, h4, h5, h6 {
     user-select: text;
     -webkit-user-select: text;
   }
+  /* Nav sits above iOS status bar */
+  nav.sticky {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+  }
 }
 
-/* Animations */
+/* iOS notch / Dynamic Island — landscape orientation */
+@media (orientation: landscape) and (max-height: 500px) {
+  .page-container { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+  nav { min-height: 48px; }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   FOLDABLE PHONES (Galaxy Z Fold, Surface Duo)
+   ═══════════════════════════════════════════════════════════════ */
+@media (min-width: 600px) and (max-width: 768px) and (orientation: portrait) {
+  /* Outer fold screen or wide single-screen phone */
+  .page-container { padding-left: 1.5rem; padding-right: 1.5rem; }
+  .grid-cols-2    { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════════════════════ */
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-
 @keyframes slide-down {
   from { opacity: 0; transform: translateY(-8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-
 @keyframes slide-up {
   from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.animate-fade-in   { animation: fade-in   0.2s ease-out; }
+.animate-fade-in    { animation: fade-in    0.2s ease-out; }
 .animate-slide-down { animation: slide-down 0.15s ease-out; }
-.animate-slide-up  { animation: slide-up  0.2s ease-out; }
+.animate-slide-up   { animation: slide-up   0.2s ease-out; }
 
-/* ── Universal Responsive Fixes ────────────────────────────────── */
-
-/* Prevent horizontal overflow on ALL screens */
-html, body, #root {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-/* Ensure everything fits within viewport */
-* {
-  box-sizing: border-box;
-  min-width: 0; /* allows flex children to shrink below content size */
-}
-
-/* Page container - tighter on small phones */
-.page-container {
-  padding-left: max(1rem, env(safe-area-inset-left));
-  padding-right: max(1rem, env(safe-area-inset-right));
-}
-
-@media (max-width: 380px) {
-  /* Extra small phones - iPhone SE, Galaxy A series */
-  .page-container {
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
-  }
-
-  .section-title {
-    font-size: 1.1rem;
-  }
-
-  .card {
-    border-radius: 0.75rem;
-  }
-
-  /* Tighten button text */
-  .btn-primary, .btn-outline, .btn-ghost {
-    font-size: 0.8rem;
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
-  }
-}
-
-/* Tables - always scrollable horizontally, never overflow page */
-.table-container,
-.overflow-x-auto {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  max-width: 100%;
-}
-
-table {
-  min-width: 100%;
-  border-collapse: collapse;
-}
-
-/* Cards - never wider than viewport */
-.card {
-  max-width: 100%;
-  overflow: hidden;
-}
-
-/* Flex wrapping for button groups on small screens */
-@media (max-width: 480px) {
-  .flex.gap-2.flex-wrap,
-  .flex.gap-3.flex-wrap {
-    flex-wrap: wrap;
-  }
-
-  /* Stats grids compress nicely */
-  .grid-cols-3 {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-/* Input fields always full width and readable */
-input, select, textarea {
-  max-width: 100%;
-  font-size: 16px !important; /* prevents iOS zoom on focus */
-}
-
-/* Modal always fits screen */
-.fixed.inset-0 > div[class*="max-w"] {
-  max-height: 90vh;
-  overflow-y: auto;
-}
-
-/* Nav items don't overflow */
-nav a, nav button {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Notification bell number badge */
-@media (max-width: 380px) {
-  .section-subtitle {
-    font-size: 0.7rem;
+/* Respect user preference for reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

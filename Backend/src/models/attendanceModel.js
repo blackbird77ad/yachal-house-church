@@ -26,4 +26,7 @@ attendanceSchema.index({ worker: 1, serviceDate: 1 });
 attendanceSchema.index({ session: 1, checkInTime: 1 });
 attendanceSchema.index({ serviceType: 1, serviceDate: 1 });
 
+// TTL: auto-delete attendance records 180 days after service date
+attendanceSchema.index({ serviceDate: 1 }, { expireAfterSeconds: 180 * 24 * 60 * 60 });
+
 export default mongoose.model("Attendance", attendanceSchema);

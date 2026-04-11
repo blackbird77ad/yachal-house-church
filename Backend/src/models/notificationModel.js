@@ -41,5 +41,10 @@ const notificationSchema = new mongoose.Schema(
 notificationSchema.index({ recipient: 1, isRead: 1 });
 notificationSchema.index({ recipient: 1, createdAt: -1 });
 
+// TTL index: auto-delete READ notifications 15 days after they were read
+// readAt is only set when isRead becomes true — unread docs have no readAt so TTL ignores them
+notificationSchema.index({ readAt: 1 }, { expireAfterSeconds: 15 * 24 * 60 * 60 });
+// Unread notifications older than 30 days are cleaned by the weekly scheduler job
+
 const Notification = mongoose.model("Notification", notificationSchema);
 export default Notification;

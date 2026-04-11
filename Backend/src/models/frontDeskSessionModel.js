@@ -36,4 +36,7 @@ const frontDeskSessionSchema = new mongoose.Schema({
 frontDeskSessionSchema.index({ serviceDate: 1, serviceType: 1 });
 frontDeskSessionSchema.index({ isOpen: 1 });
 
+// TTL: auto-delete closed sessions 180 days after service date
+frontDeskSessionSchema.index({ serviceDate: 1 }, { expireAfterSeconds: 180 * 24 * 60 * 60 });
+
 export default mongoose.model("FrontDeskSession", frontDeskSessionSchema);
