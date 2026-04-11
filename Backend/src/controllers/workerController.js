@@ -3,19 +3,31 @@ import Metrics from "../models/metricsModel.js";
 
 export const getAllWorkers = async (req, res, next) => {
   try {
-    const { status, department, role, isQualified } = req.query;
+    const { status, department, role, isQualified, search, page = 1, limit = 20 } = req.query;
     const filter = {};
 
     if (status) filter.status = status;
     if (department) filter.department = department;
     if (role) filter.role = role;
     if (isQualified !== undefined) filter.isQualified = isQualified === "true";
+    if (search) filter.$or = [
+      { fullName: { $regex: search, $options: "i" } },
+      { email:    { $regex: search, $options: "i" } },
+      { workerId: { $regex: search, $options: "i" } },
+    ];
 
-    const workers = await User.find(filter)
-      .select("-password")
-      .sort({ fullName: 1 });
+    const skip = (Number(page) - 1) * Number(limit);
+    const [workers, total] = await Promise.all([
+      User.find(filter).select("-password").sort({ workerId: 1 }).skip(skip).limit(Number(limit)),
+      User.countDocuments(filter),
+    ]);
 
-    res.status(200).json({ workers });
+    res.status(200).json({
+      workers,
+      total,
+      page: Number(page),
+      totalPages: Math.ceil(total / Number(limit)),
+    });
   } catch (error) {
     next(error);
   }
