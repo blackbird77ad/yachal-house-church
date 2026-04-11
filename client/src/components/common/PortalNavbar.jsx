@@ -63,7 +63,7 @@ const PortalNavbar = () => {
 
   return (
     <>
-      <nav className="sticky top-0 z-40 w-full bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-800 shadow-sm">
+      <nav className="sticky top-0 z-50 w-full bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-800 shadow-sm">
         <div className="max-w-screen-xl mx-auto px-4">
           <div className="flex items-center h-14 gap-3">
 
@@ -128,8 +128,8 @@ const PortalNavbar = () => {
 
                 {userMenuOpen && (
                   <>
-                    <div className="fixed inset-0 z-30" onClick={() => setUserMenuOpen(false)} />
-                    <div className="absolute right-0 top-10 z-40 w-52 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-100 dark:border-slate-700 py-1 animate-slide-down">
+                    <div className="fixed inset-0 z-[60]" onClick={() => setUserMenuOpen(false)} />
+                    <div className="fixed right-4 top-16 z-[70] w-56 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-gray-100 dark:border-slate-700 py-1 animate-slide-down">
                       {/* User info header */}
                       <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-700">
                         <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 truncate">{user?.fullName}</p>

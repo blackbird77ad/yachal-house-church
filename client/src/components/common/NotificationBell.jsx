@@ -24,8 +24,8 @@ const NotificationBell = () => {
 
       {open && (
         <>
-          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-12 z-40 w-80 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 animate-slide-down">
+          <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
+          <div className="fixed right-4 top-16 z-[70] w-80 max-w-[calc(100vw-2rem)] bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-gray-200 dark:border-slate-700 animate-slide-down">
             <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-slate-700">
               <h3 className="font-semibold text-gray-900 dark:text-slate-100">Notifications</h3>
               {unreadCount > 0 && (

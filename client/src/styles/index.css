@@ -364,6 +364,23 @@
 }
 
 
+
+/* ── Navbar & dropdown z-index stack ────────────────────────────
+   nav:        z-50  (sits above all page content)
+   backdrop:   z-60  (covers page when dropdown is open)
+   dropdown:   z-70  (sits above backdrop)
+   modal:      z-80  (sits above everything)
+   ─────────────────────────────────────────────────────────────── */
+nav.sticky, nav[class*="sticky"] {
+  z-index: 50 !important;
+}
+
+/* Dropdowns must never be clipped by parent overflow */
+[class*="z-[70]"],
+[class*="z-[60]"] {
+  position: fixed !important;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    ANIMATIONS
    ═══════════════════════════════════════════════════════════════ */
@@ -398,16 +415,15 @@
    OVERFLOW FIXES — Every phone & tablet
    ═══════════════════════════════════════════════════════════════ */
 
-/* Nuclear option — nothing ever makes the page wider than the screen */
-html, body, #root {
+/* Prevent horizontal scroll - but allow fixed/absolute children to show */
+html, body {
   overflow-x: hidden !important;
   max-width: 100vw !important;
 }
-
-/* Every direct child of root stays inside */
-#root > * {
+/* #root must NOT clip fixed positioned elements like dropdowns */
+#root {
   max-width: 100vw;
-  overflow-x: hidden;
+  /* no overflow:hidden here */
 }
 
 /* Flex children never push past their container */
@@ -429,7 +445,7 @@ html, body, #root {
 /* Cards never wider than viewport */
 .card {
   max-width: 100%;
-  overflow: hidden;
+  /* Do NOT use overflow:hidden here - it clips absolute/fixed dropdowns */
 }
 
 /* Long text never breaks layout */
