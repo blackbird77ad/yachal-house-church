@@ -120,10 +120,10 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
       <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-xl p-4 flex items-start gap-3">
         <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
         <div className="space-y-1">
-          <p className="text-sm font-bold text-amber-800 dark:text-amber-300">Important — Personal Report Only</p>
+          <p className="text-sm font-bold text-amber-800 dark:text-amber-300">Important, Personal Report Only</p>
           <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-            This report must contain <strong>only your personal</strong> evangelism — not your partner's. Do not include souls, follow-ups or church attendees that belong to your partner.
-            If you and a partner evangelised to the same person, only <strong>one of you</strong> may claim them. Whoever submits first takes the claim — the system will block duplicates.
+            This report must contain <strong>only your personal</strong> evangelism, not your partner's. Do not include souls, follow-ups or church attendees that belong to your partner.
+            If you and a partner evangelised to the same person, only <strong>one of you</strong> may claim them. Whoever submits first takes the claim, the system will block duplicates.
           </p>
           <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
             <strong>Age rule:</strong> Only people aged 12 and above count toward your qualification targets.
@@ -140,7 +140,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
           <ul className="space-y-1">
             {duplicates.map((d, i) => (
               <li key={i} className="text-xs text-red-700 dark:text-red-400">
-                • <strong>{d.soul}</strong> — already submitted by <strong>{d.claimedBy}</strong>. Remove this person from your report.
+                • <strong>{d.soul}</strong>, already submitted by <strong>{d.claimedBy}</strong>. Remove this person from your report.
               </li>
             ))}
           </ul>
@@ -187,7 +187,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
             </div>
           </div>
         </div>
-        <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">Minimum 10 qualifying souls (aged 12+) for qualification. Personal only — not your partner's.</p>
+        <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">Minimum 10 qualifying souls (aged 12+) for qualification. Personal only, not your partner's.</p>
         <div className="space-y-4">
           {souls.map((soul, i) => (
             <div key={i} className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-3">
@@ -200,7 +200,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
                 <div>
                   <label className="form-label">Age</label>
                   <input type="number" min="1" max="120" className="input-field" placeholder="Age (blank if unknown)" value={soul.age} onChange={(e) => updateSoul(i, "age", e.target.value)} />
-                  {soul.age !== "" && Number(soul.age) < 12 && <p className="text-xs text-amber-500 mt-1">Under 12 — does not count toward qualification.</p>}
+                  {soul.age !== "" && Number(soul.age) < 12 && <p className="text-xs text-amber-500 mt-1">Under 12, does not count toward qualification.</p>}
                 </div>
                 <div>
                   <label className="form-label">Status</label>
@@ -237,7 +237,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
           <h3 className="font-bold text-gray-900 dark:text-slate-100">Follow-up Activities</h3>
           <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-3 py-1 rounded-full text-sm font-semibold">{followUps.length}</span>
         </div>
-        <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">Only your personal follow-ups — not your partner's.</p>
+        <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">Only your personal follow-ups, not your partner's.</p>
         <div className="space-y-4">
           {followUps.map((f, i) => (
             <div key={i} className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-3">
@@ -268,7 +268,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
             <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-3 py-1 rounded-full text-sm font-semibold">{churchCounts} qualifying count{churchCounts !== 1 ? "s" : ""}</span>
           </div>
         </div>
-        <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">Minimum 4 qualifying counts for qualification (aged 12+, each service = 1 count). You can bring more — any number is allowed. Do not include people brought by your partner.</p>
+        <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">Minimum 4 qualifying counts for qualification (aged 12+, each service = 1 count). You can bring more, any number is allowed. Do not include people brought by your partner.</p>
         <div className="space-y-3">
           {attendees.map((a, i) => (
             <div key={i} className="p-3 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-3">
@@ -278,7 +278,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
                 <input type="number" min="1" max="120" className="input-field w-20" placeholder="Age" value={a.age} onChange={(e) => updateAttendee(i, "age", e.target.value)} />
                 {attendees.length > 1 && <button onClick={() => setAttendees((p) => p.filter((_, idx) => idx !== i))} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>}
               </div>
-              {a.age !== "" && Number(a.age) < 12 && <p className="text-xs text-amber-500 pl-8">Under 12 — does not count toward qualification.</p>}
+              {a.age !== "" && Number(a.age) < 12 && <p className="text-xs text-amber-500 pl-8">Under 12, does not count toward qualification.</p>}
               <div className="flex flex-wrap gap-2 pl-8">
                 {[{ field: "attendedTuesday", label: "Tuesday" }, { field: "attendedSunday", label: "Sunday" }, { field: "attendedSpecial", label: "Special" }].map(({ field, label }) => (
                   <label key={field} className={cn("flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer text-sm transition-colors select-none",
