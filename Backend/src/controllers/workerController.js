@@ -3,7 +3,7 @@ import Metrics from "../models/metricsModel.js";
 
 export const getAllWorkers = async (req, res, next) => {
   try {
-    const { status, department, role, isQualified, search, page = 1, limit = 20 } = req.query;
+    const { status, department, role, isQualified, search, page = 1, limit = 15 } = req.query;
     const filter = {};
 
     if (status) filter.status = status;
