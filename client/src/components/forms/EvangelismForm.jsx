@@ -187,7 +187,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
             </div>
           </div>
         </div>
-        <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">Minimum 10 qualifying souls (aged 12+) for qualification. Personal only, not your partner's.</p>
+        <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">Minimum 10 souls are needed for weekly qualification. Personal only, not your partner's.</p>
         <div className="space-y-4">
           {souls.map((soul, i) => (
             <div key={i} className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-3">
