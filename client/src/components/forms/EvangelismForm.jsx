@@ -183,7 +183,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
           <div className="flex items-center gap-3 flex-wrap">
             <h3 className="font-bold text-gray-900 dark:text-slate-100">Souls Preached To</h3>
             <div className="flex items-center gap-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-3 py-1 rounded-full text-sm font-semibold">
-              <Users className="w-3.5 h-3.5" /> {souls.length} recorded · {qualifyingSoulsCount}/10 qualifying (12+)
+              <Users className="w-3.5 h-3.5" /> Min 10 souls to qualify
             </div>
           </div>
         </div>
