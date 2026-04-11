@@ -269,49 +269,23 @@ const Workers = () => {
         </div>
       </div>
 
-      {/* Pending workers - always visible when there are any */}
-      {pending.length > 0 && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl overflow-hidden">
-          <div className="flex items-center gap-3 px-5 py-3 border-b border-amber-200 dark:border-amber-800">
-            <div className="w-7 h-7 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
-              {pending.length}
-            </div>
-            <div>
-              <p className="font-bold text-amber-800 dark:text-amber-300 text-sm">Awaiting Approval</p>
-              <p className="text-xs text-amber-600 dark:text-amber-400">
-                {pending.length} worker{pending.length !== 1 ? "s" : ""} registered and waiting for your approval
-              </p>
-            </div>
-            <AlertCircle className="w-4 h-4 text-amber-500 ml-auto flex-shrink-0" />
+      {/* Pending alert strip - shows above tabs when there are pending workers but tab not selected */}
+      {pending.length > 0 && statusFilter !== "pending" && (
+        <button
+          onClick={() => { setStatusFilter("pending"); setPage(1); }}
+          className="w-full flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-xl px-4 py-3 text-left hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors"
+        >
+          <div className="w-6 h-6 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+            {pending.length}
           </div>
-          <div className="divide-y divide-amber-100 dark:divide-amber-900/30">
-            {pending.map((w) => (
-              <div key={w._id} className="flex items-center gap-3 px-5 py-3">
-                <div className="w-8 h-8 rounded-full bg-amber-200 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 flex items-center justify-center text-sm font-bold flex-shrink-0">
-                  {w.fullName?.charAt(0)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-200 truncate">{w.fullName}</p>
-                  <p className="text-xs text-amber-600 dark:text-amber-400 truncate">{w.email}</p>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-xs text-amber-500 dark:text-amber-500 hidden sm:block">
-                    <Clock className="w-3 h-3 inline mr-1" />{formatDate(w.createdAt)}
-                  </span>
-                  <button
-                    onClick={() => handleApprove(w._id)}
-                    className="flex items-center gap-1.5 text-xs font-semibold bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg transition-colors"
-                  >
-                    <UserCheck className="w-3.5 h-3.5" /> Approve
-                  </button>
-                  <Link to={`/admin/workers/${w._id}`} className="p-1.5 text-amber-500 hover:text-amber-700 rounded-lg">
-                    <ChevronRight className="w-4 h-4" />
-                  </Link>
-                </div>
-              </div>
-            ))}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-amber-800 dark:text-amber-300">
+              {pending.length} worker{pending.length !== 1 ? "s" : ""} waiting for approval
+            </p>
+            <p className="text-xs text-amber-600 dark:text-amber-400">Tap to review and approve</p>
           </div>
-        </div>
+          <ChevronRight className="w-4 h-4 text-amber-500 flex-shrink-0" />
+        </button>
       )}
 
       {/* Status tabs + search + view toggle */}
@@ -319,22 +293,28 @@ const Workers = () => {
         {/* Status tab buttons */}
         <div className="flex gap-2 flex-wrap">
           {[
-            { value: "approved",  label: "Active",   color: "bg-green-600 text-white",  inactive: "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800" },
-            { value: "suspended", label: "Suspended", color: "bg-red-600 text-white",    inactive: "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800" },
-            { value: "all",       label: "All",       color: "bg-gray-800 dark:bg-slate-200 text-white dark:text-gray-900", inactive: "bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700" },
+            { value: "approved",  label: "Active",    badgeCount: statusFilter === "approved"  ? totalWorkers : null, activeClass: "bg-green-600 text-white", inactiveClass: "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800" },
+            { value: "pending",   label: "Pending",   badgeCount: pending.length, activeClass: "bg-amber-500 text-white", inactiveClass: cn("border text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700", pending.length > 0 ? "bg-amber-50 dark:bg-amber-900/20 animate-pulse" : "bg-gray-50 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-400") },
+            { value: "suspended", label: "Suspended", badgeCount: statusFilter === "suspended" ? totalWorkers : null, activeClass: "bg-red-600 text-white",    inactiveClass: "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800" },
+            { value: "all",       label: "All",       badgeCount: statusFilter === "all"       ? totalWorkers : null, activeClass: "bg-gray-800 dark:bg-slate-100 text-white dark:text-gray-900", inactiveClass: "bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700" },
           ].map((tab) => (
             <button
               key={tab.value}
               onClick={() => { setStatusFilter(tab.value); setPage(1); }}
               className={cn(
-                "px-4 py-2 rounded-xl text-sm font-semibold transition-all",
-                statusFilter === tab.value ? tab.color : tab.inactive
+                "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all",
+                statusFilter === tab.value ? tab.activeClass : tab.inactiveClass
               )}
             >
               {tab.label}
-              {tab.value === "approved"  && totalWorkers > 0 && statusFilter === "approved"  && <span className="ml-2 opacity-75 text-xs">{totalWorkers}</span>}
-              {tab.value === "suspended" && totalWorkers > 0 && statusFilter === "suspended" && <span className="ml-2 opacity-75 text-xs">{totalWorkers}</span>}
-              {tab.value === "all"       && totalWorkers > 0 && statusFilter === "all"       && <span className="ml-2 opacity-75 text-xs">{totalWorkers}</span>}
+              {tab.badgeCount != null && tab.badgeCount > 0 && (
+                <span className={cn(
+                  "text-xs font-bold px-1.5 py-0.5 rounded-full",
+                  statusFilter === tab.value ? "bg-white/25 text-white" : "bg-white dark:bg-slate-700 text-gray-700 dark:text-slate-200"
+                )}>
+                  {tab.badgeCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -373,12 +353,49 @@ const Workers = () => {
       </div>
 
       {/* Workers list */}
-      {loading ? <Loader /> : workers.length === 0 ? (
+      {loading ? <Loader /> : statusFilter === "pending" ? (
+        /* ── Pending tab view ── */
+        pending.length === 0 ? (
+          <div className="card p-12 text-center">
+            <p className="text-gray-400 dark:text-slate-500">No workers waiting for approval.</p>
+          </div>
+        ) : (
+          <div className="card overflow-hidden">
+            <div className="divide-y divide-gray-100 dark:divide-slate-700">
+              {pending.map((w) => (
+                <div key={w._id} className="flex items-center gap-3 px-5 py-4">
+                  <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 flex items-center justify-center text-sm font-bold flex-shrink-0">
+                    {w.fullName?.charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-900 dark:text-slate-100 text-sm truncate">{w.fullName}</p>
+                    <p className="text-xs text-gray-400 dark:text-slate-500 truncate">{w.email}</p>
+                    <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
+                      <Clock className="w-3 h-3 inline mr-1" />Joined {formatDate(w.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={() => handleApprove(w._id)}
+                      className="flex items-center gap-1.5 text-xs font-semibold bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg transition-colors"
+                    >
+                      <UserCheck className="w-3.5 h-3.5" /> Approve
+                    </button>
+                    <Link to={`/admin/workers/${w._id}`} className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg">
+                      <ChevronRight className="w-4 h-4" />
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      ) : workers.length === 0 ? (
         <div className="card p-12 text-center">
           <p className="text-gray-400 dark:text-slate-500">No workers found.</p>
         </div>
       ) : view === "grid" ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {workers.map((w) => <WorkerCard key={w._id} w={w} />)}
         </div>
       ) : (
@@ -386,7 +403,7 @@ const Workers = () => {
           <table className="w-full">
             <thead>
               <tr>
-                {["Worker","ID","Department","Role","Status","Joined",""].map((h) => (
+                {["Worker","ID","Dept","Role","Status","Joined",""].map((h) => (
                   <th key={h} className="table-header whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -395,21 +412,21 @@ const Workers = () => {
               {workers.map((w) => (
                 <tr key={w._id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="table-cell">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 flex items-center justify-center text-sm font-bold flex-shrink-0">
                         {w.fullName?.charAt(0)||"?"}
                       </div>
                       <div className="min-w-0">
-                        <p className="font-medium text-gray-900 dark:text-slate-100 text-sm truncate">{w.fullName}</p>
-                        <p className="text-xs text-gray-400 dark:text-slate-500 truncate">{w.email}</p>
+                        <p className="font-medium text-gray-900 dark:text-slate-100 text-sm truncate max-w-[120px] sm:max-w-none">{w.fullName}</p>
+                        <p className="text-xs text-gray-400 dark:text-slate-500 truncate max-w-[120px] sm:max-w-none hidden sm:block">{w.email}</p>
                       </div>
                     </div>
                   </td>
-                  <td className="table-cell"><span className="font-mono font-bold text-purple-700 dark:text-purple-400">{w.workerId||"—"}</span></td>
-                  <td className="table-cell capitalize text-xs">{w.department?.replace(/-/g," ")||"Unassigned"}</td>
-                  <td className="table-cell capitalize text-xs">{w.role}</td>
+                  <td className="table-cell"><span className="font-mono font-bold text-purple-700 dark:text-purple-400 text-xs">{w.workerId||"—"}</span></td>
+                  <td className="table-cell capitalize text-xs hidden md:table-cell">{w.department?.replace(/-/g," ")||"—"}</td>
+                  <td className="table-cell capitalize text-xs hidden sm:table-cell">{w.role}</td>
                   <td className="table-cell">{statusBadge(w.status)}</td>
-                  <td className="table-cell text-xs">{formatDate(w.createdAt)}</td>
+                  <td className="table-cell text-xs hidden lg:table-cell">{formatDate(w.createdAt)}</td>
                   <td className="table-cell">
                     <div className="flex items-center gap-1">
                       {w.status==="approved"  && <button onClick={()=>handleSuspend(w._id)}   className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg" title="Suspend"><UserX className="w-4 h-4"/></button>}
