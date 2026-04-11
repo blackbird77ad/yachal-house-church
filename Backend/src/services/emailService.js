@@ -12,21 +12,47 @@ const send = async ({ to, subject, html }) => {
   }
 };
 
+const LOGO_URL = "https://yachalhousegh.com/yahal.png";
+
 const base = (content) => `
 <!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#f9fafb;font-family:Arial,sans-serif;">
 <table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
   <tr><td align="center">
-    <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
+    <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;max-width:560px;">
+
+      <!-- Header with logo -->
       <tr><td style="background:#1e0a3c;padding:24px 32px;">
-        <p style="margin:0;color:#ffffff;font-size:20px;font-weight:bold;">Yachal House</p>
-        <p style="margin:4px 0 0;color:#c4b5fd;font-size:13px;">Ridge, Accra, Ghana</p>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="vertical-align:middle;">
+              <img
+                src="${LOGO_URL}"
+                alt="Yachal House"
+                width="54"
+                height="54"
+                style="display:block;border-radius:10px;object-fit:cover;"
+              />
+            </td>
+            <td style="vertical-align:middle;padding-left:14px;">
+              <p style="margin:0;color:#ffffff;font-size:20px;font-weight:bold;letter-spacing:0.3px;">Yachal House</p>
+              <p style="margin:3px 0 0;color:#c4b5fd;font-size:12px;">Ridge, Accra · yachalhousegh.com</p>
+            </td>
+          </tr>
+        </table>
       </td></tr>
+
+      <!-- Body -->
       <tr><td style="padding:32px;">${content}</td></tr>
-      <tr><td style="background:#f3f4f6;padding:16px 32px;text-align:center;">
-        <p style="margin:0;color:#9ca3af;font-size:12px;">Yachal House Church Management System</p>
-        <p style="margin:4px 0 0;color:#9ca3af;font-size:12px;">${APP_URL}</p>
+
+      <!-- Footer -->
+      <tr><td style="background:#f3f4f6;padding:20px 32px;text-align:center;border-top:1px solid #e5e7eb;">
+        <img src="${LOGO_URL}" alt="" width="28" height="28" style="border-radius:6px;margin-bottom:8px;display:block;margin-left:auto;margin-right:auto;" />
+        <p style="margin:0;color:#6b7280;font-size:12px;font-weight:600;">Yachal House Church Management System</p>
+        <p style="margin:4px 0 0;color:#9ca3af;font-size:11px;">Impacting the world with HOPE</p>
+        <p style="margin:8px 0 0;"><a href="${APP_URL}" style="color:#6d28d9;font-size:11px;text-decoration:none;">${APP_URL}</a></p>
       </td></tr>
+
     </table>
   </td></tr>
 </table>
