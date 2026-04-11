@@ -183,11 +183,11 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
           <div className="flex items-center gap-3 flex-wrap">
             <h3 className="font-bold text-gray-900 dark:text-slate-100">Souls Preached To</h3>
             <div className="flex items-center gap-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-3 py-1 rounded-full text-sm font-semibold">
-              <Users className="w-3.5 h-3.5" /> {souls.length} recorded · {qualifyingSoulsCount} qualifying (12+)
+              <Users className="w-3.5 h-3.5" /> {souls.length} recorded · {qualifyingSoulsCount}/10 qualifying (12+)
             </div>
           </div>
         </div>
-        <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">Minimum 4 qualifying souls (aged 12+). Personal only — not your partner's.</p>
+        <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">Minimum 10 qualifying souls (aged 12+) for qualification. Personal only — not your partner's.</p>
         <div className="space-y-4">
           {souls.map((soul, i) => (
             <div key={i} className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-3">
@@ -220,12 +220,12 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
             </div>
           ))}
         </div>
-        {qualifyingSoulsCount < 4 && (
+        {qualifyingSoulsCount < 10 && (
           <div className="mt-4 flex items-center gap-2">
             <div className="flex-1 bg-gray-100 dark:bg-slate-700 rounded-full h-2">
-              <div className="bg-purple-600 h-2 rounded-full transition-all" style={{ width: `${Math.min((qualifyingSoulsCount / 4) * 100, 100)}%` }} />
+              <div className="bg-purple-600 h-2 rounded-full transition-all" style={{ width: `${Math.min((qualifyingSoulsCount / 10) * 100, 100)}%` }} />
             </div>
-            <span className="text-xs text-gray-500 dark:text-slate-400 whitespace-nowrap">{qualifyingSoulsCount}/4 qualifying</span>
+            <span className="text-xs text-gray-500 dark:text-slate-400 whitespace-nowrap">{qualifyingSoulsCount}/10 qualifying</span>
           </div>
         )}
         <div className="mt-4"><label className="form-label">Scriptures Used (comma separated)</label><input className="input-field" placeholder="e.g. Mark 16:15, Romans 1:16" value={scriptures} onChange={(e) => setScriptures(e.target.value)} /></div>
@@ -268,7 +268,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
             <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-3 py-1 rounded-full text-sm font-semibold">{churchCounts} qualifying count{churchCounts !== 1 ? "s" : ""}</span>
           </div>
         </div>
-        <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">Only people aged 12+ count. Each service = 1 count. Do not include people brought by your partner.</p>
+        <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">Minimum 4 qualifying counts for qualification (aged 12+, each service = 1 count). You can bring more — any number is allowed. Do not include people brought by your partner.</p>
         <div className="space-y-3">
           {attendees.map((a, i) => (
             <div key={i} className="p-3 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-3">

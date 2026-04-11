@@ -3,7 +3,7 @@ import Metrics from "../models/metricsModel.js";
 import User from "../models/userModel.js";
 
 const CRITERIA = {
-  MIN_SOULS:            4,   // must be aged 12+
+  MIN_SOULS:            10,  // must be aged 12+
   MIN_FELLOWSHIP_HOURS: 2,
   MIN_CELL_HOURS:       2,
   MIN_ATTENDANCE:       4,
