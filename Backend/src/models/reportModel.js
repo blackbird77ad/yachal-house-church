@@ -9,17 +9,17 @@ const soulSchema = new mongoose.Schema(
       required: true,
     },
     location: { type: String, trim: true },
-    phone:    { type: String, trim: true },
+    phone: { type: String, trim: true },
   },
   { _id: false }
 );
 
 const churchAttendeeSchema = new mongoose.Schema(
   {
-    fullName:        { type: String, required: true, trim: true },
-    olderThan12:     { type: Boolean, default: false }, // ticked = counts toward qualification
+    fullName: { type: String, required: true, trim: true },
+    olderThan12: { type: Boolean, default: false },
     attendedTuesday: { type: Boolean, default: false },
-    attendedSunday:  { type: Boolean, default: false },
+    attendedSunday: { type: Boolean, default: false },
     attendedSpecial: { type: Boolean, default: false },
   },
   { _id: false }
@@ -103,11 +103,11 @@ const reportSchema = new mongoose.Schema(
     },
 
     evangelismData: {
-      souls:              [soulSchema],
-      scriptures:         [{ type: String }],
-      totalSouls:         { type: Number, default: 0 },
-      qualifyingSouls:    { type: Number, default: 0 }, // souls aged 12+
-      evangelismPartners: [{ type: String, trim: true }], // partner names for this week
+      souls: [soulSchema],
+      scriptures: [{ type: String }],
+      totalSouls: { type: Number, default: 0 },
+      qualifyingSouls: { type: Number, default: 0 },
+      evangelismPartners: [{ type: String, trim: true }],
     },
 
     followUpData: {
@@ -119,62 +119,67 @@ const reportSchema = new mongoose.Schema(
 
     serviceAttendance: [serviceAttendanceSchema],
 
-    // cellData — used in evangelism form for workers to report their personal cell attendance
     cellData: {
       didAttendCell: { type: Boolean, default: false },
-      cells: [{
-        cellName:    { type: String },
-        meetingDays: [{ type: String }],
-        reportTime:  { type: String },
-        role:        { type: String },
-        _id: false,
-      }],
+      cells: [
+        {
+          cellName: { type: String },
+          meetingDays: [{ type: String }],
+          reportTime: { type: String },
+          role: { type: String },
+          _id: false,
+        },
+      ],
     },
 
-    // cellReportData — used in CellForm by cell coordinators
     cellReportData: {
-      cellName:         { type: String },
-      location:         { type: String },
-      meetingDay:       { type: String },
-      meetingTime:      { type: String },
-      coordinatorName:       { type: String },
+      cellName: { type: String },
+      location: { type: String },
+      meetingDay: { type: String },
+      meetingTime: { type: String },
+      coordinatorName: { type: String },
       coordinatorReportTime: { type: String },
-      coordinatorRole:       { type: String },
-      coCoordinatorName:     { type: String },
+      coordinatorRole: { type: String },
+      coCoordinatorName: { type: String },
       coCoordinatorReportTime: { type: String },
-      coCoordinatorRole:     { type: String },
-      members: [{
-        fullName:      { type: String },
-        reportingTime: { type: String },
-        role:          { type: String },
-        _id: false,
-      }],
-      attendees: [{
-        fullName:  { type: String },
-        location:  { type: String },
-        phone:     { type: String },
-        _id: false,
-      }],
-      activityType:     { type: String }, // teaching | prayer | holy-ghost | other
-      activityOther:    { type: String },
-      topics: [{
-        title:    { type: String },
-        duration: { type: String },
-        verses:   { type: String },
-        _id: false,
-      }],
+      coCoordinatorRole: { type: String },
+      members: [
+        {
+          fullName: { type: String },
+          reportingTime: { type: String },
+          role: { type: String },
+          _id: false,
+        },
+      ],
+      attendees: [
+        {
+          fullName: { type: String },
+          location: { type: String },
+          phone: { type: String },
+          _id: false,
+        },
+      ],
+      activityType: { type: String },
+      activityOther: { type: String },
+      topics: [
+        {
+          title: { type: String },
+          duration: { type: String },
+          verses: { type: String },
+          _id: false,
+        },
+      ],
       activityDuration: { type: String },
-      activityVerses:   { type: String },
-
-      remarks:          { type: String },
+      activityVerses: { type: String },
+      remarks: { type: String },
     },
 
     fellowshipPrayerData: {
-      fellowshipName:  { type: String },   // Fellowship 1, 2, 3 or other
-      prayedThisWeek:  { type: Boolean, default: false },
-      prayerDay:       { type: String },   // Monday-Friday
-      prayerStartTime: { type: String },   // time prayer started
-      hoursOfPrayer:   { type: Number, default: 0 }, // hours prayed
+      fellowshipName: { type: String },
+      prayedThisWeek: { type: Boolean, default: false },
+      prayerDay: { type: String },
+      prayerStartTime: { type: String },
+      hoursOfPrayer: { type: Number, default: 0 },
     },
 
     productionData: {
@@ -218,42 +223,61 @@ const reportSchema = new mongoose.Schema(
     departmentalData: {
       department: { type: String },
       service: { type: String },
+
       attendees: [
         {
           name: { type: String },
           time: { type: String },
+          _id: false,
         },
       ],
+
       lateness: [
         {
           name: { type: String },
           time: { type: String },
+          _id: false,
         },
       ],
+
       absentees: [
         {
           name: { type: String },
           time: { type: String },
+          _id: false,
         },
       ],
+
       teamAssignments: [
         {
           name: { type: String },
           assignment: { type: String },
+          _id: false,
         },
       ],
+
+      preServicePrayerTimes: {
+        oneHourOrMore: [{ type: String }],
+        thirtyMinsOrMore: [{ type: String }],
+        fifteenMinsOrMore: [{ type: String }],
+      },
+
       convertsToChurch: [
         {
           name: { type: String },
           count: { type: Number },
+          _id: false,
         },
       ],
+
       convertsToCell: [
         {
           name: { type: String },
           count: { type: Number },
+          _id: false,
         },
       ],
+
       activities: { type: String },
       comments: { type: String },
       qualifyingWorkers: [{ type: String }],
