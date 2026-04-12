@@ -149,7 +149,18 @@ const CellForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode, exist
 
       {/* ── Cell Details ────────────────────────────────────────── */}
       <div className="card p-5 space-y-4">
-        <h3 className="font-bold text-gray-900 dark:text-slate-100">Cell Details</h3>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h3 className="font-bold text-gray-900 dark:text-slate-100">Cell Details</h3>
+          <div className="flex items-center gap-2 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-xl px-4 py-2">
+            <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            <div className="text-right">
+              <p className="text-lg font-bold text-purple-700 dark:text-purple-300 leading-none">
+                {(coordinatorName.trim() ? 1 : 0) + (coCoordinatorName.trim() ? 1 : 0) + members.filter((m) => m.fullName.trim()).length + attendees.filter((a) => a.fullName.trim()).length}
+              </p>
+              <p className="text-xs text-purple-500 dark:text-purple-400 leading-none mt-0.5">Total Attendance</p>
+            </div>
+          </div>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="form-label">Cell Name <span className="text-red-400">*</span></label>
