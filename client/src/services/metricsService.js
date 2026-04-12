@@ -34,3 +34,8 @@ export const triggerManualProcessing = async (data) => {
   const response = await axiosInstance.post("/metrics/process", data);
   return response.data;
 };
+
+export const getAllWorkersStatus = async (params = {}) => {
+  const response = await axiosInstance.get("/metrics/all-status", { params });
+  return response.data;
+};
