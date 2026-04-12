@@ -14,7 +14,7 @@ const emptyCell     = { cellName: "", meetingDays: [], reportTime: "", role: "" 
 
 const DAYS         = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const FELLOWSHIPS  = ["Fellowship 1","Fellowship 2","Fellowship 3","Other"];
-const PRAYER_DAYS  = ["Monday","Tuesday","Wednesday","Thursday","Friday"];
+const PRAYER_DAYS  = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 
 const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode, existingReportId }) => {
   const { handleSaveDraft, handleSubmit, handleEdit, fetchMyDraft, loading } = useReports();
@@ -62,7 +62,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
           return s;
         }));
       })
-      .catch(() => {}); // silently fail — worker can still enter manually
+      .catch(() => {}); // silently fail  worker can still enter manually
   }, [weekDate]);
 
   useEffect(() => {
@@ -196,7 +196,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
           <p className="text-sm font-bold text-amber-800 dark:text-amber-300">Personal Report Only</p>
           <p className="text-xs text-amber-700 dark:text-amber-400 mt-1 leading-relaxed">
             Submit only YOUR personal evangelism. Do not include souls or attendees belonging to your partner.
-            Whoever submits first claims the person — duplicates are blocked automatically.
+            Whoever submits first claims the person  duplicates are blocked automatically.
           </p>
         </div>
       </div>
@@ -207,7 +207,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
           <p className="font-bold text-red-800 dark:text-red-300 text-sm flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />{duplicates.length} person(s) already claimed by your partner
           </p>
-          {duplicates.map((d, i) => <p key={i} className="text-xs text-red-700 dark:text-red-400">• <strong>{d.soul}</strong> — submitted by <strong>{d.claimedBy}</strong></p>)}
+          {duplicates.map((d, i) => <p key={i} className="text-xs text-red-700 dark:text-red-400">• <strong>{d.soul}</strong>  submitted by <strong>{d.claimedBy}</strong></p>)}
           <button onClick={() => setDuplicates([])} className="text-xs text-red-500 flex items-center gap-1 pt-1"><X className="w-3 h-3" />Dismiss</button>
         </div>
       )}
@@ -261,14 +261,14 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
               {/* Resolved name confirmation */}
               {partner.resolved && partner.fullName && (
                 <p className="text-xs text-green-600 dark:text-green-400 pl-6 flex items-center gap-1">
-                  <CheckCircle className="w-3 h-3" /> {partner.fullName} — confirmed ✓
+                  <CheckCircle className="w-3 h-3" /> {partner.fullName}  confirmed ✓
                 </p>
               )}
               {partner.notFound && !partner.resolved && (
                 <p className="text-xs text-red-500 dark:text-red-400 pl-6">Worker ID not found. Check and re-enter.</p>
               )}
               {partner.workerId.toLowerCase() === "none" && (
-                <p className="text-xs text-gray-400 pl-6">Going alone this week — noted.</p>
+                <p className="text-xs text-gray-400 pl-6">Going alone this week  noted.</p>
               )}
             </div>
           ))}
@@ -288,7 +288,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
             <Users className="w-3.5 h-3.5" />{souls.length} soul{souls.length !== 1 ? "s" : ""} · min 10 to qualify
           </span>
         </div>
-        <p className="text-xs text-gray-400 dark:text-slate-500">Minimum 10 souls for this week. Personal only — not your partner's.</p>
+        <p className="text-xs text-gray-400 dark:text-slate-500">Minimum 10 souls for this week. Personal only  not your partner's.</p>
         <div className="space-y-3">
           {souls.map((soul, i) => (
             <div key={i} className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-3">
@@ -331,7 +331,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
           <h3 className="font-bold text-gray-900 dark:text-slate-100">Follow-up Activities</h3>
           <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-3 py-1 rounded-full text-sm font-semibold">{followUps.length}</span>
         </div>
-        <p className="text-xs text-gray-400 dark:text-slate-500">Only your personal follow-ups — not your partner's.</p>
+        <p className="text-xs text-gray-400 dark:text-slate-500">Only your personal follow-ups  not your partner's.</p>
         <div className="space-y-3">
           {followUps.map((f, i) => (
             <div key={i} className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-3">
@@ -362,7 +362,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
           </span>
         </div>
         <p className="text-xs text-gray-400 dark:text-slate-500">
-          Tick <strong>"Older than 12"</strong> for each person — only those count toward the 4-count minimum.
+          Tick <strong>"Older than 12"</strong> for each person  only those count toward the 4-count minimum.
           Tick each service they attended (each = 1 count).
         </p>
         <div className="space-y-3">
@@ -378,7 +378,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
                 a.olderThan12 ? "border-purple-400 bg-purple-50 dark:bg-purple-900/20" : "border-gray-200 dark:border-slate-600")}>
                 <input type="checkbox" className="w-4 h-4 accent-purple-600 flex-shrink-0" checked={a.olderThan12} onChange={(e) => updateAttendee(i, "olderThan12", e.target.checked)} />
                 <span className={cn("text-sm font-medium", a.olderThan12 ? "text-purple-700 dark:text-purple-300" : "text-gray-500 dark:text-slate-400")}>
-                  {a.olderThan12 ? "✓ Older than 12 — counts toward qualification" : "Tick if this person is older than 12"}
+                  {a.olderThan12 ? "✓ Older than 12  counts toward qualification" : "Tick if this person is older than 12"}
                 </span>
               </label>
               {/* Services attended */}
@@ -453,7 +453,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
                     readOnly={!!frontDeskCheckIns[s.serviceType]}
                   />
                   {frontDeskCheckIns[s.serviceType] && (
-                    <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Time locked — recorded by front desk</p>
+                    <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Time locked  recorded by front desk</p>
                   )}
                 </div>
                 <div><label className="form-label">Late reason (if any)</label><input className="input-field" placeholder="Leave blank if on time" value={s.lateReason || ""} onChange={(e) => updateSA(i, "lateReason", e.target.value)} /></div>
@@ -542,12 +542,13 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
                   )}
                 </div>
                 <div>
-                  <label className="form-label">Meeting Day(s) <span className="text-gray-400 font-normal text-xs">— tick all that apply</span></label>
+                  <label className="form-label">Meeting Day <span className="text-gray-400 font-normal text-xs"> select one</span></label>
                   <div className="flex flex-wrap gap-2 mt-1">
                     {DAYS.map((day) => (
-                      <button key={day} type="button" onClick={() => toggleCellDay(i, day)}
+                      <button key={day} type="button"
+                        onClick={() => updateCell(i, "meetingDays", cell.meetingDays[0] === day ? [] : [day])}
                         className={cn("px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
-                          cell.meetingDays.includes(day)
+                          cell.meetingDays[0] === day
                             ? "border-purple-400 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300"
                             : "border-gray-200 dark:border-slate-600 text-gray-500 hover:border-purple-300")}>
                         {day}
@@ -645,7 +646,7 @@ const EvangelismForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode,
                   <p className="text-xs text-amber-500 mt-1">Minimum 2 hours to qualify for fellowship criterion.</p>
                 )}
                 {hoursOfPrayer !== "" && Number(hoursOfPrayer) >= 2 && (
-                  <p className="text-xs text-green-600 dark:text-green-400 mt-1 flex items-center gap-1"><CheckCircle className="w-3 h-3" />2+ hours — qualifies ✓</p>
+                  <p className="text-xs text-green-600 dark:text-green-400 mt-1 flex items-center gap-1"><CheckCircle className="w-3 h-3" />2+ hours  qualifies ✓</p>
                 )}
               </div>
             </div>
