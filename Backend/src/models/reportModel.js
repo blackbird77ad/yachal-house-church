@@ -119,15 +119,54 @@ const reportSchema = new mongoose.Schema(
 
     serviceAttendance: [serviceAttendanceSchema],
 
+    // cellData — used in evangelism form for workers to report their personal cell attendance
     cellData: {
       didAttendCell: { type: Boolean, default: false },
       cells: [{
         cellName:    { type: String },
-        meetingDays: [{ type: String }],  // e.g. ["Monday", "Wednesday"]
-        reportTime:  { type: String },    // time worker arrived
-        role:        { type: String },    // any role played
+        meetingDays: [{ type: String }],
+        reportTime:  { type: String },
+        role:        { type: String },
         _id: false,
       }],
+    },
+
+    // cellReportData — used in CellForm by cell coordinators
+    cellReportData: {
+      cellName:         { type: String },
+      location:         { type: String },
+      meetingDay:       { type: String },
+      meetingTime:      { type: String },
+      coordinatorName:       { type: String },
+      coordinatorReportTime: { type: String },
+      coordinatorRole:       { type: String },
+      coCoordinatorName:     { type: String },
+      coCoordinatorReportTime: { type: String },
+      coCoordinatorRole:     { type: String },
+      members: [{
+        fullName:      { type: String },
+        reportingTime: { type: String },
+        role:          { type: String },
+        _id: false,
+      }],
+      attendees: [{
+        fullName:  { type: String },
+        location:  { type: String },
+        phone:     { type: String },
+        _id: false,
+      }],
+      activityType:     { type: String }, // teaching | prayer | holy-ghost | other
+      activityOther:    { type: String },
+      topics: [{
+        title:    { type: String },
+        duration: { type: String },
+        verses:   { type: String },
+        _id: false,
+      }],
+      activityDuration: { type: String },
+      activityVerses:   { type: String },
+
+      remarks:          { type: String },
     },
 
     fellowshipPrayerData: {
