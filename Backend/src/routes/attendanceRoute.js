@@ -3,6 +3,7 @@ import {
   createSession, checkInWorker, getActiveSession,
   getSessionAttendance, getAttendanceHistory,
   closeSession, getSessionReport, searchWorkerForCheckIn,
+  getMyWeekAttendance,
 } from "../controllers/attendanceController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import { isAdminLevel } from "../middleware/roleMiddleware.js";
@@ -10,6 +11,7 @@ import { isAdminLevel } from "../middleware/roleMiddleware.js";
 const router = express.Router();
 
 router.get("/active",              protect, getActiveSession);
+router.get("/my-week",             protect, getMyWeekAttendance);
 router.get("/history",             protect, isAdminLevel, getAttendanceHistory);
 router.get("/search",              protect, searchWorkerForCheckIn);
 router.post("/session",            protect, createSession);

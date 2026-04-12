@@ -4,6 +4,7 @@ import {
   submitReport,
   editSubmittedReport,
   getMyReports,
+  getMyCellNames,
   getMyDraft,
   getAllReports,
   getReportById,
@@ -17,7 +18,8 @@ const router = express.Router();
 router.post("/draft", protect, reportLimiter, saveDraft);
 router.post("/submit", protect, reportLimiter, submitReport);
 router.put("/edit/:reportId", protect, reportLimiter, editSubmittedReport);
-router.get("/my-reports", protect, getMyReports);
+router.get("/my-reports",    protect, getMyReports);
+router.get("/my-cell-names", protect, getMyCellNames);
 router.get("/my-draft", protect, getMyDraft);
 router.get("/", protect, isAdminLevel, getAllReports);
 router.get("/:reportId", protect, getReportById);

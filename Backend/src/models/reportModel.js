@@ -3,7 +3,6 @@ import mongoose from "mongoose";
 const soulSchema = new mongoose.Schema(
   {
     fullName: { type: String, required: true, trim: true },
-    age:      { type: Number },  // must be 12+ to count toward qualification
     status: {
       type: String,
       enum: ["saved", "filled", "saved-not-filled", "already-saved", "already-saved-not-filled"],
@@ -18,7 +17,7 @@ const soulSchema = new mongoose.Schema(
 const churchAttendeeSchema = new mongoose.Schema(
   {
     fullName:        { type: String, required: true, trim: true },
-    age:             { type: Number },  // must be 12+ to count toward qualification
+    olderThan12:     { type: Boolean, default: false }, // ticked = counts toward qualification
     attendedTuesday: { type: Boolean, default: false },
     attendedSunday:  { type: Boolean, default: false },
     attendedSpecial: { type: Boolean, default: false },
@@ -121,27 +120,22 @@ const reportSchema = new mongoose.Schema(
     serviceAttendance: [serviceAttendanceSchema],
 
     cellData: {
-      cellName: { type: String },
-      coordinatorName: { type: String },
-      meetingDate: { type: Date },
-      attendees: [{ type: String }],
-      topicsTaught: [{ type: String }],
-      activities: [{ type: String }],
-      newConverts: [{ type: String }],
-      didAttend: { type: Boolean },
-      role: { type: String },
-      reportingTime: { type: String },
+      didAttendCell: { type: Boolean, default: false },
+      cells: [{
+        cellName:    { type: String },
+        meetingDays: [{ type: String }],  // e.g. ["Monday", "Wednesday"]
+        reportTime:  { type: String },    // time worker arrived
+        role:        { type: String },    // any role played
+        _id: false,
+      }],
     },
 
     fellowshipPrayerData: {
-      fellowship: { type: String },
-      meetingDate: { type: Date },
-      timeStarted: { type: String },
-      timeEnded: { type: String },
-      duration: { type: Number },
-      prayerLedBy: { type: String },
-      participants: [{ type: String }],
-      comments: { type: String },
+      fellowshipName:  { type: String },   // Fellowship 1, 2, 3 or other
+      prayedThisWeek:  { type: Boolean, default: false },
+      prayerDay:       { type: String },   // Monday-Friday
+      prayerStartTime: { type: String },   // time prayer started
+      hoursOfPrayer:   { type: Number, default: 0 }, // hours prayed
     },
 
     productionData: {

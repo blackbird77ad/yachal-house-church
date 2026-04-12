@@ -3,10 +3,9 @@ import Metrics from "../models/metricsModel.js";
 import User from "../models/userModel.js";
 
 const CRITERIA = {
-  MIN_SOULS:            10,  // must be aged 12+
-  MIN_FELLOWSHIP_HOURS: 2,
-  MIN_CELL_HOURS:       2,
-  MIN_ATTENDANCE:       4,
+  MIN_SOULS:            10,  // souls preached to (no age filter - removed)
+  MIN_FELLOWSHIP_HOURS: 2,   // hours of fellowship prayer
+  MIN_ATTENDANCE:       4,   // church attendees older than 12 who attended a service
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -19,18 +18,15 @@ const getWeekRef = (date = new Date()) => {
   return monday;
 };
 
-// Count souls aged 12+ from evangelism data
+// All souls count toward the 10 minimum (age filter removed from soul form)
 const countQualifyingSouls = (evangelismData) => {
-  if (!evangelismData?.souls?.length) return 0;
-  return evangelismData.souls.filter(
-    (s) => !s.age || s.age >= 12
-  ).length;
+  return evangelismData?.souls?.length || 0;
 };
 
-// Count church attendees aged 12+ across all services
+// Count church attendees ticked as olderThan12 across all services attended
 const countQualifyingAttendees = (churchAttendees) => {
   if (!churchAttendees?.length) return 0;
-  return churchAttendees.filter((a) => !a.age || a.age >= 12).length;
+  return churchAttendees.filter((a) => a.olderThan12 === true).length;
 };
 
 // Count attendance from front-desk verified records + church attendees
@@ -42,9 +38,9 @@ const countServiceAttendance = (report) => {
     count += report.serviceAttendance.filter((s) => s.attended).length;
   }
 
-  // Church attendees (people brought to church) aged 12+ per service
+  // Church attendees ticked olderThan12 per service they attended
   if (report.churchAttendees?.length) {
-    const qualifying = report.churchAttendees.filter((a) => !a.age || a.age >= 12);
+    const qualifying = report.churchAttendees.filter((a) => a.olderThan12 === true);
     qualifying.forEach((a) => {
       if (a.attendedTuesday) count++;
       if (a.attendedSunday) count++;
@@ -55,17 +51,15 @@ const countServiceAttendance = (report) => {
   return count;
 };
 
-// Compute fellowship hours from fellowshipPrayerData
+// Fellowship hours from new schema (hoursOfPrayer field)
 const getFellowshipHours = (report) => {
-  if (!report.fellowshipPrayerData?.duration) return 0;
-  return report.fellowshipPrayerData.duration / 60; // duration stored in minutes
+  if (!report.fellowshipPrayerData?.prayedThisWeek) return 0;
+  return report.fellowshipPrayerData.hoursOfPrayer || 0;
 };
 
-// Compute cell hours from cellData
-const getCellHours = (report) => {
-  if (!report.cellData?.didAttend) return 0;
-  // Cell meeting assumed 2 hours if attended - adjust if you store duration
-  return 2;
+// Cell: attended at least one cell = qualifies (boolean)
+const didAttendCell = (report) => {
+  return report.cellData?.didAttendCell === true && (report.cellData?.cells?.length || 0) > 0;
 };
 
 // ── Core processing ───────────────────────────────────────────────────────────
@@ -105,38 +99,42 @@ export const processWeeklyMetrics = async (weekReference) => {
     let totalSouls = 0;
     let qualifyingSouls = 0;
     let fellowshipHours = 0;
-    let cellHours = 0;
+    let attendedCell = false;
     let serviceAttendance = 0;
 
     for (const r of workerReports) {
       if (r.reportType === "evangelism") {
-        totalSouls      += r.evangelismData?.souls?.length || 0;
-        qualifyingSouls += countQualifyingSouls(r.evangelismData);
+        totalSouls        += r.evangelismData?.souls?.length || 0;
+        qualifyingSouls   += countQualifyingSouls(r.evangelismData);
         serviceAttendance += countServiceAttendance(r);
+        // Cell and fellowship are now inside the evangelism report
+        fellowshipHours   += getFellowshipHours(r);
+        if (didAttendCell(r)) attendedCell = true;
       }
+      // Legacy support for separate report types
       if (r.reportType === "fellowship-prayer") {
         fellowshipHours += getFellowshipHours(r);
       }
       if (r.reportType === "cell") {
-        cellHours += getCellHours(r);
+        if (r.cellData?.didAttendCell) attendedCell = true;
       }
     }
 
-    const soulsQualified       = qualifyingSouls >= CRITERIA.MIN_SOULS;
-    const fellowshipQualified  = fellowshipHours >= CRITERIA.MIN_FELLOWSHIP_HOURS;
-    const cellQualified        = cellHours >= CRITERIA.MIN_CELL_HOURS;
-    const attendanceQualified  = serviceAttendance >= CRITERIA.MIN_ATTENDANCE;
-    const reportQualified      = reportSubmitted;
+    const soulsQualified      = qualifyingSouls >= CRITERIA.MIN_SOULS;
+    const fellowshipQualified = fellowshipHours >= CRITERIA.MIN_FELLOWSHIP_HOURS;
+    const cellQualified       = attendedCell;       // attended at least 1 cell = qualifies
+    const attendanceQualified = serviceAttendance >= CRITERIA.MIN_ATTENDANCE;
+    const reportQualified     = reportSubmitted;
 
     const qualificationBreakdown = {
-      soulsQualified,
-      fellowshipQualified,
-      cellQualified,
-      attendanceQualified,
-      reportQualified,
+      soulsQualified,       // 10+ souls preached to
+      fellowshipQualified,  // 2+ hours fellowship prayer
+      cellQualified,        // attended cell meeting
+      attendanceQualified,  // 4+ people 12+ brought to church
+      reportQualified,      // submitted report
     };
 
-    // Must meet ALL 5 criteria to qualify
+    // Must meet ALL 5 criteria to be fully qualified
     const isQualified =
       soulsQualified &&
       fellowshipQualified &&
@@ -144,8 +142,9 @@ export const processWeeklyMetrics = async (weekReference) => {
       attendanceQualified &&
       reportQualified;
 
+    // Score: each criterion = 20 points = 100 total
     const passedCount = Object.values(qualificationBreakdown).filter(Boolean).length;
-    const totalScore  = Math.round((passedCount / 5) * 100);
+    const totalScore  = passedCount * 20; // 20 per criterion, max 100
 
     await Metrics.findOneAndUpdate(
       { worker: worker._id, weekReference: week, isLateSubmission: false },
@@ -156,7 +155,7 @@ export const processWeeklyMetrics = async (weekReference) => {
         totalSouls,
         qualifyingSouls,
         fellowshipHours,
-        cellHours,
+        attendedCell,
         serviceAttendance,
         isQualified,
         qualificationBreakdown,
@@ -190,7 +189,7 @@ export const processLateMetrics = async (userId, weekReference) => {
   let totalSouls = 0;
   let qualifyingSouls = 0;
   let fellowshipHours = 0;
-  let cellHours = 0;
+  let attendedCell = false;
   let serviceAttendance = 0;
 
   for (const r of reports) {
@@ -198,26 +197,24 @@ export const processLateMetrics = async (userId, weekReference) => {
       totalSouls += r.evangelismData?.souls?.length || 0;
       qualifyingSouls += countQualifyingSouls(r.evangelismData);
       serviceAttendance += countServiceAttendance(r);
-    }
-    if (r.reportType === "fellowship-prayer") {
       fellowshipHours += getFellowshipHours(r);
+      if (didAttendCell(r)) attendedCell = true;
     }
-    if (r.reportType === "cell") {
-      cellHours += getCellHours(r);
-    }
+    if (r.reportType === "fellowship-prayer") { fellowshipHours += getFellowshipHours(r); }
+    if (r.reportType === "cell") { if (r.cellData?.didAttendCell) attendedCell = true; }
   }
 
   const qualificationBreakdown = {
-    soulsQualified: qualifyingSouls >= CRITERIA.MIN_SOULS,
+    soulsQualified:      qualifyingSouls >= CRITERIA.MIN_SOULS,
     fellowshipQualified: fellowshipHours >= CRITERIA.MIN_FELLOWSHIP_HOURS,
-    cellQualified: cellHours >= CRITERIA.MIN_CELL_HOURS,
+    cellQualified:       attendedCell,
     attendanceQualified: serviceAttendance >= CRITERIA.MIN_ATTENDANCE,
-    reportQualified: true,
+    reportQualified:     true,
   };
 
   const isQualified = Object.values(qualificationBreakdown).every(Boolean);
   const passedCount = Object.values(qualificationBreakdown).filter(Boolean).length;
-  const totalScore = Math.round((passedCount / 5) * 100);
+  const totalScore  = passedCount * 20;
 
   await Metrics.findOneAndUpdate(
     { worker: userId, weekReference: week, isLateSubmission: true },

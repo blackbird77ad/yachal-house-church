@@ -1,4 +1,5 @@
 import Report from "../models/reportModel.js";
+import User from "../models/userModel.js";
 import { processWeeklyMetrics } from "../services/metricsService.js";
 import PortalWindow from "../models/portalWindowModel.js";
 import { processLateMetrics } from "../services/metricsService.js";
@@ -92,7 +93,7 @@ export const submitReport = async (req, res, next) => {
     if (reportData.evangelismData?.souls) {
       const souls = reportData.evangelismData.souls;
       reportData.evangelismData.totalSouls = souls.length;
-      // Only souls aged 12+ count toward qualification
+      // Only souls aged 12+ count toward qualification (minimum 10 to qualify)
       reportData.evangelismData.qualifyingSouls = souls.filter(
         (s) => !s.age || s.age >= 12
       ).length;
@@ -105,47 +106,80 @@ export const submitReport = async (req, res, next) => {
         }));
       }
 
-      // Partner duplicate check - if partners listed, check if any soul
-      // (matched by fullName + phone + status) was already submitted by a partner
-      const partners = reportData.evangelismData?.evangelismPartners || [];
-      if (partners.length > 0 && souls.length > 0) {
-        // Find reports submitted by workers whose names match the listed partners
-        const partnerReports = await Report.find({
-          reportType: "evangelism",
-          weekReference,
-          status: "submitted",
-          submittedBy: { $ne: req.user._id },
-        }).populate("submittedBy", "fullName");
+      // ── Partner duplicate check ─────────────────────────────────────────────
+      // Partners are now stored as Worker IDs (e.g. "042") — exact, reliable match
+      // Also support legacy name-based partners for backwards compatibility
+      const partnerEntries = reportData.evangelismData?.evangelismPartners || [];
 
-        // Filter to only reports from listed partners
-        const partnerSubmissions = partnerReports.filter((r) =>
-          partners.some((p) =>
-            r.submittedBy?.fullName?.toLowerCase().includes(p.toLowerCase().trim())
-          )
-        );
+      if (partnerEntries.length > 0 && souls.length > 0) {
+        // Separate Worker IDs (numeric strings) from plain names
+        const partnerWorkerIds = partnerEntries
+          .map((p) => p.trim())
+          .filter((p) => p && p.toLowerCase() !== "none" && /^\d+$/.test(p.replace(/^0+/, "") ? p : ""));
+
+        const partnerNames = partnerEntries
+          .map((p) => p.trim())
+          .filter((p) => p && p.toLowerCase() !== "none" && !/^\d+$/.test(p));
+
+        // Look up partner users by Worker ID first (reliable), then fall back to name
+        let partnerUserIds = [];
+
+        if (partnerWorkerIds.length > 0) {
+          const partnerUsers = await User.find({
+            workerId: { $in: partnerWorkerIds },
+          }).select("_id fullName workerId");
+          partnerUserIds = partnerUsers.map((u) => u._id);
+        }
+
+        // Find this week's submitted evangelism reports from confirmed partners
+        const partnerReports = await Report.find({
+          reportType:    "evangelism",
+          weekReference,
+          status:        "submitted",
+          submittedBy:   {
+            $ne: req.user._id,
+            ...(partnerUserIds.length > 0 ? { $in: partnerUserIds } : {}),
+          },
+        }).populate("submittedBy", "fullName workerId");
+
+        // If no Worker ID match was found, fall back to name matching (legacy)
+        const partnerSubmissions = partnerUserIds.length > 0
+          ? partnerReports
+          : partnerReports.filter((r) =>
+              partnerNames.some((name) =>
+                r.submittedBy?.fullName?.toLowerCase().includes(name.toLowerCase())
+              )
+            );
 
         if (partnerSubmissions.length > 0) {
           const duplicates = [];
           for (const soul of souls) {
             for (const pr of partnerSubmissions) {
-              const alreadyClaimed = pr.evangelismData?.souls?.some(
-                (ps) =>
-                  ps.fullName?.toLowerCase().trim() === soul.fullName?.toLowerCase().trim() &&
-                  ps.status === soul.status &&
-                  ps.phone && soul.phone &&
-                  ps.phone.replace(/\s+/g, "") === soul.phone.replace(/\s+/g, "")
-              );
+              // Match by name + phone (both must match) OR name + status if no phone given
+              const alreadyClaimed = pr.evangelismData?.souls?.some((ps) => {
+                const nameMatch = ps.fullName?.toLowerCase().trim() === soul.fullName?.toLowerCase().trim();
+                if (!nameMatch) return false;
+                // If both have phone — require phone match too
+                if (ps.phone && soul.phone) {
+                  return ps.phone.replace(/\s+/g, "") === soul.phone.replace(/\s+/g, "");
+                }
+                // If no phone on either — name + status match is enough
+                return ps.status === soul.status;
+              });
+
               if (alreadyClaimed) {
                 duplicates.push({
-                  soul: soul.fullName,
+                  soul:      soul.fullName,
                   claimedBy: pr.submittedBy?.fullName,
+                  claimedByWorkerId: pr.submittedBy?.workerId,
                 });
               }
             }
           }
+
           if (duplicates.length > 0) {
             return res.status(400).json({
-              message: `${duplicates.length} person(s) in your report have already been submitted by your evangelism partner(s). Each person can only be claimed by one partner. Please remove them from your report.`,
+              message: `${duplicates.length} soul(s) in your report have already been submitted by your evangelism partner. Remove them before submitting.`,
               duplicates,
             });
           }
@@ -345,4 +379,32 @@ export const lockAllReports = async (weekReference) => {
     { weekReference, status: "submitted" },
     { isEditable: false }
   );
+};
+
+// Returns unique cell names from worker's past evangelism reports
+// Used by the form to suggest previously entered cell names
+export const getMyCellNames = async (req, res, next) => {
+  try {
+    const reports = await Report.find({
+      submittedBy: req.user._id,
+      reportType:  "evangelism",
+      status:      "submitted",
+      "cellData.cells.0": { $exists: true }, // has at least one cell
+    })
+      .select("cellData.cells.cellName")
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+
+    const names = new Set();
+    for (const r of reports) {
+      for (const cell of r.cellData?.cells || []) {
+        if (cell.cellName?.trim()) names.add(cell.cellName.trim());
+      }
+    }
+
+    res.status(200).json({ cellNames: [...names] });
+  } catch (error) {
+    next(error);
+  }
 };

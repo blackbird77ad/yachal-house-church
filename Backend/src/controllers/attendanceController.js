@@ -345,3 +345,52 @@ export const searchWorkerForCheckIn = async (req, res, next) => {
     res.status(200).json({ workers });
   } catch (error) { next(error); }
 };
+
+// Worker fetches their own front-desk check-ins for the current week
+// Used by the evangelism form to pre-fill service attendance times
+export const getMyWeekAttendance = async (req, res, next) => {
+  try {
+    const { weekStart } = req.query;
+
+    // Default to current week Monday
+    let monday;
+    if (weekStart) {
+      monday = new Date(weekStart);
+    } else {
+      const now = new Date();
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      monday = new Date(now.setDate(diff));
+      monday.setHours(0, 0, 0, 0);
+    }
+
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    sunday.setHours(23, 59, 59, 999);
+
+    const records = await Attendance.find({
+      worker:      req.user._id,
+      serviceDate: { $gte: monday, $lte: sunday },
+    }).select("serviceType checkInTime timingCategory serviceDate").lean();
+
+    // Return as a map: { tuesday: "07:30", sunday: "09:15" }
+    const checkIns = {};
+    for (const r of records) {
+      const time = new Date(r.checkInTime).toLocaleTimeString("en-GH", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        timeZone: "Africa/Accra",
+      });
+      checkIns[r.serviceType] = {
+        time,          // "07:30"
+        timingCategory: r.timingCategory,
+        serviceDate: r.serviceDate,
+      };
+    }
+
+    res.status(200).json({ checkIns });
+  } catch (error) {
+    next(error);
+  }
+};
