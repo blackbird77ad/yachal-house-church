@@ -45,8 +45,14 @@ export const getDisqualifiedWorkersByCloseness = async (weekReference) => {
 
 export const getWorkersWithNoSubmission = async (weekReference) => {
   const workersWithMetrics = await Metrics.find({ weekReference, isLateSubmission: false }).distinct("worker");
-  const allWorkers = await User.find({ status: "approved", role: "worker", workerId: { $ne: "001" } }).select("fullName workerId department");
-  return allWorkers
+  // Include ALL approved workers regardless of role (admins/mods/pastors also do evangelism)
+  // Exclude pastor 001 and users without a workerId (not yet approved)
+  const allWorkers = await User.find({
+    status: "approved",
+    workerId: { $exists: true, $nin: [null, "", "001"] },
+  }).select("fullName workerId department role").lean();
+  const filteredWorkers = allWorkers;
+  return filteredWorkers
     .filter((w) => !workersWithMetrics.map(String).includes(String(w._id)))
     .map((w) => ({ worker: w, totalScore: 0, submittedReport: false, qualificationBreakdown: null }));
 };
