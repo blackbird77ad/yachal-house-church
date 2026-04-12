@@ -1,37 +1,77 @@
 import { useState, useEffect } from "react";
-import { Plus, Trash2, Save, Send, CheckCircle } from "lucide-react";
+import { Save, Send, CheckCircle } from "lucide-react";
 import { useReports } from "../../hooks/useReports";
 import { useToast, ToastContainer } from "../../components/common/Toast";
+import { cn } from "../../utils/scoreHelpers";
 
-const listField = (label, value, onChange, placeholder) => (
-  <div className="sm:col-span-2">
-    <label className="form-label">{label}</label>
-    <textarea className="input-field resize-none" rows={2} placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
-  </div>
-);
-
-const ProductionForm = ({ weekType, portalOpen, lateWeekDate, isArrears, isEditMode }) => {
-  const { handleSaveDraft, handleSubmit, fetchMyDraft, loading } = useReports();
+const ProductionForm = ({ weekType, portalOpen, weekDate, isArrears, isEditMode, existingReportId }) => {
+  const { handleSaveDraft, handleSubmit, handleEdit, fetchMyDraft, loading } = useReports();
   const { toasts, toast, removeToast } = useToast();
   const [submitted, setSubmitted] = useState(false);
+
   const [form, setForm] = useState({
-    meeting: "", meetingDate: "", reportingTime: "", prayer: "",
-    songMinistration: "", media: "", ushering: "", frontDesk: "",
-    serviceCoordination: "", briefWriting: "", security: "", sundaySchool: "",
-    preServicePrayers: { thirtyToSixtyMins: "", tenToThirtyMins: "" },
-    permissionsSought: "", observations: "", challenges: "", suggestions: "",
+    // Service details
+    meeting:       "",
+    meetingDate:   "",
+    reportingTime: "",
+
+    // Department assignments
+    prayer:              "",
+    songMinistration:    "",
+    media:               "",
+    ushering:            "",
+    frontDesk:           "",
+    serviceCoordination: "",
+    briefWriting:        "",
+    security:            "",
+    sundaySchool:        "",
+    otherDepartment:     "",
+
+    // Pre-service worker reporting times
+    preService: {
+      oneHourPlus:     "", // reported 1 hour or more before service
+      thirtyMins:      "", // reported at least 30 minutes before service
+      fifteenMins:     "", // reported at least 15 minutes before service
+    },
+
+    // During-service late reporting
+    duringService: {
+      lateDuty:        "", // workers who reported late for duty
+    },
+
+    // Permissions and observations
+    permissionsSought: "",
+    observations:      "",
+    challenges:        "",
+    suggestions:       "",
   });
 
+  const set = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
+  const setNested = (group, field, value) => setForm((prev) => ({ ...prev, [group]: { ...prev[group], [field]: value } }));
+
   useEffect(() => {
-    fetchMyDraft({ reportType: "production", weekType }).then(({ draft }) => {
-      if (!draft) return;
-      if (draft.status === "submitted") setSubmitted(true);
-      if (draft.productionData) setForm({ ...form, ...draft.productionData, preServicePrayers: draft.productionData.preServicePrayers || form.preServicePrayers });
-    }).catch(() => {});
-  }, [weekType]);
+    fetchMyDraft({ reportType: "production", weekType, weekDate })
+      .then(({ draft }) => {
+        if (!draft) return;
+        if (draft.status === "submitted" && !isEditMode) { setSubmitted(true); return; }
+        if (draft.productionData) {
+          setForm((prev) => ({
+            ...prev,
+            ...draft.productionData,
+            preService:    { ...prev.preService,    ...(draft.productionData.preService    || {}) },
+            duringService: { ...prev.duringService, ...(draft.productionData.duringService || {}) },
+          }));
+        }
+      }).catch(() => {});
+  }, [weekType, weekDate]);
 
   const buildPayload = () => ({
-    isEdit: isEditMode || false, reportType: "production", weekType, productionData: { ...form } });
+    reportType: "production",
+    weekType,
+    weekDate,
+    isEdit: isEditMode,
+    productionData: { ...form },
+  });
 
   const handleDraft = async () => {
     try { await handleSaveDraft(buildPayload()); toast.success("Draft saved", "Progress saved."); }
@@ -39,80 +79,176 @@ const ProductionForm = ({ weekType, portalOpen, lateWeekDate, isArrears, isEditM
   };
 
   const handleFinalSubmit = async () => {
-    if (!portalOpen) { toast.warning("Portal closed", "Portal is not open yet."); return; }
-    try { await handleSubmit(buildPayload()); setSubmitted(true); toast.success("Submitted", "Production report submitted."); }
-    catch (err) { toast.error("Error", err.response?.data?.message || "Could not submit."); }
+    if (!portalOpen) { toast.warning("Portal closed", "The portal is not open."); return; }
+    if (!form.meeting) { toast.warning("Required", "Please select the service type."); return; }
+    try {
+      if (isEditMode && existingReportId) await handleEdit(existingReportId, buildPayload());
+      else await handleSubmit(buildPayload());
+      setSubmitted(true);
+      toast.success(isEditMode ? "Updated" : "Submitted", "Production report submitted.");
+    } catch (err) {
+      toast.error("Error", err.response?.data?.message || "Could not submit.");
+    }
   };
 
   if (submitted) return (
-    <div className="card p-12 text-center">
-      <CheckCircle className="w-14 h-14 text-green-500 mx-auto mb-4" />
-      <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-2">Report Submitted</h3>
-      <button onClick={() => setSubmitted(false)} className="btn-outline mt-4">Edit Report</button>
+    <div className="card p-12 text-center space-y-4">
+      <CheckCircle className="w-14 h-14 text-green-500 mx-auto" />
+      <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100">Production Report Submitted</h3>
+      <p className="text-gray-500 dark:text-slate-400 text-sm">
+        {isArrears ? "Submitted and locked permanently." : "Editable until Monday 2:59pm."}
+      </p>
+      {!isArrears && portalOpen && (
+        <button onClick={() => setSubmitted(false)} className="btn-outline">Edit Report</button>
+      )}
     </div>
   );
 
-  const f = (field) => ({ value: form[field], onChange: (v) => setForm({ ...form, [field]: v }) });
+  const TextArea = ({ label, value, onChange, placeholder, rows = 2 }) => (
+    <div>
+      <label className="form-label">{label}</label>
+      <textarea
+        className="input-field resize-none"
+        rows={rows}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
 
   return (
     <div className="space-y-6">
       <ToastContainer toasts={toasts} onClose={removeToast} />
 
-      <div className="card p-6">
-        <h3 className="font-bold text-gray-900 dark:text-slate-100 mb-5">Service Details</h3>
+      {/* ── Service Details ─────────────────────────────────────── */}
+      <div className="card p-5 space-y-4">
+        <h3 className="font-bold text-gray-900 dark:text-slate-100">Service Details</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div><label className="form-label">Meeting/Service</label>
-            <select className="input-field" value={form.meeting} onChange={(e) => setForm({ ...form, meeting: e.target.value })}>
-              <option value="">Select</option>
-              <option>Tuesday Service</option>
-              <option>Sunday Service</option>
-              <option>Special Service</option>
+          <div>
+            <label className="form-label">Service Type <span className="text-red-400">*</span></label>
+            <select className="input-field" value={form.meeting} onChange={(e) => set("meeting", e.target.value)}>
+              <option value="">Select service</option>
+              <option value="tuesday">Tuesday Service</option>
+              <option value="sunday">Sunday Service</option>
+              <option value="special">Special Service</option>
             </select>
           </div>
-          <div><label className="form-label">Date</label><input type="date" className="input-field" value={form.meetingDate} onChange={(e) => setForm({ ...form, meetingDate: e.target.value })} /></div>
-          <div><label className="form-label">Reporting Time</label><input type="time" className="input-field" value={form.reportingTime} onChange={(e) => setForm({ ...form, reportingTime: e.target.value })} /></div>
+          <div>
+            <label className="form-label">Date</label>
+            <input type="date" className="input-field" value={form.meetingDate} onChange={(e) => set("meetingDate", e.target.value)} />
+          </div>
+          <div>
+            <label className="form-label">Service Coordinator Reporting Time</label>
+            <input type="time" className="input-field" value={form.reportingTime} onChange={(e) => set("reportingTime", e.target.value)} />
+          </div>
         </div>
       </div>
 
-      <div className="card p-6">
-        <h3 className="font-bold text-gray-900 dark:text-slate-100 mb-5">Department Assignments</h3>
+      {/* ── Department Assignments ──────────────────────────────── */}
+      <div className="card p-5 space-y-4">
+        <h3 className="font-bold text-gray-900 dark:text-slate-100">Department Assignments</h3>
+        <p className="text-xs text-gray-400 dark:text-slate-500">For each department, enter the worker name(s) and time they reported for duty.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {[
-            { label: "Prayer", field: "prayer", placeholder: "Name and time e.g. Ps Oscar 4:00pm" },
-            { label: "Song Ministration", field: "songMinistration", placeholder: "Name, role and time" },
-            { label: "Media", field: "media", placeholder: "Name and time" },
-            { label: "Ushering", field: "ushering", placeholder: "Names and times" },
-            { label: "Front Desk", field: "frontDesk", placeholder: "Names and times" },
-            { label: "Service Coordination", field: "serviceCoordination", placeholder: "Name and time" },
-            { label: "Brief Writing", field: "briefWriting", placeholder: "Name and time" },
-            { label: "Security", field: "security", placeholder: "Names and times" },
-            { label: "Sunday School", field: "sundaySchool", placeholder: "Names and times" },
+            { label: "Prayer",                field: "prayer",              placeholder: "e.g. Pastor John Doe — 4:00pm" },
+            { label: "Song Ministration",      field: "songMinistration",    placeholder: "e.g. Sis Jane Smith (Lead) — 4:15pm" },
+            { label: "Media",                  field: "media",               placeholder: "e.g. Bro Kwame York — 4:30pm" },
+            { label: "Ushering",              field: "ushering",            placeholder: "e.g. Sis Mary Boateng, Sis Abena Mensah — 4:00pm" },
+            { label: "Front Desk",            field: "frontDesk",           placeholder: "e.g. Bro Samuel Osei, Grace Adu — 4:00pm" },
+            { label: "Service Coordination",  field: "serviceCoordination", placeholder: "e.g. Pastor Ama Darko — 3:45pm" },
+            { label: "Brief Writing",         field: "briefWriting",        placeholder: "e.g. Bro Daniel Tetteh — 4:00pm" },
+            { label: "Security",              field: "security",            placeholder: "e.g. Bro Isaac Asare, Bro Emmanuel Ofori — 3:30pm" },
+            { label: "Sunday School",         field: "sundaySchool",        placeholder: "e.g. Sis Rejoice Acquah — 4:00pm" },
+            { label: "Other Departments",     field: "otherDepartment",     placeholder: "Department name, worker(s) and their time reported" },
           ].map(({ label, field, placeholder }) => (
-            <div key={field}>
-              <label className="form-label">{label}</label>
-              <textarea className="input-field resize-none" rows={2} placeholder={placeholder} value={form[field]} onChange={(e) => setForm({ ...form, [field]: e.target.value })} />
-            </div>
+            <TextArea key={field} label={label} value={form[field] || ""} onChange={(v) => set(field, v)} placeholder={placeholder} />
           ))}
         </div>
       </div>
 
-      <div className="card p-6 space-y-4">
-        <h3 className="font-bold text-gray-900 dark:text-slate-100">Pre-Service Prayers</h3>
-        <div><label className="form-label">31 mins to 1 hour before service</label><textarea className="input-field resize-none" rows={2} placeholder="Names of workers present" value={form.preServicePrayers.thirtyToSixtyMins} onChange={(e) => setForm({ ...form, preServicePrayers: { ...form.preServicePrayers, thirtyToSixtyMins: e.target.value } })} /></div>
-        <div><label className="form-label">10 mins to 30 mins before service</label><textarea className="input-field resize-none" rows={2} placeholder="Names of workers present" value={form.preServicePrayers.tenToThirtyMins} onChange={(e) => setForm({ ...form, preServicePrayers: { ...form.preServicePrayers, tenToThirtyMins: e.target.value } })} /></div>
+      {/* ── Pre-Service Worker Reporting Times ─────────────────── */}
+      <div className="card p-5 space-y-4">
+        <h3 className="font-bold text-gray-900 dark:text-slate-100">Pre-Service Worker Reporting Times</h3>
+        <p className="text-xs text-gray-400 dark:text-slate-500">List workers on duty by how early they arrived before the service started.</p>
+        <TextArea
+          label="Workers who reported 1 hour or more before service"
+          value={form.preService.oneHourPlus}
+          onChange={(v) => setNested("preService", "oneHourPlus", v)}
+          placeholder="Names of workers"
+        />
+        <TextArea
+          label="Workers who reported at least 30 minutes before service"
+          value={form.preService.thirtyMins}
+          onChange={(v) => setNested("preService", "thirtyMins", v)}
+          placeholder="Names of workers"
+        />
+        <TextArea
+          label="Workers who reported at least 15 minutes before service"
+          value={form.preService.fifteenMins}
+          onChange={(v) => setNested("preService", "fifteenMins", v)}
+          placeholder="Names of workers"
+        />
       </div>
 
-      <div className="card p-6 space-y-4">
-        <h3 className="font-bold text-gray-900 dark:text-slate-100">Permissions and Observations</h3>
-        <div><label className="form-label">Permissions Sought</label><textarea className="input-field resize-none" rows={2} placeholder="Names and times of permissions" value={form.permissionsSought} onChange={(e) => setForm({ ...form, permissionsSought: e.target.value })} /></div>
-        <div><label className="form-label">Observations and Comments</label><textarea className="input-field resize-none" rows={3} placeholder="General service observations..." value={form.observations} onChange={(e) => setForm({ ...form, observations: e.target.value })} /></div>
-        <div><label className="form-label">Challenges</label><textarea className="input-field resize-none" rows={2} placeholder="Any challenges encountered..." value={form.challenges} onChange={(e) => setForm({ ...form, challenges: e.target.value })} /></div>
-        <div><label className="form-label">Suggestions</label><textarea className="input-field resize-none" rows={2} placeholder="Suggestions for improvement..." value={form.suggestions} onChange={(e) => setForm({ ...form, suggestions: e.target.value })} /></div>
+      {/* ── During-Service Late Reporting ───────────────────────── */}
+      <div className="card p-5 space-y-4">
+        <h3 className="font-bold text-gray-900 dark:text-slate-100">Late Reporting During Service</h3>
+        <p className="text-xs text-gray-400 dark:text-slate-500">Workers who arrived after the service had already started.</p>
+        <TextArea
+          label="Workers who reported late for duty"
+          value={form.duringService.lateDuty}
+          onChange={(v) => setNested("duringService", "lateDuty", v)}
+          placeholder="Names of workers and time they arrived"
+          rows={3}
+        />
       </div>
 
+      {/* ── Permissions and Observations ────────────────────────── */}
+      <div className="card p-5 space-y-4">
+        <h3 className="font-bold text-gray-900 dark:text-slate-100">Permissions, Observations and Remarks</h3>
+        <TextArea
+          label="Permissions Sought"
+          value={form.permissionsSought}
+          onChange={(v) => set("permissionsSought", v)}
+          placeholder="Worker names and reasons for permission granted"
+        />
+        <TextArea
+          label="Observations and Comments"
+          value={form.observations}
+          onChange={(v) => set("observations", v)}
+          placeholder="General observations about the service..."
+          rows={3}
+        />
+        <TextArea
+          label="Challenges"
+          value={form.challenges}
+          onChange={(v) => set("challenges", v)}
+          placeholder="Any challenges encountered during the service..."
+        />
+        <TextArea
+          label="Suggestions"
+          value={form.suggestions}
+          onChange={(v) => set("suggestions", v)}
+          placeholder="Suggestions for improvement..."
+        />
+      </div>
+
+      {/* ── Actions ─────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row gap-3 justify-end pb-6">
-        <button onClick={handleDraft} disabled={loading} className="btn-outline flex items-center justify-center gap-2"><Save className="w-4 h-4" />{loading ? "Saving..." : "Save Draft"}</button>
-        <button onClick={handleFinalSubmit} disabled={loading || !portalOpen} className="btn-primary flex items-center justify-center gap-2"><Send className="w-4 h-4" />{portalOpen ? "Submit Report" : "Portal Closed"}</button>
+        <button onClick={handleDraft} disabled={loading} className="btn-outline flex items-center justify-center gap-2">
+          <Save className="w-4 h-4" />{loading ? "Saving..." : "Save Draft"}
+        </button>
+        <button
+          onClick={handleFinalSubmit}
+          disabled={loading || !portalOpen || (weekType === "past" && !weekDate)}
+          className={cn("flex items-center justify-center gap-2 font-medium px-4 py-2 rounded-lg transition-all",
+            portalOpen && (weekType !== "past" || weekDate)
+              ? "btn-primary"
+              : "bg-gray-200 dark:bg-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed")}>
+          <Send className="w-4 h-4" />
+          {!portalOpen ? "Portal Closed" : isEditMode ? "Update Report" : "Submit Report"}
+        </button>
       </div>
     </div>
   );
