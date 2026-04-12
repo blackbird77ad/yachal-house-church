@@ -1,6 +1,6 @@
 import Metrics from "../models/metricsModel.js";
 import { processWeeklyMetrics } from "../services/metricsService.js";
-import { getQualifiedWorkers, getDisqualifiedWorkersByCloseness, getLateMetricsSummary } from "../services/qualificationService.js";
+import { getQualifiedWorkers, getDisqualifiedWorkersByCloseness, getLateMetricsSummary, getWorkersWithNoSubmission } from "../services/qualificationService.js";
 
 const getCurrentWeekReference = () => {
   const now = new Date();
@@ -112,6 +112,38 @@ export const triggerManualProcessing = async (req, res, next) => {
 
     await processWeeklyMetrics(new Date(weekReference));
     res.status(200).json({ message: "Metrics processed successfully." });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Returns ALL workers: qualified + disqualified + no submission
+// This is the master endpoint for the qualification dashboard
+export const getAllWorkersStatus = async (req, res, next) => {
+  try {
+    const { weekReference } = req.query;
+    const week = weekReference ? new Date(weekReference) : getCurrentWeekReference();
+
+    const [qualified, disqualified, noSubmission] = await Promise.all([
+      getQualifiedWorkers(week),
+      getDisqualifiedWorkersByCloseness(week),
+      getWorkersWithNoSubmission(week),
+    ]);
+
+    res.status(200).json({
+      qualified,
+      disqualified,
+      noSubmission,
+      summary: {
+        totalWorkers: qualified.length + disqualified.length + noSubmission.length,
+        qualifiedCount: qualified.length,
+        disqualifiedCount: disqualified.length,
+        noSubmissionCount: noSubmission.length,
+        passRate: qualified.length + disqualified.length > 0
+          ? Math.round((qualified.length / (qualified.length + disqualified.length + noSubmission.length)) * 100)
+          : 0,
+      },
+    });
   } catch (error) {
     next(error);
   }
