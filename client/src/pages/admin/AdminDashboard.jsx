@@ -5,7 +5,7 @@ import { getDashboardSummary, getLeaderboard } from "../../services/adminService
 import { getAllMetrics } from "../../services/metricsService";
 import Loader from "../../components/common/Loader";
 import ScoreBadge from "../../components/common/ScoreBadge";
-import { formatDate, getWeekLabel, getWeekReference, getPreviousWeekReference } from "../../utils/formatDate";
+import { formatDate, getWeekLabel, getWeekReference } from "../../utils/formatDate";
 import { useAuth } from "../../hooks/useAuth";
 
 const AdminDashboard = () => {
@@ -17,7 +17,7 @@ const AdminDashboard = () => {
   useEffect(() => {
     Promise.all([
       getDashboardSummary().catch(() => ({})),
-      getLeaderboard({ weekReference: getPreviousWeekReference().toISOString() }).catch(() => ({ leaderboard: [] })),
+      getLeaderboard({ weekReference: getWeekReference().toISOString() }).catch(() => ({ leaderboard: [] })),
     ]).then(([s, l]) => {
       setSummary(s);
       setLeaderboard(l.leaderboard?.slice(0, 10) || []);
@@ -26,8 +26,7 @@ const AdminDashboard = () => {
 
   if (loading) return <Loader text="Loading dashboard..." />;
 
-  // Leaderboard shows results for the current portal reporting week (last Mon-Sun)
-  const weekLabel = getWeekLabel(getPreviousWeekReference());
+  const weekLabel = getWeekLabel(getWeekReference());
 
   const stats = [
     { label: "Total Workers", value: summary?.totalWorkers ?? 0, icon: <Users className="w-5 h-5" />, color: "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400", link: "/admin/workers" },

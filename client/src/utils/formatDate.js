@@ -28,21 +28,30 @@ export const timeAgo = (date) => {
   return formatDistanceToNow(d, { addSuffix: true });
 };
 
-export const getWeekReference = (date = new Date()) => {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(d.setDate(diff));
-  monday.setHours(0, 0, 0, 0);
-  return monday;
+// Returns the closing Monday of the current portal week
+// Portal week: Monday 3:00pm → next Monday 2:59pm
+// Submission window: Friday midnight → Monday 2:59pm
+// weekReference on all reports = the Monday that closes the window
+export const getWeekReference = (now = new Date()) => {
+  const d   = new Date(now);
+  const day = d.getDay(); // 0=Sun, 1=Mon
+  const diff = day === 0 ? -6 : 1 - day;
+  const thisMonday = new Date(d);
+  thisMonday.setDate(d.getDate() + diff);
+  thisMonday.setHours(0, 0, 0, 0);
+  const nextMonday = new Date(thisMonday);
+  nextMonday.setDate(thisMonday.getDate() + 7);
+  // Monday before 2:59pm → this Monday closes the current window
+  if (day === 1 && d.getHours() < 15) return thisMonday;
+  // All other times → next Monday closes the window
+  return nextMonday;
 };
 
+// Returns the closing Monday of the PREVIOUS portal week (for arrears)
 export const getPreviousWeekReference = () => {
-  // Returns Monday of the previous (reporting) week
-  // This is the weekReference stored on reports submitted during the portal window
-  const current = getWeekReference(); // this Monday
+  const current = getWeekReference();
   const prev = new Date(current);
-  prev.setDate(prev.getDate() - 7);  // last Monday
+  prev.setDate(prev.getDate() - 7);
   prev.setHours(0, 0, 0, 0);
   return prev;
 };

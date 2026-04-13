@@ -1,16 +1,48 @@
-# React + Vite
+git commit -m "Fix portal weekReference - closing Monday logic across entire system"
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Yachal House Worker Portal
 
-Currently, two official plugins are available:
+This is the internal management system for Yachal House Church, Ridge, Accra.
+Access is by invitation only. This is not a public application.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
 
-## React Compiler
+What it does
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Workers use this portal to submit their weekly evangelism and follow up report.
+Admins use it to review submissions, track qualification scores, build the service roster and record attendance.
 
-## Expanding the ESLint configuration
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+How the week works
+
+The system runs on a fixed weekly cycle.
+
+Monday at 3pm marks the start of a new week. The portal is closed and workers can only save drafts.
+
+On Friday at midnight the portal opens. Workers can now submit their report for the week.
+
+On Monday at 2:59pm the portal closes. The system automatically calculates qualification scores for all workers.
+
+The cycle then repeats.
+
+
+Roles
+
+Pastor has full access to everything in the system.
+
+Admin can manage workers, view and review reports, run qualification and build the roster.
+
+Moderator can view reports and qualification results.
+
+Worker can submit their weekly report, view their own report history and check the published roster.
+
+
+Technology
+
+The frontend is built with React and hosted on Cloudflare Pages.
+The backend is built with Node.js and Express and hosted on Render.
+The database is MongoDB Atlas.
+
+
+Access
+
+This system is privately maintained. Contact the system administrator for credentials or access.

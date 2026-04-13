@@ -23,40 +23,35 @@ const PERIODS = [
   { label: "Custom", value: "custom" },
 ];
 
-// Returns Monday of any date (used to compute weekReference)
+// Get Monday of any given date — matches weekReference stored on reports
 const getMonday = (date = new Date()) => {
   const d   = new Date(date);
-  const day = d.getDay();
-  d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+  const day = d.getDay(); // JS: 0=Sun, 1=Mon
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
   d.setHours(0, 0, 0, 0);
   return d;
 };
 
 const getPeriodDates = (period) => {
-  const now = new Date();
-
-  // Portal cycle: opens Friday, closes Monday 2:59pm for PREVIOUS week
-  // "This week" in reporting terms = the current portal window's target week
-  // = last Monday to this Sunday
-  const thisMonday    = getMonday(now);        // this calendar week's Monday
-  const reportMonday  = new Date(thisMonday);  // reporting week start
-  reportMonday.setDate(reportMonday.getDate() - 7); // last Monday
-
-  const reportSunday  = new Date(thisMonday);
-  reportSunday.setDate(reportSunday.getDate() - 1);
-  reportSunday.setHours(23, 59, 59, 999);
-
-  const prevMonday    = new Date(reportMonday);
-  prevMonday.setDate(prevMonday.getDate() - 7);
-  const prevSunday    = new Date(reportMonday);
-  prevSunday.setDate(prevSunday.getDate() - 1);
-  prevSunday.setHours(23, 59, 59, 999);
+  const now         = new Date();
+  // weekReference on reports = the CLOSING Monday of the portal window
+  // (portal opens Friday, closes Monday 2:59pm — weekReference = that Monday)
+  const thisMonday  = getMonday(now);           // current portal window Monday
+  const lastMonday  = new Date(thisMonday);
+  lastMonday.setDate(lastMonday.getDate() - 7); // previous portal window Monday
+  const lastMondayEnd = new Date(lastMonday);
+  lastMondayEnd.setDate(lastMondayEnd.getDate() + 6);
+  lastMondayEnd.setHours(23, 59, 59, 999);
+  const thisMondayEnd = new Date(thisMonday);
+  thisMondayEnd.setDate(thisMondayEnd.getDate() + 6);
+  thisMondayEnd.setHours(23, 59, 59, 999);
 
   switch (period) {
-    // Current portal window target week
-    case "this-week":  return { from: reportMonday,  to: reportSunday };
-    // Previous portal window target week
-    case "last-week":  return { from: prevMonday,    to: prevSunday };
+    // Current portal window: weekReference = thisMonday
+    case "this-week":  return { from: thisMonday, to: thisMondayEnd };
+    // Previous portal window: weekReference = lastMonday
+    case "last-week":  return { from: lastMonday, to: lastMondayEnd };
     case "this-month": return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: null };
     case "last-month": return {
       from: new Date(now.getFullYear(), now.getMonth() - 1, 1),

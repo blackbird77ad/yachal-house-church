@@ -5,21 +5,35 @@ import PortalWindow from "../models/portalWindowModel.js";
 import { processLateMetrics } from "../services/metricsService.js";
 import { createNotification } from "../services/notificationService.js";
 
-const getWeekReference = (date = new Date()) => {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(d.setDate(diff));
-  monday.setHours(0, 0, 0, 0);
-  return monday;
+// Returns the closing Monday of the current portal week
+// Portal week: Monday 3:00pm → next Monday 2:59pm
+// Submission window: Friday midnight → Monday 2:59pm
+// weekReference = the Monday that closes the window
+const getPortalWeekReference = (now = new Date()) => {
+  const day = now.getDay(); // 0=Sun, 1=Mon...
+  // Get this calendar Monday
+  const diff = day === 0 ? -6 : 1 - day;
+  const thisMonday = new Date(now);
+  thisMonday.setDate(now.getDate() + diff);
+  thisMonday.setHours(0, 0, 0, 0);
+  const nextMonday = new Date(thisMonday);
+  nextMonday.setDate(thisMonday.getDate() + 7);
+  // If today is Monday before 2:59pm → this Monday closes the window
+  if (day === 1 && now.getHours() < 15) return thisMonday;
+  // Otherwise next Monday closes the window
+  return nextMonday;
 };
 
-const getPreviousWeekReference = () => {
-  const current = getWeekReference();
+// Previous portal week reference (for arrears)
+const getPreviousWeekReference = (now = new Date()) => {
+  const current = getPortalWeekReference(now);
   const prev = new Date(current);
   prev.setDate(prev.getDate() - 7);
   return prev;
 };
+
+// Keep alias for backward compatibility
+const getWeekReference = getPortalWeekReference;
 
 export const saveDraft = async (req, res, next) => {
   try {

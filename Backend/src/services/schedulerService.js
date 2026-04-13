@@ -11,6 +11,7 @@ import FrontDeskSession from "../models/frontDeskSessionModel.js";
 import Attendance from "../models/attendanceModel.js";
 import PushSubscription from "../models/pushSubscriptionModel.js";
 
+// This calendar Monday (midnight)
 const getThisWeekMonday = () => {
   const now = new Date();
   const day = now.getDay();
@@ -21,10 +22,20 @@ const getThisWeekMonday = () => {
   return monday;
 };
 
+// Next calendar Monday (midnight) = closing Monday of NEXT portal window
 const getNextWeekMonday = () => {
-  const monday = getThisWeekMonday();
+  const monday = new Date(getThisWeekMonday());
   monday.setDate(monday.getDate() + 7);
   return monday;
+};
+
+// Closing Monday of the CURRENT portal window
+// = this Monday (if before 2:59pm) or next Monday (if after 3pm / Tue-Sun)
+const getPortalWeekReference = () => {
+  const now = new Date();
+  const day = now.getDay();
+  if (day === 1 && now.getHours() < 15) return getThisWeekMonday();
+  return getNextWeekMonday();
 };
 
 const getNextMonday259pm = () => {

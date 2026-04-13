@@ -8,7 +8,7 @@ import { getAllWorkersStatus, getAllMetrics, triggerManualProcessing } from "../
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
 import { getCriteriaStatus } from "../../utils/scoreHelpers";
-import { getWeekLabel, getWeekReference, getPreviousWeekReference, formatDate } from "../../utils/formatDate";
+import { getWeekLabel, getWeekReference, formatDate } from "../../utils/formatDate";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 
 const HISTORY_PERIODS = [
