@@ -2,6 +2,7 @@
 import { Search, Eye, FileText, AlertCircle, ChevronDown, ChevronUp, Calendar, Download, LayoutGrid, List, Users } from "lucide-react";
 import { Link } from "react-router-dom";
 import { getAllReports } from "../../services/reportService";
+import { getPortalStatus } from "../../services/portalService";
 import { getAllWorkers } from "../../services/workerService";
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
