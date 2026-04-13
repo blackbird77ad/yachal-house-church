@@ -358,11 +358,19 @@ export const getAllReports = async (req, res, next) => {
     if (dateFrom || dateTo) {
       const from = dateFrom ? new Date(dateFrom) : null;
       const to   = dateTo   ? new Date(dateTo)   : null;
-      // Always filter by submittedAt — this is reliable regardless of
-      // what weekReference was stored on the report (handles legacy data bugs)
-      filter.submittedAt = {};
-      if (from) filter.submittedAt.$gte = from;
-      if (to)   filter.submittedAt.$lte = to;
+      if (useSubmittedAt === "true") {
+        // Portal window filter: use submittedAt to catch all reports
+        // regardless of stored weekReference (fixes legacy data)
+        filter.$or = [
+          { submittedAt: { ...(from && { $gte: from }), ...(to && { $lte: to }) } },
+          { createdAt:   { ...(from && { $gte: from }), ...(to && { $lte: to }) } },
+        ];
+      } else {
+        // All other periods: use weekReference
+        filter.weekReference = {};
+        if (from) filter.weekReference.$gte = from;
+        if (to)   filter.weekReference.$lte = to;
+      }
     }
 
     const total = await Report.countDocuments(filter);

@@ -114,9 +114,10 @@ const Reports = () => {
       if (workerFilter !== "all") params.workerId = workerFilter;
 
       if (period !== "all" && period !== "custom") {
-        const { from, to } = getPeriodDates(period, portalData);
+        const { from, to, useSubmittedAt } = getPeriodDates(period, portalData);
         if (from) params.dateFrom = from.toISOString();
         if (to)   params.dateTo   = to.toISOString();
+        if (useSubmittedAt) params.useSubmittedAt = "true";
       } else if (period === "custom") {
         if (customFrom) params.dateFrom = new Date(customFrom).toISOString();
         if (customTo) params.dateTo = new Date(customTo + "T23:59:59").toISOString();
