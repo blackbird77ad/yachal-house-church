@@ -6,7 +6,7 @@ import { getPortalStatus } from "../../services/portalService";
 import { getAllWorkers } from "../../services/workerService";
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
-import { formatDate, formatDateTime, getWeekLabel, getWeekReference } from "../../utils/formatDate";
+import { formatDate, formatDateTime, getWeekLabel } from "../../utils/formatDate";
 import { REPORT_TYPES } from "../../utils/constants";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import { cn } from "../../utils/scoreHelpers";
@@ -35,37 +35,42 @@ const getMonday = (date = new Date()) => {
 };
 
 const getPeriodDates = (period, portalData = null) => {
-  const now         = new Date();
-  // weekReference on reports = the CLOSING Monday of the portal window
-  // (portal opens Friday, closes Monday 2:59pm — weekReference = that Monday)
-  const thisMonday  = getMonday(now);           // current portal window Monday
-  const lastMonday  = new Date(thisMonday);
-  lastMonday.setDate(lastMonday.getDate() - 7); // previous portal window Monday
-  const lastMondayEnd = new Date(lastMonday);
-  lastMondayEnd.setDate(lastMondayEnd.getDate() + 6);
-  lastMondayEnd.setHours(23, 59, 59, 999);
-  const thisMondayEnd = new Date(thisMonday);
-  thisMondayEnd.setDate(thisMondayEnd.getDate() + 6);
-  thisMondayEnd.setHours(23, 59, 59, 999);
+  const now = new Date();
+
+  // Current portal weekReference (exact closing Monday)
+  const currentWeekRef = portalData?.weekReference ? new Date(portalData.weekReference) : getMonday(now);
+  currentWeekRef.setHours(0, 0, 0, 0);
+
+  // Previous portal weekReference (7 days before current)
+  const prevWeekRef = new Date(currentWeekRef);
+  prevWeekRef.setDate(prevWeekRef.getDate() - 7);
 
   switch (period) {
-    // Current portal window: weekReference = thisMonday
-    case "this-week":  return { from: thisMonday, to: thisMondayEnd };
-    // Previous portal window: weekReference = lastMonday
-    case "last-week":  return { from: lastMonday, to: lastMondayEnd };
-    case "this-month": return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: null };
-    case "last-month": return {
-      from: new Date(now.getFullYear(), now.getMonth() - 1, 1),
-      to:   new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59),
-    };
-    case "3-months":   return { from: new Date(now.getFullYear(), now.getMonth() - 3, 1), to: null };
-    case "6-months":   return { from: new Date(now.getFullYear(), now.getMonth() - 6, 1), to: null };
-    case "this-year":  return { from: new Date(now.getFullYear(), 0, 1), to: null };
-    case "last-year":  return {
-      from: new Date(now.getFullYear() - 1, 0, 1),
-      to:   new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59),
-    };
-    default:           return { from: null, to: null };
+    // Exact weekReference match — all reports for this portal window share this date
+    case "this-week":
+      return { from: currentWeekRef, to: currentWeekRef, exactWeekRef: true };
+    case "last-week":
+      return { from: prevWeekRef, to: prevWeekRef, exactWeekRef: true };
+    case "this-month":
+      return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: null };
+    case "last-month":
+      return {
+        from: new Date(now.getFullYear(), now.getMonth() - 1, 1),
+        to:   new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59),
+      };
+    case "3-months":
+      return { from: new Date(now.getFullYear(), now.getMonth() - 3, 1), to: null };
+    case "6-months":
+      return { from: new Date(now.getFullYear(), now.getMonth() - 6, 1), to: null };
+    case "this-year":
+      return { from: new Date(now.getFullYear(), 0, 1), to: null };
+    case "last-year":
+      return {
+        from: new Date(now.getFullYear() - 1, 0, 1),
+        to:   new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59),
+      };
+    default:
+      return { from: null, to: null };
   }
 };
 
@@ -114,10 +119,12 @@ const Reports = () => {
       if (workerFilter !== "all") params.workerId = workerFilter;
 
       if (period !== "all" && period !== "custom") {
-        const { from, to, useSubmittedAt } = getPeriodDates(period, portalData);
+        const { from, to, exactWeekRef } = getPeriodDates(period, portalData);
         if (from) params.dateFrom = from.toISOString();
-        if (to)   params.dateTo   = to.toISOString();
-        if (useSubmittedAt) params.useSubmittedAt = "true";
+        if (to && !exactWeekRef) params.dateTo = to.toISOString();
+        if (exactWeekRef) params.exactWeekRef = "true";
+        params.page = pg;
+        params.limit = PER_PAGE;
       } else if (period === "custom") {
         if (customFrom) params.dateFrom = new Date(customFrom).toISOString();
         if (customTo) params.dateTo = new Date(customTo + "T23:59:59").toISOString();
@@ -141,7 +148,7 @@ const Reports = () => {
 
   useEffect(() => {
     if (period !== "custom") fetchReports();
-  }, [typeFilter, statusFilter, lateFilter, workerFilter, period]);
+  }, [typeFilter, statusFilter, lateFilter, workerFilter, period, portalData]);
 
   const filtered = reports.filter((r) => {
     const name = r.submittedBy?.fullName?.toLowerCase() || "";

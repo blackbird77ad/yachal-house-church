@@ -344,7 +344,7 @@ export const getMyDraft = async (req, res, next) => {
 
 export const getAllReports = async (req, res, next) => {
   try {
-    const { weekReference, reportType, status, isLateSubmission, workerId, dateFrom, dateTo, useSubmittedAt, page = 1, limit = 20 } = req.query;
+    const { weekReference, reportType, status, isLateSubmission, workerId, dateFrom, dateTo, exactWeekRef, page = 1, limit = 20 } = req.query;
     const filter = {};
 
     if (weekReference) filter.weekReference = new Date(weekReference);
@@ -355,21 +355,24 @@ export const getAllReports = async (req, res, next) => {
     }
     if (workerId) filter.submittedBy = workerId;
 
-    if (dateFrom || dateTo) {
-      const from = dateFrom ? new Date(dateFrom) : null;
-      const to   = dateTo   ? new Date(dateTo)   : null;
-      if (useSubmittedAt === "true") {
-        // Portal window filter: use submittedAt to catch all reports
-        // regardless of stored weekReference (fixes legacy data)
+    if (dateFrom) {
+      if (exactWeekRef === "true") {
+        // Exact portal week: match weekReference exactly
+        // Also catch legacy reports with wrong weekReference by including createdAt range
+        const ref = new Date(dateFrom);
+        ref.setHours(0, 0, 0, 0);
+        // One week window around the weekReference to catch legacy data
+        const rangeStart = new Date(ref); rangeStart.setDate(ref.getDate() - 7);
+        const rangeEnd   = new Date(ref); rangeEnd.setDate(ref.getDate() + 1);
         filter.$or = [
-          { submittedAt: { ...(from && { $gte: from }), ...(to && { $lte: to }) } },
-          { createdAt:   { ...(from && { $gte: from }), ...(to && { $lte: to }) } },
+          { weekReference: ref },
+          { weekReference: { $gte: rangeStart, $lt: ref }, createdAt: { $gte: rangeStart, $lte: rangeEnd } },
         ];
       } else {
-        // All other periods: use weekReference
+        // Range filter on weekReference for month/year periods
         filter.weekReference = {};
-        if (from) filter.weekReference.$gte = from;
-        if (to)   filter.weekReference.$lte = to;
+        filter.weekReference.$gte = new Date(dateFrom);
+        if (dateTo) filter.weekReference.$lte = new Date(dateTo);
       }
     }
 
