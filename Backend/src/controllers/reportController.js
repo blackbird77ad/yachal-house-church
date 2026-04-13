@@ -44,9 +44,9 @@ export const saveDraft = async (req, res, next) => {
     if (weekDate) {
       weekReference = new Date(weekDate);
     } else if (isLateSubmission) {
-      weekReference = getPreviousWeekReference();
+      weekReference = await getPreviousWeekReference();
     } else {
-      weekReference = getWeekReference();
+      weekReference = await getWeekReference();
     }
 
     let report = await Report.findOne({
@@ -99,9 +99,9 @@ export const submitReport = async (req, res, next) => {
     if (weekDate) {
       weekReference = new Date(weekDate);
     } else if (isLateSubmission) {
-      weekReference = getPreviousWeekReference();
+      weekReference = await getPreviousWeekReference();
     } else {
-      weekReference = getWeekReference();
+      weekReference = await getWeekReference();
     }
 
     if (reportData.evangelismData?.souls) {
@@ -309,9 +309,9 @@ export const getMyDraft = async (req, res, next) => {
     if (weekDate) {
       weekReference = new Date(weekDate);
     } else if (weekType === "late" || weekType === "past") {
-      weekReference = getPreviousWeekReference();
+      weekReference = await getPreviousWeekReference();
     } else {
-      weekReference = getWeekReference();
+      weekReference = await getWeekReference();
     }
 
     const isLateSubmission = weekType === "late" || weekType === "past";
@@ -356,11 +356,17 @@ export const getAllReports = async (req, res, next) => {
     if (workerId) filter.submittedBy = workerId;
 
     if (dateFrom || dateTo) {
-      // Filter by weekReference so "this week" shows reports FOR this week
-      // not reports submitted this week (arrears submitted now belong to past weeks)
-      filter.weekReference = {};
-      if (dateFrom) filter.weekReference.$gte = new Date(dateFrom);
-      if (dateTo)   filter.weekReference.$lte = new Date(dateTo);
+      // Filter by weekReference — the week the report belongs to
+      const from = dateFrom ? new Date(dateFrom) : null;
+      const to   = dateTo   ? new Date(dateTo)   : null;
+      // If from === to it means exact weekReference match (single day = Monday)
+      if (from && to && from.getTime() === to.getTime()) {
+        filter.weekReference = from;
+      } else {
+        filter.weekReference = {};
+        if (from) filter.weekReference.$gte = from;
+        if (to)   filter.weekReference.$lte = to;
+      }
     }
 
     const total = await Report.countDocuments(filter);

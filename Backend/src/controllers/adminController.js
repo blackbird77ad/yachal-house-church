@@ -41,7 +41,7 @@ export const getDashboardSummary = async (req, res, next) => {
       isOpen: true,
     });
 
-    const weekReference = getCurrentWeekReference();
+    const weekReference = await getCurrentWeekReference();
     const submittedThisWeek = await Report.countDocuments({ weekReference, status: "submitted", isLateSubmission: false });
     const lateSubmissions = await Report.countDocuments({ status: "submitted", isLateSubmission: true });
 
@@ -76,7 +76,7 @@ export const overridePortal = async (req, res, next) => {
     }
 
     const now = new Date();
-    const weekReference = getCurrentWeekReference();
+    const weekReference = await getCurrentWeekReference();
 
     const closesAt = customCloseAt
       ? new Date(customCloseAt)
@@ -128,7 +128,7 @@ export const overridePortal = async (req, res, next) => {
 export const getLeaderboard = async (req, res, next) => {
   try {
     const { weekReference } = req.query;
-    const week = weekReference ? new Date(weekReference) : getCurrentWeekReference();
+    const week = weekReference ? new Date(weekReference) : await getCurrentWeekReference();
 
     const metrics = await Metrics.find({ weekReference: week, isLateSubmission: false })
       .populate("worker", "fullName workerId department score")

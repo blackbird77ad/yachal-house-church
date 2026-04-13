@@ -5,6 +5,7 @@ import {
   Calendar, FileX, Clock,
 } from "lucide-react";
 import { getAllWorkersStatus, getAllMetrics, triggerManualProcessing } from "../../services/metricsService";
+import { getPortalStatus } from "../../services/portalService";
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
 import { getCriteriaStatus } from "../../utils/scoreHelpers";

@@ -1,4 +1,5 @@
 import Metrics from "../models/metricsModel.js";
+import PortalWindow from "../models/portalWindowModel.js";
 import { processWeeklyMetrics } from "../services/metricsService.js";
 import { getQualifiedWorkers, getDisqualifiedWorkersByCloseness, getLateMetricsSummary, getWorkersWithNoSubmission } from "../services/qualificationService.js";
 
@@ -18,7 +19,7 @@ const getCurrentWeekReference = () => {
 export const getMyMetrics = async (req, res, next) => {
   try {
     const { weekReference } = req.query;
-    const week = weekReference ? new Date(weekReference) : getCurrentWeekReference();
+    const week = weekReference ? new Date(weekReference) : await getCurrentWeekReference();
 
     const metrics = await Metrics.findOne({
       worker: req.user._id,
@@ -72,7 +73,7 @@ export const getAllMetrics = async (req, res, next) => {
 export const getQualifiedList = async (req, res, next) => {
   try {
     const { weekReference } = req.query;
-    const week = weekReference ? new Date(weekReference) : getCurrentWeekReference();
+    const week = weekReference ? new Date(weekReference) : await getCurrentWeekReference();
 
     const qualified = await getQualifiedWorkers(week);
     res.status(200).json({ qualified });
@@ -84,7 +85,7 @@ export const getQualifiedList = async (req, res, next) => {
 export const getDisqualifiedList = async (req, res, next) => {
   try {
     const { weekReference } = req.query;
-    const week = weekReference ? new Date(weekReference) : getCurrentWeekReference();
+    const week = weekReference ? new Date(weekReference) : await getCurrentWeekReference();
 
     const disqualified = await getDisqualifiedWorkersByCloseness(week);
     res.status(200).json({ disqualified });
@@ -126,7 +127,7 @@ export const triggerManualProcessing = async (req, res, next) => {
 export const getAllWorkersStatus = async (req, res, next) => {
   try {
     const { weekReference } = req.query;
-    const week = weekReference ? new Date(weekReference) : getCurrentWeekReference();
+    const week = weekReference ? new Date(weekReference) : await getCurrentWeekReference();
 
     const [qualified, disqualified, noSubmission] = await Promise.all([
       getQualifiedWorkers(week),

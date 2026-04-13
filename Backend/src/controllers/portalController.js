@@ -25,11 +25,14 @@ export const getPortalStatus = async (req, res, next) => {
         opensAt: { $gte: now },
       }).sort({ opensAt: 1 });
 
+      // Get the most recent portal to return its weekReference
+      const lastPortal = await PortalWindow.findOne().sort({ opensAt: -1 });
       const nextOpenAt = nextPortal?.opensAt || getNextFriday();
 
       return res.status(200).json({
         isOpen: false,
         nextOpenAt,
+        weekReference: lastPortal?.weekReference || null,
         message: "Portal is closed. Opens every Friday at midnight.",
       });
     }
