@@ -24,29 +24,40 @@ export const getCriteriaStatus = (breakdown) => {
   if (!breakdown) return [];
   return [
     {
-      key: "soulsQualified",
-      label: `Souls preached to (min ${QUALIFICATION_CRITERIA.MIN_SOULS})`,
+      key:    "soulsQualified",
+      label:  `Souls preached to — min ${QUALIFICATION_CRITERIA.MIN_SOULS}`,
+      weight: 30,
       passed: breakdown.soulsQualified,
     },
     {
-      key: "fellowshipQualified",
-      label: `Fellowship prayer (min ${QUALIFICATION_CRITERIA.MIN_FELLOWSHIP_HOURS}hrs)`,
+      key:    "tuesdayQualified",
+      label:  "Tuesday service attended",
+      weight: 10,
+      passed: breakdown.tuesdayQualified,
+    },
+    {
+      key:    "sundayQualified",
+      label:  "Sunday service attended",
+      weight: 10,
+      passed: breakdown.sundayQualified,
+    },
+    {
+      key:    "fellowshipQualified",
+      label:  `Fellowship prayer — min ${QUALIFICATION_CRITERIA.MIN_FELLOWSHIP_HOURS} hours`,
+      weight: 10,
       passed: breakdown.fellowshipQualified,
     },
     {
-      key: "cellQualified",
-      label: `Cell prayer (min ${QUALIFICATION_CRITERIA.MIN_CELL_HOURS}hrs)`,
+      key:    "cellQualified",
+      label:  "Cell meeting — attended at least once",
+      weight: 20,
       passed: breakdown.cellQualified,
     },
     {
-      key: "attendanceQualified",
-      label: `Service attendance (min ${QUALIFICATION_CRITERIA.MIN_SERVICE_ATTENDANCE} counts)`,
+      key:    "attendanceQualified",
+      label:  `People 12+ brought to church — min ${QUALIFICATION_CRITERIA.MIN_CHURCH_ATTENDEES}`,
+      weight: 20,
       passed: breakdown.attendanceQualified,
-    },
-    {
-      key: "reportQualified",
-      label: "Report submitted on time",
-      passed: breakdown.reportQualified,
     },
   ];
 };

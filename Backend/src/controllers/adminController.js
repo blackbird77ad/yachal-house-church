@@ -6,12 +6,18 @@ import { createBulkNotification } from "../services/notificationService.js";
 import { sendPortalOpenEmail } from "../services/emailService.js";
 
 const getCurrentWeekReference = () => {
+  // Returns the Monday of the REPORTING week (the week workers submit for)
+  // Portal cycle: opens Friday, closes Monday 2:59pm — for the PREVIOUS Mon-Sun week
+  // So the reporting weekReference is always last Monday
   const now = new Date();
   const day = now.getDay();
   const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(now.setDate(diff));
-  monday.setHours(0, 0, 0, 0);
-  return monday;
+  const thisMonday = new Date(now);
+  thisMonday.setDate(diff);
+  thisMonday.setHours(0, 0, 0, 0);
+  const lastMonday = new Date(thisMonday);
+  lastMonday.setDate(lastMonday.getDate() - 7);
+  return lastMonday;
 };
 
 const getNextMonday259 = () => {

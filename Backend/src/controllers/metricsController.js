@@ -3,12 +3,19 @@ import { processWeeklyMetrics } from "../services/metricsService.js";
 import { getQualifiedWorkers, getDisqualifiedWorkersByCloseness, getLateMetricsSummary, getWorkersWithNoSubmission } from "../services/qualificationService.js";
 
 const getCurrentWeekReference = () => {
+  // Returns the Monday of the REPORTING week (previous Mon-Sun)
+  // Portal opens Friday and closes Monday 2:59pm for submissions
+  // All reports are FOR the previous week, so weekReference = last Monday
   const now = new Date();
-  const day = now.getDay();
+  const day = now.getDay(); // 0=Sun, 1=Mon...
   const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(now.setDate(diff));
-  monday.setHours(0, 0, 0, 0);
-  return monday;
+  const thisMonday = new Date(now);
+  thisMonday.setDate(diff);
+  thisMonday.setHours(0, 0, 0, 0);
+  // Reporting week = last Monday
+  const lastMonday = new Date(thisMonday);
+  lastMonday.setDate(lastMonday.getDate() - 7);
+  return lastMonday;
 };
 
 export const getMyMetrics = async (req, res, next) => {

@@ -38,9 +38,12 @@ export const getWeekReference = (date = new Date()) => {
 };
 
 export const getPreviousWeekReference = () => {
-  const current = getWeekReference();
+  // Returns Monday of the previous (reporting) week
+  // This is the weekReference stored on reports submitted during the portal window
+  const current = getWeekReference(); // this Monday
   const prev = new Date(current);
-  prev.setDate(prev.getDate() - 7);
+  prev.setDate(prev.getDate() - 7);  // last Monday
+  prev.setHours(0, 0, 0, 0);
   return prev;
 };
 

@@ -60,10 +60,13 @@ export const NOTIFICATION_TYPES = {
 };
 
 export const QUALIFICATION_CRITERIA = {
-  MIN_SOULS: 10,
-  MIN_FELLOWSHIP_HOURS: 2,
-  MIN_CELL_HOURS: 2,
-  MIN_SERVICE_ATTENDANCE: 4,
+  MIN_SOULS:            10, // 30pts — souls preached to
+  MIN_FELLOWSHIP_HOURS: 2,  // 10pts — hours of fellowship prayer
+  MIN_CHURCH_ATTENDEES: 4,  // 20pts — people 12+ brought to church
+  // Tuesday service:  10pts — worker attended
+  // Sunday service:   10pts — worker attended
+  // Cell meeting:     20pts — worker attended at least once (boolean)
+  // Total:           100pts — all must pass to fully qualify
 };
 
 export const PORTAL_SCHEDULE = {
@@ -76,17 +79,4 @@ export const WORKER_STATUS = {
   PENDING: "pending",
   APPROVED: "approved",
   SUSPENDED: "suspended",
-};
-
-export const CHURCH_INFO = {
-  name: "Yachal House",
-  tagline: "Impacting the world with HOPE",
-  leader: "Rev Gilbert Ossei (Prophet Gilbert)",
-  email: "yachalhouse@gmail.com",
-  phone: "+233 544 600 600",
-  address: "13, Ridge Quarry Enclave, Behind Atlantic Computers, Ridge, Accra, Ghana",
-  lat: 5.5662809,
-  lng: -0.2036118,
-  podcast: "https://podcasts.apple.com/us/podcast/yachal-house/id1497164301",
-  scripture: "1 Corinthians 15:1-4",
 };

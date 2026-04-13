@@ -8,7 +8,7 @@ import { getAllWorkersStatus, getAllMetrics, triggerManualProcessing } from "../
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
 import { getCriteriaStatus } from "../../utils/scoreHelpers";
-import { getWeekLabel, getWeekReference, formatDate } from "../../utils/formatDate";
+import { getWeekLabel, getWeekReference, getPreviousWeekReference, formatDate } from "../../utils/formatDate";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 
 const HISTORY_PERIODS = [
@@ -63,7 +63,10 @@ const Qualification = () => {
   const [historyLoading, setHistoryLoading]     = useState(false);
   const [expandedHistoryWeek, setExpandedHistoryWeek] = useState(null);
 
-  const weekRef = getWeekReference();
+  // Reporting week = the Mon-Sun week workers submitted reports for
+  // Portal opens Friday and closes Monday 2:59pm for PREVIOUS week submissions
+  // so weekRef = last Monday (getPreviousWeekReference)
+  const weekRef = getPreviousWeekReference();
 
   // ── Fetch all workers status in one call ─────────────────────
   const fetchCurrent = async (silent = false) => {
@@ -214,7 +217,12 @@ const Qualification = () => {
               {criteria.map((c) => (
                 <div key={c.key} className={`flex items-center gap-2 p-2.5 rounded-lg border text-xs ${c.passed ? "border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20" : "border-red-100 dark:border-red-900 bg-red-50 dark:bg-red-900/10"}`}>
                   {c.passed ? <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" /> : <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />}
-                  <span className="text-gray-700 dark:text-slate-300">{c.label}</span>
+                  <span className="text-gray-700 dark:text-slate-300 flex-1">{c.label}</span>
+                  {c.weight && (
+                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${c.passed ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400" : "bg-red-100 dark:bg-red-900/40 text-red-500"}`}>
+                      {c.weight}%
+                    </span>
+                  )}
                 </div>
               ))}
             </div>

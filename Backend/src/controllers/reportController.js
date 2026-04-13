@@ -265,7 +265,7 @@ export const editSubmittedReport = async (req, res, next) => {
 
 export const getMyReports = async (req, res, next) => {
   try {
-    const { weekReference, reportType, status, weekType, limit = 20, page = 1 } = req.query;
+    const { weekReference, reportType, status, weekType, limit = 200, page = 1 } = req.query;
     const filter = { submittedBy: req.user._id };
 
     if (weekReference) filter.weekReference = new Date(weekReference);
@@ -342,9 +342,11 @@ export const getAllReports = async (req, res, next) => {
     if (workerId) filter.submittedBy = workerId;
 
     if (dateFrom || dateTo) {
-      filter.submittedAt = {};
-      if (dateFrom) filter.submittedAt.$gte = new Date(dateFrom);
-      if (dateTo) filter.submittedAt.$lte = new Date(dateTo);
+      // Filter by weekReference so "this week" shows reports FOR this week
+      // not reports submitted this week (arrears submitted now belong to past weeks)
+      filter.weekReference = {};
+      if (dateFrom) filter.weekReference.$gte = new Date(dateFrom);
+      if (dateTo)   filter.weekReference.$lte = new Date(dateTo);
     }
 
     const total = await Report.countDocuments(filter);
@@ -354,7 +356,12 @@ export const getAllReports = async (req, res, next) => {
       .skip((Number(page) - 1) * Number(limit))
       .limit(Number(limit));
 
-    res.status(200).json({ reports });
+    res.status(200).json({
+      reports,
+      total,
+      page: Number(page),
+      totalPages: Math.ceil(total / Number(limit)),
+    });
   } catch (error) {
     next(error);
   }

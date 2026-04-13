@@ -23,29 +23,53 @@ const PERIODS = [
   { label: "Custom", value: "custom" },
 ];
 
+// Returns Monday of any date (used to compute weekReference)
+const getMonday = (date = new Date()) => {
+  const d   = new Date(date);
+  const day = d.getDay();
+  d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
 const getPeriodDates = (period) => {
   const now = new Date();
-  const d = new Date(now);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  const thisMonday = new Date(d);
-  thisMonday.setDate(d.getDate() + diff);
-  thisMonday.setHours(0, 0, 0, 0);
+
+  // Portal cycle: opens Friday, closes Monday 2:59pm for PREVIOUS week
+  // "This week" in reporting terms = the current portal window's target week
+  // = last Monday to this Sunday
+  const thisMonday    = getMonday(now);        // this calendar week's Monday
+  const reportMonday  = new Date(thisMonday);  // reporting week start
+  reportMonday.setDate(reportMonday.getDate() - 7); // last Monday
+
+  const reportSunday  = new Date(thisMonday);
+  reportSunday.setDate(reportSunday.getDate() - 1);
+  reportSunday.setHours(23, 59, 59, 999);
+
+  const prevMonday    = new Date(reportMonday);
+  prevMonday.setDate(prevMonday.getDate() - 7);
+  const prevSunday    = new Date(reportMonday);
+  prevSunday.setDate(prevSunday.getDate() - 1);
+  prevSunday.setHours(23, 59, 59, 999);
 
   switch (period) {
-    case "this-week": return { from: thisMonday, to: null };
-    case "last-week": {
-      const lm = new Date(thisMonday); lm.setDate(lm.getDate() - 7);
-      const ls = new Date(thisMonday); ls.setDate(ls.getDate() - 1);
-      return { from: lm, to: ls };
-    }
+    // Current portal window target week
+    case "this-week":  return { from: reportMonday,  to: reportSunday };
+    // Previous portal window target week
+    case "last-week":  return { from: prevMonday,    to: prevSunday };
     case "this-month": return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: null };
-    case "last-month": return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 0) };
-    case "3-months": return { from: new Date(now.getFullYear(), now.getMonth() - 3, 1), to: null };
-    case "6-months": return { from: new Date(now.getFullYear(), now.getMonth() - 6, 1), to: null };
-    case "this-year": return { from: new Date(now.getFullYear(), 0, 1), to: null };
-    case "last-year": return { from: new Date(now.getFullYear() - 1, 0, 1), to: new Date(now.getFullYear() - 1, 11, 31) };
-    default: return { from: null, to: null };
+    case "last-month": return {
+      from: new Date(now.getFullYear(), now.getMonth() - 1, 1),
+      to:   new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59),
+    };
+    case "3-months":   return { from: new Date(now.getFullYear(), now.getMonth() - 3, 1), to: null };
+    case "6-months":   return { from: new Date(now.getFullYear(), now.getMonth() - 6, 1), to: null };
+    case "this-year":  return { from: new Date(now.getFullYear(), 0, 1), to: null };
+    case "last-year":  return {
+      from: new Date(now.getFullYear() - 1, 0, 1),
+      to:   new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59),
+    };
+    default:           return { from: null, to: null };
   }
 };
 
@@ -61,7 +85,7 @@ const Reports = () => {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("submitted");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [lateFilter, setLateFilter] = useState("all");
   const [workerFilter, setWorkerFilter] = useState("all");
   const [period, setPeriod] = useState("this-week");
@@ -349,14 +373,14 @@ const Reports = () => {
         <div className="space-y-4">
           {sortedGroups.map(([weekLabel, weekReports]) => (
             <div key={weekLabel} className="card overflow-hidden">
-              <button
-                className="w-full flex items-center gap-3 p-4 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors text-left"
+              <div
+                className="w-full flex items-center gap-3 p-4 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
                 onClick={() => setExpandedWeeks((prev) => ({ ...prev, [weekLabel]: !prev[weekLabel] }))}
               >
                 <Calendar className="w-4 h-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <span className="font-bold text-gray-900 dark:text-slate-100 text-sm">{weekLabel}</span>
-                  <span className="ml-3 text-xs text-gray-400 dark:text-slate-500">{weekReports.length} reports</span>
+                  <span className="ml-3 text-xs text-gray-400 dark:text-slate-500">{weekReports.length} report{weekReports.length !== 1 ? "s" : ""}</span>
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); downloadCSV(weekReports); }}
@@ -366,7 +390,7 @@ const Reports = () => {
                   <Download className="w-4 h-4" />
                 </button>
                 {expandedWeeks[weekLabel] ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-              </button>
+              </div>
               {expandedWeeks[weekLabel] && (
                 <div className="border-t border-gray-100 dark:border-slate-700">
                   <table className="w-full">

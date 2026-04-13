@@ -2,80 +2,98 @@ import mongoose from "mongoose";
 
 const metricsSchema = new mongoose.Schema(
   {
-    worker: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-
-    weekReference: { type: Date, required: true },
-
+    worker:           { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    weekReference:    { type: Date, required: true },
     isLateSubmission: { type: Boolean, default: false },
 
-    soulsCount: { type: Number, default: 0 },
+    // ── NEW fields (current scoring system) ──────────────────────────────────
 
-    fellowshipPrayerHours: { type: Number, default: 0 },
-    fellowshipPrayerVerified: { type: Boolean, default: false },
+    // Souls preached to — 30pts (min 10)
+    totalSouls:          { type: Number, default: 0 },
+    qualifyingSouls:     { type: Number, default: 0 },
 
-    cellPrayerHours: { type: Number, default: 0 },
-    cellPrayerVerified: { type: Boolean, default: false },
+    // Fellowship prayer — 10pts (min 2 hours)
+    fellowshipHours:     { type: Number, default: 0 },
+    fellowshipName:      { type: String },
 
+    // Cell meeting — 20pts (attended = qualifies)
+    attendedCell:        { type: Boolean, default: false },
+
+    // Worker's own service attendance — 10pts each
+    attendedTuesday:     { type: Boolean, default: false },
+    attendedSunday:      { type: Boolean, default: false },
+
+    // People 12+ brought to church — 20pts (min 4 counts)
+    churchAttendeeCount: { type: Number, default: 0 },
+
+    // ── LEGACY fields (kept so old documents still read correctly) ────────────
+    // These were in the original schema — MongoDB keeps them in existing docs.
+    // New code writes new field names; old docs still return these if queried.
+    soulsCount:               { type: Number },
+    fellowshipPrayerHours:    { type: Number },
+    fellowshipPrayerVerified: { type: Boolean },
+    cellPrayerHours:          { type: Number },
+    cellPrayerVerified:       { type: Boolean },
     serviceAttendanceCounts: {
-      tuesday: { type: Number, default: 0 },
-      sunday: { type: Number, default: 0 },
-      special: { type: Number, default: 0 },
-      total: { type: Number, default: 0 },
+      tuesday: { type: Number },
+      sunday:  { type: Number },
+      special: { type: Number },
+      total:   { type: Number },
     },
-
     workerAttendance: {
       tuesday: {
-        attended: { type: Boolean, default: false },
-        reportingTime: { type: String },
-        arrivalTime: { type: String },
-        verifiedByFrontDesk: { type: Boolean, default: false },
-        late: { type: Boolean, default: false },
-        permissionSought: { type: Boolean, default: false },
+        attended:            { type: Boolean },
+        reportingTime:       { type: String },
+        arrivalTime:         { type: String },
+        verifiedByFrontDesk: { type: Boolean },
+        late:                { type: Boolean },
+        permissionSought:    { type: Boolean },
         permissionOutcome: {
           type: String,
           enum: ["showed-up", "did-not-show", "pending", "n/a"],
-          default: "n/a",
         },
       },
       sunday: {
-        attended: { type: Boolean, default: false },
-        reportingTime: { type: String },
-        arrivalTime: { type: String },
-        verifiedByFrontDesk: { type: Boolean, default: false },
-        late: { type: Boolean, default: false },
-        permissionSought: { type: Boolean, default: false },
+        attended:            { type: Boolean },
+        reportingTime:       { type: String },
+        arrivalTime:         { type: String },
+        verifiedByFrontDesk: { type: Boolean },
+        late:                { type: Boolean },
+        permissionSought:    { type: Boolean },
         permissionOutcome: {
           type: String,
           enum: ["showed-up", "did-not-show", "pending", "n/a"],
-          default: "n/a",
         },
       },
       special: {
-        attended: { type: Boolean, default: false },
-        reportingTime: { type: String },
-        arrivalTime: { type: String },
-        verifiedByFrontDesk: { type: Boolean, default: false },
-        late: { type: Boolean, default: false },
-        permissionSought: { type: Boolean, default: false },
+        attended:            { type: Boolean },
+        reportingTime:       { type: String },
+        arrivalTime:         { type: String },
+        verifiedByFrontDesk: { type: Boolean },
+        late:                { type: Boolean },
+        permissionSought:    { type: Boolean },
         permissionOutcome: {
           type: String,
           enum: ["showed-up", "did-not-show", "pending", "n/a"],
-          default: "n/a",
         },
       },
     },
+    submittedOnTime: { type: Boolean },
 
+    // ── Qualification result (shared between old and new) ─────────────────────
     reportSubmitted: { type: Boolean, default: false },
-    submittedOnTime: { type: Boolean, default: false },
+    totalScore:      { type: Number, default: 0 },
+    isQualified:     { type: Boolean, default: false },
 
-    totalScore: { type: Number, default: 0 },
-    isQualified: { type: Boolean, default: false },
+    // Breakdown — new fields added, old ones kept for history
     qualificationBreakdown: {
-      soulsQualified: { type: Boolean, default: false },
-      fellowshipQualified: { type: Boolean, default: false },
-      cellQualified: { type: Boolean, default: false },
-      attendanceQualified: { type: Boolean, default: false },
-      reportQualified: { type: Boolean, default: false },
+      soulsQualified:      { type: Boolean, default: false }, // 30pts
+      tuesdayQualified:    { type: Boolean, default: false }, // 10pts (new)
+      sundayQualified:     { type: Boolean, default: false }, // 10pts (new)
+      fellowshipQualified: { type: Boolean, default: false }, // 10pts
+      cellQualified:       { type: Boolean, default: false }, // 20pts
+      attendanceQualified: { type: Boolean, default: false }, // 20pts
+      reportQualified:     { type: Boolean },                 // legacy — kept for old records
     },
 
     processedAt: { type: Date },
