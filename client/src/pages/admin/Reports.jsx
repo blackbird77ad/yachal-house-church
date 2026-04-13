@@ -76,7 +76,7 @@ const Reports = () => {
   // Load portal status first — needed for correct "this week" reference
   useEffect(() => {
     getPortalStatus().then((p) => { if (p) setPortalData(p); }).catch(() => {});
-    getAllWorkers({ status: "approved" }).then(({ workers: w }) => setWorkers(w || [])).catch(() => {});
+    getAllWorkers({ status: "approved", limit: 500 }).then(({ workers: w }) => setWorkers(w || [])).catch(() => {});
   }, []);
 
   const fetchReports = useCallback(async (pg = 1) => {
@@ -84,11 +84,13 @@ const Reports = () => {
     setError("");
     try {
       const params = {
-        status:           submissionTab,
-        isLateSubmission: weekTab === "arrears" ? "true" : "false",
         page: pg,
         limit: PER_PAGE,
       };
+      // Only filter by status when not "all"
+      if (submissionTab !== "all") params.status = submissionTab;
+      // Filter by submission type
+      params.isLateSubmission = weekTab === "arrears" ? "true" : "false";
 
       if (typeFilter !== "all") params.reportType = typeFilter;
       if (workerFilter !== "all") params.workerId = workerFilter;

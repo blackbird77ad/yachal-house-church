@@ -7,6 +7,7 @@ import WorkerDashboard from "../pages/portal/WorkerDashboard";
 import SubmitReport from "../pages/portal/SubmitReport";
 import MyProfile from "../pages/portal/MyProfile";
 import MyReports from "../pages/portal/MyReports";
+import MyReportDetail from "../pages/portal/MyReportDetail";
 import WorkerRoster from "../pages/portal/WorkerRoster";
 import Notifications from "../pages/portal/Notifications";
 import FrontDesk from "../pages/portal/FrontDesk";
@@ -63,6 +64,7 @@ const router = createBrowserRouter([{
       { path: "/portal/dashboard", element: <WorkerDashboard /> },
       { path: "/portal/submit-report", element: <SubmitReport /> },
       { path: "/portal/my-reports", element: <MyReports /> },
+      { path: "/portal/my-reports/:reportId", element: <MyReportDetail /> },
       { path: "/portal/roster", element: <WorkerRoster /> },
       { path: "/portal/profile", element: <MyProfile /> },
       { path: "/portal/notifications", element: <Notifications /> },

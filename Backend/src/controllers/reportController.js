@@ -356,18 +356,25 @@ export const getAllReports = async (req, res, next) => {
     if (workerId) filter.submittedBy = workerId;
 
     if (dateFrom) {
-      if (exactWeekRef === "true") {
-        // Exact portal week: match weekReference exactly
-        // Also catch legacy reports with wrong weekReference by including createdAt range
+      const isArrears = filter.isLateSubmission === true;
+      if (exactWeekRef === "true" && !isArrears) {
+        // Current week exact match: match weekReference exactly
+        // Also catch legacy reports with wrong weekReference stored
         const ref = new Date(dateFrom);
         ref.setHours(0, 0, 0, 0);
-        // One week window around the weekReference to catch legacy data
         const rangeStart = new Date(ref); rangeStart.setDate(ref.getDate() - 7);
         const rangeEnd   = new Date(ref); rangeEnd.setDate(ref.getDate() + 1);
         filter.$or = [
           { weekReference: ref },
           { weekReference: { $gte: rangeStart, $lt: ref }, createdAt: { $gte: rangeStart, $lte: rangeEnd } },
         ];
+      } else if (exactWeekRef === "true" && isArrears) {
+        // Arrears for this portal window: use submittedAt range
+        // Arrears are submitted after the portal closes so we use submittedAt
+        const ref = new Date(dateFrom);
+        const rangeStart = new Date(ref); rangeStart.setDate(ref.getDate() - 7);
+        const rangeEnd   = new Date(ref); rangeEnd.setDate(ref.getDate() + 1);
+        filter.submittedAt = { $gte: rangeStart, $lte: rangeEnd };
       } else {
         // Range filter on weekReference for month/year periods
         filter.weekReference = {};

@@ -4,6 +4,7 @@ import Metrics from "../models/metricsModel.js";
 export const getAllWorkers = async (req, res, next) => {
   try {
     const { status, department, role, isQualified, search, page = 1, limit = 15 } = req.query;
+    // Allow high limit for dropdown lists (e.g. Reports page worker filter)
     const filter = {};
 
     if (status) filter.status = status;
