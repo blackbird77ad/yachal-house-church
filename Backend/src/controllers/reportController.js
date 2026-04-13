@@ -344,7 +344,7 @@ export const getMyDraft = async (req, res, next) => {
 
 export const getAllReports = async (req, res, next) => {
   try {
-    const { weekReference, reportType, status, isLateSubmission, workerId, dateFrom, dateTo, page = 1, limit = 20 } = req.query;
+    const { weekReference, reportType, status, isLateSubmission, workerId, dateFrom, dateTo, useSubmittedAt, page = 1, limit = 20 } = req.query;
     const filter = {};
 
     if (weekReference) filter.weekReference = new Date(weekReference);
@@ -356,13 +356,19 @@ export const getAllReports = async (req, res, next) => {
     if (workerId) filter.submittedBy = workerId;
 
     if (dateFrom || dateTo) {
-      // Filter by weekReference — the week the report belongs to
       const from = dateFrom ? new Date(dateFrom) : null;
       const to   = dateTo   ? new Date(dateTo)   : null;
-      // If from === to it means exact weekReference match (single day = Monday)
-      if (from && to && from.getTime() === to.getTime()) {
+      if (useSubmittedAt === "true") {
+        // Filter by submittedAt — finds reports submitted during portal window
+        // regardless of what weekReference was stored (handles legacy data)
+        filter.submittedAt = {};
+        if (from) filter.submittedAt.$gte = from;
+        if (to)   filter.submittedAt.$lte = to;
+      } else if (from && to && from.getTime() === to.getTime()) {
+        // Exact weekReference match
         filter.weekReference = from;
       } else {
+        // Range filter on weekReference
         filter.weekReference = {};
         if (from) filter.weekReference.$gte = from;
         if (to)   filter.weekReference.$lte = to;

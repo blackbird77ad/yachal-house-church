@@ -34,7 +34,7 @@ const getMonday = (date = new Date()) => {
   return d;
 };
 
-const getPeriodDates = (period, portalWeekRef = null) => {
+const getPeriodDates = (period, portalData = null) => {
   const now         = new Date();
   // weekReference on reports = the CLOSING Monday of the portal window
   // (portal opens Friday, closes Monday 2:59pm — weekReference = that Monday)
@@ -89,12 +89,12 @@ const Reports = () => {
   const [customTo, setCustomTo] = useState("");
   const [viewMode, setViewMode] = useState("grouped"); // "grouped" | "table" | "grid"
   const [expandedWeeks, setExpandedWeeks] = useState({});
-  const [portalWeekRef, setPortalWeekRef] = useState(null);
+  const [portalData, setPortalData] = useState(null);
 
-  // Fetch current portal weekReference on mount — the source of truth
+  // Fetch portal status on mount — the source of truth for current week
   useEffect(() => {
     getPortalStatus()
-      .then((p) => { if (p?.weekReference) setPortalWeekRef(new Date(p.weekReference)); })
+      .then((p) => { if (p) setPortalData(p); })
       .catch(() => {});
   }, []);
 
@@ -114,7 +114,7 @@ const Reports = () => {
       if (workerFilter !== "all") params.workerId = workerFilter;
 
       if (period !== "all" && period !== "custom") {
-        const { from, to } = getPeriodDates(period, portalWeekRef);
+        const { from, to, useSubmittedAt } = getPeriodDates(period, portalData);
         if (from) params.dateFrom = from.toISOString();
         if (to) params.dateTo = to.toISOString();
       } else if (period === "custom") {

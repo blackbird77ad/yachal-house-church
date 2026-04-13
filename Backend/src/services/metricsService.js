@@ -1,4 +1,5 @@
 import Report from "../models/reportModel.js";
+import PortalWindow from "../models/portalWindowModel.js";
 import Metrics from "../models/metricsModel.js";
 import User from "../models/userModel.js";
 
@@ -75,11 +76,39 @@ export const processWeeklyMetrics = async (weekReference) => {
     workerId: { $nin: [null, "", "001"] },
   }).select("_id fullName workerId department");
 
-  const reports = await Report.find({
-    weekReference:    week,
-    status:           "submitted",
-    isLateSubmission: false,
-  }).populate("submittedBy", "fullName workerId department _id");
+  // Find the portal window for this weekReference to get exact open/close times
+  // This handles cases where reports were saved with a different weekReference
+  // due to previous code bugs — we find by submission time window instead
+  const portalWindow = await PortalWindow.findOne({ weekReference: week });
+
+  let reports;
+  if (portalWindow) {
+    // Find all submitted reports within the portal window dates
+    // This catches reports regardless of what weekReference they stored
+    reports = await Report.find({
+      status:           "submitted",
+      isLateSubmission: false,
+      submittedAt:      { $gte: portalWindow.opensAt, $lte: portalWindow.closesAt },
+    }).populate("submittedBy", "fullName workerId department _id");
+
+    // Correct any reports that have wrong weekReference stored
+    const wrongWeekRef = reports.filter(
+      (r) => r.weekReference?.getTime() !== week.getTime()
+    );
+    if (wrongWeekRef.length > 0) {
+      await Report.updateMany(
+        { _id: { $in: wrongWeekRef.map((r) => r._id) } },
+        { weekReference: week }
+      );
+    }
+  } else {
+    // Fallback: query by weekReference directly
+    reports = await Report.find({
+      weekReference:    week,
+      status:           "submitted",
+      isLateSubmission: false,
+    }).populate("submittedBy", "fullName workerId department _id");
+  }
 
   // Group reports by worker
   const byWorker = {};
