@@ -1,4 +1,4 @@
-import { format, formatDistanceToNow, isValid, parseISO, startOfWeek, endOfWeek } from "date-fns";
+import { format, formatDistanceToNow, isValid, parseISO } from "date-fns";
 
 export const formatDate = (date, pattern = "dd MMM yyyy") => {
   if (!date) return "N/A";
