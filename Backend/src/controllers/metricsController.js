@@ -3,15 +3,19 @@ import PortalWindow from "../models/portalWindowModel.js";
 import { processWeeklyMetrics } from "../services/metricsService.js";
 import { getQualifiedWorkers, getDisqualifiedWorkersByCloseness, getLateMetricsSummary, getWorkersWithNoSubmission } from "../services/qualificationService.js";
 
-const getCurrentWeekReference = () => {
-  // weekReference = the CLOSING Monday of the portal window
-  // Portal opens Friday, closes Monday 2:59pm
-  // All reports submitted in that window have weekReference = that Monday
+const getCurrentWeekReference = async () => {
+  // Read weekReference from PortalWindow — the single source of truth
+  // The scheduler sets this when portal opens (Friday midnight)
+  try {
+    const portal = await PortalWindow.findOne().sort({ opensAt: -1 });
+    if (portal?.weekReference) return new Date(portal.weekReference);
+  } catch (e) {}
+  // Fallback: this calendar Monday
   const now = new Date();
   const day = now.getDay();
-  const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+  const diff = day === 0 ? -6 : 1 - day;
   const monday = new Date(now);
-  monday.setDate(diff);
+  monday.setDate(now.getDate() + diff);
   monday.setHours(0, 0, 0, 0);
   return monday;
 };

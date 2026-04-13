@@ -9,30 +9,30 @@ import { createNotification } from "../services/notificationService.js";
 // Portal week: Monday 3:00pm → next Monday 2:59pm
 // Submission window: Friday midnight → Monday 2:59pm
 // weekReference = the Monday that closes the window
-const getPortalWeekReference = (now = new Date()) => {
-  const day = now.getDay(); // 0=Sun, 1=Mon...
-  // Get this calendar Monday
+// Get weekReference from PortalWindow — the single source of truth
+const getPortalWeekReference = async () => {
+  try {
+    const portal = await PortalWindow.findOne().sort({ opensAt: -1 });
+    if (portal?.weekReference) return new Date(portal.weekReference);
+  } catch (e) {}
+  // Fallback: calendar Monday
+  const now = new Date();
+  const day = now.getDay();
   const diff = day === 0 ? -6 : 1 - day;
-  const thisMonday = new Date(now);
-  thisMonday.setDate(now.getDate() + diff);
-  thisMonday.setHours(0, 0, 0, 0);
-  const nextMonday = new Date(thisMonday);
-  nextMonday.setDate(thisMonday.getDate() + 7);
-  // If today is Monday before 2:59pm → this Monday closes the window
-  if (day === 1 && now.getHours() < 15) return thisMonday;
-  // Otherwise next Monday closes the window
-  return nextMonday;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + diff);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
 };
 
-// Previous portal week reference (for arrears)
-const getPreviousWeekReference = (now = new Date()) => {
-  const current = getPortalWeekReference(now);
+const getPreviousWeekReference = async () => {
+  const current = await getPortalWeekReference();
   const prev = new Date(current);
   prev.setDate(prev.getDate() - 7);
+  prev.setHours(0, 0, 0, 0);
   return prev;
 };
 
-// Keep alias for backward compatibility
 const getWeekReference = getPortalWeekReference;
 
 export const saveDraft = async (req, res, next) => {
