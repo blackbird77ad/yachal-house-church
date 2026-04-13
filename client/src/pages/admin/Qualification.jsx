@@ -9,7 +9,7 @@ import { getPortalStatus } from "../../services/portalService";
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
 import { getCriteriaStatus } from "../../utils/scoreHelpers";
-import { getWeekLabel, getWeekReference, formatDate } from "../../utils/formatDate";
+import { getWeekLabel, formatDate } from "../../utils/formatDate";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 
 const HISTORY_PERIODS = [
@@ -64,10 +64,14 @@ const Qualification = () => {
   const [historyLoading, setHistoryLoading]     = useState(false);
   const [expandedHistoryWeek, setExpandedHistoryWeek] = useState(null);
 
-  // Reporting week = the Mon-Sun week workers submitted reports for
-  // Portal opens Friday and closes Monday 2:59pm for PREVIOUS week submissions
-  // so weekRef = last Monday (getPreviousWeekReference)
-  const weekRef = getPreviousWeekReference();
+  // weekRef comes from portal status — the authoritative source
+  const [weekRef, setWeekRef] = useState(new Date());
+
+  useEffect(() => {
+    getPortalStatus()
+      .then((p) => { if (p?.weekReference) setWeekRef(new Date(p.weekReference)); })
+      .catch(() => {});
+  }, []);
 
   // ── Fetch all workers status in one call ─────────────────────
   const fetchCurrent = async (silent = false) => {

@@ -5,7 +5,8 @@ import { getDashboardSummary, getLeaderboard } from "../../services/adminService
 import { getAllMetrics } from "../../services/metricsService";
 import Loader from "../../components/common/Loader";
 import ScoreBadge from "../../components/common/ScoreBadge";
-import { formatDate, getWeekLabel, getWeekReference } from "../../utils/formatDate";
+import { formatDate, getWeekLabel } from "../../utils/formatDate";
+import { getPortalStatus } from "../../services/portalService";
 import { useAuth } from "../../hooks/useAuth";
 
 const AdminDashboard = () => {
@@ -14,19 +15,30 @@ const AdminDashboard = () => {
   const [leaderboard, setLeaderboard] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const [weekLabel, setWeekLabel] = useState("This week");
+
   useEffect(() => {
-    Promise.all([
-      getDashboardSummary().catch(() => ({})),
-      getLeaderboard({ weekReference: getWeekReference().toISOString() }).catch(() => ({ leaderboard: [] })),
-    ]).then(([s, l]) => {
-      setSummary(s);
-      setLeaderboard(l.leaderboard?.slice(0, 10) || []);
-    }).finally(() => setLoading(false));
+    const load = async () => {
+      try {
+        // Fetch portal first to get weekReference
+        const portalStatus = await getPortalStatus().catch(() => ({}));
+        const weekRef = portalStatus?.weekReference ? new Date(portalStatus.weekReference) : null;
+        if (weekRef) setWeekLabel(getWeekLabel(weekRef));
+
+        const [s, l] = await Promise.all([
+          getDashboardSummary().catch(() => ({})),
+          getLeaderboard(weekRef ? { weekReference: weekRef.toISOString() } : {}).catch(() => ({ leaderboard: [] })),
+        ]);
+        setSummary(s);
+        setLeaderboard(l.leaderboard?.slice(0, 10) || []);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
   }, []);
 
   if (loading) return <Loader text="Loading dashboard..." />;
-
-  const weekLabel = getWeekLabel(getWeekReference());
 
   const stats = [
     { label: "Total Workers", value: summary?.totalWorkers ?? 0, icon: <Users className="w-5 h-5" />, color: "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400", link: "/admin/workers" },
