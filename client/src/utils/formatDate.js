@@ -57,10 +57,14 @@ export const getPreviousWeekReference = () => {
 };
 
 export const getWeekLabel = (date) => {
-  const d = new Date(date);
-  const start = startOfWeek(d, { weekStartsOn: 1 });
-  const end = endOfWeek(d, { weekStartsOn: 1 });
-  return `${format(start, "dd MMM")} - ${format(end, "dd MMM yyyy")}`;
+  // weekReference = the closing Monday of the portal window
+  // Display as: (closing Monday - 7 days) → closing Monday
+  // e.g. weekReference = Apr 13 → shows "06 Apr - 13 Apr 2026"
+  const closing = new Date(date);
+  closing.setHours(0, 0, 0, 0);
+  const opening = new Date(closing);
+  opening.setDate(closing.getDate() - 7);
+  return `${format(opening, "dd MMM")} - ${format(closing, "dd MMM yyyy")}`;
 };
 
 export const isPortalOpen = (portalStatus) => {
