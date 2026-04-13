@@ -106,19 +106,35 @@ const ReportDetail = () => {
 
         {report.cellData && (
           <div>
-            <h3 className="font-bold text-gray-900 dark:text-slate-100 mb-3">Cell/Fellowship</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-              {[
-                { label: "Attended", value: report.cellData.didAttend ? "Yes" : "No" },
-                { label: "Role", value: report.cellData.role || "N/A" },
-                { label: "Reporting Time", value: report.cellData.reportingTime || "N/A" },
-              ].map((item) => (
-                <div key={item.label} className="bg-gray-50 dark:bg-slate-800 rounded-xl p-3">
-                  <p className="text-xs text-gray-400 dark:text-slate-500 mb-1">{item.label}</p>
-                  <p className="font-medium text-gray-900 dark:text-slate-100">{item.value}</p>
-                </div>
-              ))}
+            <h3 className="font-bold text-gray-900 dark:text-slate-100 mb-3">Cell Meeting</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm mb-3">
+              <div className="bg-gray-50 dark:bg-slate-800 rounded-xl p-3">
+                <p className="text-xs text-gray-400 dark:text-slate-500 mb-1">Attended</p>
+                <p className="font-medium text-gray-900 dark:text-slate-100">
+                  {report.cellData.didAttendCell ? "Yes" : "No"}
+                </p>
+              </div>
             </div>
+            {report.cellData.didAttendCell && report.cellData.cells?.length > 0 && (
+              <div className="space-y-2">
+                {report.cellData.cells.map((cell, i) => (
+                  <div key={i} className="bg-gray-50 dark:bg-slate-800 rounded-xl p-3 space-y-1">
+                    <p className="text-xs font-bold text-purple-600 dark:text-purple-400">Cell {i + 1}</p>
+                    {[
+                      { label: "Cell Name",    value: cell.cellName },
+                      { label: "Meeting Day",  value: cell.meetingDays?.join(", ") },
+                      { label: "Reported At",  value: cell.reportTime },
+                      { label: "Role Played",  value: cell.role },
+                    ].filter((x) => x.value).map((item) => (
+                      <div key={item.label} className="flex justify-between text-sm">
+                        <span className="text-gray-400 dark:text-slate-500">{item.label}</span>
+                        <span className="font-medium text-gray-900 dark:text-slate-100">{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -127,12 +143,13 @@ const ReportDetail = () => {
             <h3 className="font-bold text-gray-900 dark:text-slate-100 mb-3">Fellowship Prayer</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
               {[
-                { label: "Fellowship", value: report.fellowshipPrayerData.fellowship },
-                { label: "Time Started", value: report.fellowshipPrayerData.timeStarted },
-                { label: "Time Ended", value: report.fellowshipPrayerData.timeEnded },
-                { label: "Duration", value: `${report.fellowshipPrayerData.duration} hrs` },
-                { label: "Led By", value: report.fellowshipPrayerData.prayerLedBy },
-              ].filter((i) => i.value).map((item) => (
+                { label: "Fellowship",    value: report.fellowshipPrayerData.fellowshipName },
+                { label: "Prayed",        value: report.fellowshipPrayerData.prayedThisWeek ? "Yes" : "No" },
+                { label: "Day",           value: report.fellowshipPrayerData.prayerDay },
+                { label: "Time Started",  value: report.fellowshipPrayerData.prayerStartTime },
+                { label: "Hours Prayed",  value: report.fellowshipPrayerData.hoursOfPrayer != null
+                    ? `${report.fellowshipPrayerData.hoursOfPrayer} hrs` : undefined },
+              ].filter((i) => i.value != null && i.value !== "" && i.value !== undefined).map((item) => (
                 <div key={item.label} className="bg-gray-50 dark:bg-slate-800 rounded-xl p-3">
                   <p className="text-xs text-gray-400 dark:text-slate-500 mb-1">{item.label}</p>
                   <p className="font-medium text-gray-900 dark:text-slate-100">{item.value}</p>
