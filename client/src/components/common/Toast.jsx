@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { CheckCircle, XCircle, AlertCircle, Info, X } from "lucide-react";
 import { cn } from "../../utils/scoreHelpers";
 
@@ -47,19 +47,21 @@ export const ToastContainer = ({ toasts, onClose }) => (
 export const useToast = () => {
   const [toasts, setToasts] = useState([]);
 
-  const addToast = (toast) => {
+  const addToast = useCallback((toast) => {
     const id = Date.now().toString();
     setToasts((prev) => [...prev, { ...toast, id }]);
-  };
+  }, []);
 
-  const removeToast = (id) => setToasts((prev) => prev.filter((t) => t.id !== id));
+  const removeToast = useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
-  const toast = {
+  const toast = useMemo(() => ({
     success: (title, message) => addToast({ type: "success", title, message }),
     error: (title, message) => addToast({ type: "error", title, message }),
     warning: (title, message) => addToast({ type: "warning", title, message }),
     info: (title, message) => addToast({ type: "info", title, message }),
-  };
+  }), [addToast]);
 
   return { toasts, toast, removeToast };
 };
