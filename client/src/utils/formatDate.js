@@ -1,55 +1,85 @@
 import { format, formatDistanceToNow, isValid, parseISO } from "date-fns";
 
+const toDate = (value) => {
+  if (!value) return null;
+
+  if (value instanceof Date) {
+    return isValid(value) ? value : null;
+  }
+
+  if (typeof value === "string") {
+    const parsed = parseISO(value);
+    if (isValid(parsed)) return parsed;
+
+    const fallback = new Date(value);
+    return isValid(fallback) ? fallback : null;
+  }
+
+  const fallback = new Date(value);
+  return isValid(fallback) ? fallback : null;
+};
+
 export const formatDate = (date, pattern = "dd MMM yyyy") => {
-  if (!date) return "N/A";
-  const d = typeof date === "string" ? parseISO(date) : new Date(date);
-  if (!isValid(d)) return "Invalid date";
+  const d = toDate(date);
+  if (!d) return "N/A";
   return format(d, pattern);
 };
 
 export const formatDateTime = (date) => {
-  if (!date) return "N/A";
-  const d = typeof date === "string" ? parseISO(date) : new Date(date);
-  if (!isValid(d)) return "Invalid date";
+  const d = toDate(date);
+  if (!d) return "N/A";
   return format(d, "dd MMM yyyy, hh:mm a");
 };
 
 export const formatTime = (date) => {
-  if (!date) return "N/A";
-  const d = typeof date === "string" ? parseISO(date) : new Date(date);
-  if (!isValid(d)) return "Invalid time";
+  const d = toDate(date);
+  if (!d) return "N/A";
   return format(d, "hh:mm a");
 };
 
 export const timeAgo = (date) => {
-  if (!date) return "";
-  const d = typeof date === "string" ? parseISO(date) : new Date(date);
-  if (!isValid(d)) return "";
+  const d = toDate(date);
+  if (!d) return "";
   return formatDistanceToNow(d, { addSuffix: true });
 };
 
-// Returns the closing Monday of the current portal week
-// Portal week: Monday 3:00pm → next Monday 2:59pm
-// Submission window: Friday midnight → Monday 2:59pm
-// weekReference on all reports = the Monday that closes the window
-export const getWeekReference = (now = new Date()) => {
-  const d   = new Date(now);
+const getThisMonday = (now = new Date()) => {
+  const d = new Date(now);
   const day = d.getDay(); // 0=Sun, 1=Mon
   const diff = day === 0 ? -6 : 1 - day;
-  const thisMonday = new Date(d);
-  thisMonday.setDate(d.getDate() + diff);
-  thisMonday.setHours(0, 0, 0, 0);
-  const nextMonday = new Date(thisMonday);
-  nextMonday.setDate(thisMonday.getDate() + 7);
-  // Monday before 2:59pm → this Monday closes the current window
-  if (day === 1 && d.getHours() < 15) return thisMonday;
-  // All other times → next Monday closes the window
-  return nextMonday;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diff);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
 };
 
-// Returns the closing Monday of the PREVIOUS portal week (for arrears)
-export const getPreviousWeekReference = () => {
-  const current = getWeekReference();
+const getNextMonday = (now = new Date()) => {
+  const monday = getThisMonday(now);
+  monday.setDate(monday.getDate() + 7);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+};
+
+// Returns the closing Monday of the ACTIVE portal week.
+// Correct rule:
+// - Before Monday 3:00pm => current active week closes THIS Monday
+// - From Monday 3:00pm onward => current active week closes NEXT Monday
+export const getWeekReference = (now = new Date()) => {
+  const d = new Date(now);
+  const thisMonday = getThisMonday(d);
+  const thisMondayAt3pm = new Date(thisMonday);
+  thisMondayAt3pm.setHours(15, 0, 0, 0);
+
+  if (d < thisMondayAt3pm) {
+    return thisMonday;
+  }
+
+  return getNextMonday(d);
+};
+
+// Previous active portal week closing Monday
+export const getPreviousWeekReference = (now = new Date()) => {
+  const current = getWeekReference(now);
   const prev = new Date(current);
   prev.setDate(prev.getDate() - 7);
   prev.setHours(0, 0, 0, 0);
@@ -57,14 +87,18 @@ export const getPreviousWeekReference = () => {
 };
 
 export const getWeekLabel = (date) => {
-  // weekReference = the closing Monday of the system week
-  // System week: closing Monday - 7 days at 3:00pm → closing Monday at 2:59pm
-  // e.g. weekReference = Apr 13 → "Mon 06 Apr 3:00pm – Mon 13 Apr 2:59pm"
-  const closing = new Date(date);
+  const closing = toDate(date);
+  if (!closing) return "N/A";
+
   closing.setHours(0, 0, 0, 0);
+
   const opening = new Date(closing);
   opening.setDate(closing.getDate() - 7);
-  return `${format(opening, "EEE dd MMM")} 3:00pm – ${format(closing, "EEE dd MMM yyyy")} 2:59pm`;
+
+  return `${format(opening, "EEE dd MMM")} 3:00pm – ${format(
+    closing,
+    "EEE dd MMM yyyy"
+  )} 2:59pm`;
 };
 
 export const isPortalOpen = (portalStatus) => {
@@ -72,6 +106,7 @@ export const isPortalOpen = (portalStatus) => {
 };
 
 export const formatWeekReference = (date) => {
-  if (!date) return "N/A";
-  return `Week of ${formatDate(date, "dd MMM yyyy")}`;
+  const d = toDate(date);
+  if (!d) return "N/A";
+  return `Week of ${format(d, "dd MMM yyyy")}`;
 };

@@ -107,7 +107,9 @@ const WorkerProfile = () => {
   if (!worker) return <div className="card p-8 text-center text-gray-400">Worker not found.</div>;
 
   const latestMetric = metrics[0];
-  const criteria = getCriteriaStatus(latestMetric?.qualificationBreakdown);
+  const criteriaItems = latestMetric
+    ? getCriteriaStatus(latestMetric.qualificationBreakdown, latestMetric.scoreBreakdown)
+    : [];
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -271,7 +273,7 @@ const WorkerProfile = () => {
           <h3 className="font-bold text-gray-900 dark:text-slate-100 mb-1">Current Week Qualification</h3>
           <p className="text-xs text-gray-400 dark:text-slate-500 mb-5">{getWeekLabel(latestMetric.weekReference)}</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {criteria.map((c) => (
+            {criteriaItems.map((c) => (
               <div key={c.key} className={`flex items-center gap-3 p-3 rounded-xl border ${c.passed ? "border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20" : "border-gray-100 dark:border-slate-700"}`}>
                 {c.passed
                   ? <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />

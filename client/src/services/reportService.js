@@ -20,7 +20,13 @@ export const getMyReports = async (params = {}) => {
   return response.data;
 };
 
+export const getMyReportSummary = async () => {
+  const response = await axiosInstance.get("/reports/my-report-summary");
+  return response.data;
+};
+
 export const getMyDraft = async (params = {}) => {
+  // Always include weekReference so backend finds the right week's draft
   const response = await axiosInstance.get("/reports/my-draft", { params });
   return response.data;
 };
@@ -37,5 +43,10 @@ export const getReportById = async (reportId) => {
 
 export const getReportPdfData = async (reportId) => {
   const response = await axiosInstance.get(`/reports/${reportId}/pdf-data`);
+  return response.data;
+};
+
+export const deleteMyDraftReport = async (reportId) => {
+  const response = await axiosInstance.delete(`/reports/my-drafts/${reportId}`);
   return response.data;
 };

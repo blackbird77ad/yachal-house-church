@@ -1,12 +1,12 @@
 ﻿import { useState, useEffect } from "react";
-import { Save, Send, Copy, CheckCircle, ChevronDown, ChevronUp, X, Users, UserPlus, Calendar, MapPin, Clock, AlertCircle, Plus } from "lucide-react";
+import { Save, Send, Copy, CheckCircle, ChevronDown, ChevronUp, X, Users, UserPlus, Calendar, MapPin, Clock, AlertCircle, Plus, RotateCcw } from "lucide-react";
 import axiosInstance from "../../utils/axiosInstance";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
 import { getWeekLabel, getWeekReference } from "../../utils/formatDate";
 import Modal from "../../components/common/Modal";
-import { cn } from "../../utils/scoreHelpers";
+import { cn, compareQualificationRank } from "../../utils/scoreHelpers";
 
 const DEPARTMENTS = [
   { value: "song-ministration", label: "Song Ministration" },
@@ -21,15 +21,28 @@ const DEPARTMENTS = [
   { value: "front-desk",        label: "Front Desk" },
 ];
 
+const buildSlotMap = (departments = DEPARTMENTS) => {
+  const slots = {};
+  departments.forEach((department) => {
+    slots[department.value] = { assignments: [] };
+  });
+  return slots;
+};
+
+const formatDepartmentLabel = (value = "") =>
+  value
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
 const RosterBuilder = () => {
   const { toasts, toast, removeToast } = useToast();
   const [rosterData, setRosterData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [slots, setSlots] = useState(() => {
-    const s = {};
-    DEPARTMENTS.forEach((d) => { s[d.value] = { assignments: [] }; });
-    return s;
-  });
+  const [loadingExistingRoster, setLoadingExistingRoster] = useState(true);
+  const [availableRosters, setAvailableRosters] = useState([]);
+  const [slots, setSlots] = useState(() => buildSlotMap());
   const [expanded, setExpanded] = useState({});
   const [notes, setNotes] = useState("");
   const [serviceType, setServiceType] = useState("sunday");
@@ -40,6 +53,7 @@ const RosterBuilder = () => {
   const [saving, setSaving] = useState(false);
   const [rosterId, setRosterId] = useState(null);
   const [published, setPublished] = useState(false);
+  const [republishNeeded, setRepublishNeeded] = useState(false);
   const [workerModal, setWorkerModal] = useState(null);
   const [modalPage, setModalPage] = useState(1);
   const MODAL_PER_PAGE = 10;
@@ -55,31 +69,160 @@ const RosterBuilder = () => {
   const [whatsappText, setWhatsappText] = useState("");
   const [showWhatsapp, setShowWhatsapp] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [rosterWeekReference, setRosterWeekReference] = useState(null);
+  const [rankingWeekReference, setRankingWeekReference] = useState(null);
 
   const weekRef = getWeekReference();
 
   useEffect(() => {
-    axiosInstance.get(`/roster/builder?weekReference=${weekRef.toISOString()}`)
-      .then(({ data }) => setRosterData(data.rosterData))
+    axiosInstance.get("/roster/builder")
+      .then(({ data }) => {
+        setRosterData(data.rosterData);
+        setRosterWeekReference(data.rosterWeekReference || null);
+        setRankingWeekReference(data.rankingWeekReference || null);
+      })
       .catch(() => toast.error("Error", "Could not load worker data."))
       .finally(() => setLoading(false));
   }, []);
 
-  const allWorkers = rosterData ? [
-    ...(rosterData.qualified   || []).map((w) => ({ ...w, cat: "qualified" })),
-    ...(rosterData.disqualified|| []).map((w) => ({ ...w, cat: "disqualified" })),
-    ...(rosterData.noSubmission|| []).map((w) => ({ ...w, cat: "no-report" })),
-  ] : [];
+  const applyRosterToForm = (roster = null) => {
+    if (!roster) {
+      setCustomDepts([]);
+      setSlots(buildSlotMap());
+      setNotes("");
+      setSpecialName("");
+      setServiceDate(new Date().toISOString().split("T")[0]);
+      setServiceTime("09:00");
+      setRosterId(null);
+      setPublished(false);
+      setRepublishNeeded(false);
+      return;
+    }
+
+    const customRosterDepartments = (roster.slots || [])
+      .map((slot) => slot.department)
+      .filter((department) => !DEPARTMENTS.some((item) => item.value === department))
+      .map((department) => ({
+        value: department,
+        label: formatDepartmentLabel(department),
+      }));
+
+    const allRosterDepartments = [...DEPARTMENTS, ...customRosterDepartments];
+    const nextSlots = buildSlotMap(allRosterDepartments);
+
+    (roster.slots || []).forEach((slot) => {
+      nextSlots[slot.department] = {
+        assignments: (slot.assignments || []).map((assignment) => ({
+          ...assignment,
+          score: assignment.score ?? assignment.totalScore ?? 0,
+        })),
+      };
+    });
+
+    setCustomDepts(customRosterDepartments);
+    setSlots(nextSlots);
+    setNotes(roster.notes || "");
+    setServiceDate(
+      roster.serviceDate
+        ? new Date(roster.serviceDate).toISOString().split("T")[0]
+        : new Date().toISOString().split("T")[0]
+    );
+    setServiceTime(
+      roster.serviceDate
+        ? new Date(roster.serviceDate).toTimeString().slice(0, 5)
+        : "09:00"
+    );
+    setSpecialName(roster.specialServiceName || "");
+    setRosterId(roster._id || null);
+    setPublished(!!roster.isPublished);
+    setRepublishNeeded(!!roster.needsRepublish);
+  };
+
+  const loadAvailableRosters = async (preferredRosterId = null) => {
+    if (!rosterWeekReference) return;
+
+    setLoadingExistingRoster(true);
+    try {
+      const { data } = await axiosInstance.get("/roster", {
+        params: {
+          weekReference: rosterWeekReference,
+          serviceType,
+          limit: 50,
+        },
+      });
+
+      const rosters = data.rosters || [];
+      setAvailableRosters(rosters);
+
+      let nextRoster = null;
+      if (preferredRosterId) {
+        nextRoster = rosters.find((item) => item._id === preferredRosterId) || null;
+      }
+      if (!nextRoster && rosterId) {
+        nextRoster = rosters.find((item) => item._id === rosterId) || null;
+      }
+      if (!nextRoster && rosters.length > 0) {
+        nextRoster = rosters[0];
+      }
+
+      applyRosterToForm(nextRoster);
+    } catch {
+      toast.error("Error", "Could not load the saved roster for this service.");
+    } finally {
+      setLoadingExistingRoster(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAvailableRosters();
+  }, [rosterWeekReference, serviceType]);
+
+  const rankedSubmittedWorkers = rosterData
+    ? (
+        rosterData.ranking?.length
+          ? rosterData.ranking
+          : [
+              ...(rosterData.qualified || []).map((w) => ({ ...w, cat: "qualified" })),
+              ...(rosterData.disqualified || []).map((w) => ({ ...w, cat: "disqualified" })),
+              ...(rosterData.noSubmission || []).map((w) => ({ ...w, cat: "no-report" })),
+            ].sort((a, b) => {
+              if (!a.submittedReport && !b.submittedReport) {
+                return (a.worker?.fullName || "").localeCompare(b.worker?.fullName || "");
+              }
+              if (!a.submittedReport) return 1;
+              if (!b.submittedReport) return -1;
+              return compareQualificationRank(a, b);
+            })
+      ).map((worker, index) => {
+        const cat = worker.submittedReport
+          ? worker.isQualified
+            ? "qualified"
+            : "disqualified"
+          : "no-report";
+
+        return {
+          ...worker,
+          cat,
+          rank: worker.submittedReport ? index + 1 : null,
+        };
+      })
+    : [];
+
+  const allWorkers = rankedSubmittedWorkers;
+
+  const getWorkerIdLabel = (worker) => worker?.workerId || "ID pending";
 
   const filteredWorkers = allWorkers.filter((w) =>
     !workerSearch ||
     w.worker?.fullName?.toLowerCase().includes(workerSearch.toLowerCase()) ||
     w.worker?.workerId?.includes(workerSearch)
   );
-
-  const qualifiedFiltered    = filteredWorkers.filter((w) => w.cat === "qualified");
-  const disqualifiedFiltered = filteredWorkers.filter((w) => w.cat === "disqualified");
-  const noReportFiltered     = filteredWorkers.filter((w) => w.cat === "no-report");
+  const totalModalPages = Math.max(1, Math.ceil(filteredWorkers.length / MODAL_PER_PAGE));
+  const safeModalPage = Math.min(modalPage, totalModalPages);
+  const pagedWorkers = filteredWorkers.slice(
+    (safeModalPage - 1) * MODAL_PER_PAGE,
+    safeModalPage * MODAL_PER_PAGE
+  );
 
   const isAssigned = (deptValue, workerId) =>
     slots[deptValue]?.assignments?.some((a) => a.worker?._id === workerId);
@@ -89,7 +232,21 @@ const RosterBuilder = () => {
       const existing = prev[deptValue]?.assignments || [];
       const already = existing.find((a) => a.worker?._id === item.worker?._id);
       if (already) return { ...prev, [deptValue]: { ...prev[deptValue], assignments: existing.filter((a) => a.worker?._id !== item.worker?._id) } };
-      return { ...prev, [deptValue]: { ...prev[deptValue], assignments: [...existing, { worker: item.worker, isQualified: item.cat === "qualified", isCoordinator: false, totalScore: item.totalScore }] } };
+      return {
+        ...prev,
+        [deptValue]: {
+          ...prev[deptValue],
+          assignments: [
+            ...existing,
+            {
+              worker: item.worker,
+              isQualified: item.cat === "qualified",
+              isCoordinator: false,
+              score: item.totalScore || 0,
+            },
+          ],
+        },
+      };
     });
   };
 
@@ -108,7 +265,8 @@ const RosterBuilder = () => {
   };
 
   const buildPayload = () => ({
-    weekReference: weekRef.toISOString(),
+    rosterId,
+    weekReference: rosterWeekReference,
     serviceType,
     serviceDate,
     serviceTime,
@@ -135,22 +293,53 @@ const RosterBuilder = () => {
   };
 
   const handleSave = async () => {
+    if (!rosterWeekReference) {
+      toast.error("Error", "Roster week is still loading. Please wait a moment.");
+      return;
+    }
     setSaving(true);
     try {
       const { data } = await axiosInstance.post("/roster", buildPayload());
       setRosterId(data.roster._id);
-      toast.success("Saved", "Roster draft saved.");
+      setPublished(!!data.roster.isPublished);
+      setRepublishNeeded(!!data.roster.needsRepublish);
+      await loadAvailableRosters(data.roster._id);
+      toast.success("Saved", data.message || "Roster saved.");
     } catch (err) { toast.error("Error", err.response?.data?.message || "Could not save."); }
     finally { setSaving(false); }
   };
 
+  const handleResetAssignments = async () => {
+    if (!rosterId) {
+      toast.warning("Select roster", "Open or save a roster before resetting assignments.");
+      return;
+    }
+
+    if (published) {
+      toast.warning("Published roster", "Use edit and republish for published rosters.");
+      return;
+    }
+
+    if (!confirm("Clear all assignments for this draft roster and start again?")) return;
+
+    try {
+      const { data } = await axiosInstance.put(`/roster/${rosterId}/reset`);
+      applyRosterToForm(data.roster);
+      await loadAvailableRosters(rosterId);
+      toast.success("Reset", data.message || "Assignments cleared.");
+    } catch (err) {
+      toast.error("Error", err.response?.data?.message || "Could not reset assignments.");
+    }
+  };
+
   const handlePublish = async () => {
     if (!rosterId) { toast.warning("Save first", "Save the roster before publishing."); return; }
-    if (!confirm("Publish this roster? All workers will be notified.")) return;
+    if (!confirm(published ? "Republish this roster update? All assigned workers will be notified again to check their assignments." : "Publish this roster? All assigned workers will be notified.")) return;
     try {
-      await axiosInstance.put(`/roster/${rosterId}/publish`);
+      const { data } = await axiosInstance.put(`/roster/${rosterId}/publish`);
       setPublished(true);
-      toast.success("Published", "Roster published. Workers notified.");
+      setRepublishNeeded(false);
+      toast.success(data.republished ? "Republished" : "Published", data.message || "Workers notified.");
     } catch (err) { toast.error("Error", err.response?.data?.message || "Could not publish."); }
   };
 
@@ -165,7 +354,7 @@ const RosterBuilder = () => {
 
   const WorkerItem = ({ item, dept }) => {
     if (!item?.worker?._id) return null;
-  const assigned = isAssigned(dept, item.worker._id);
+    const assigned = isAssigned(dept, item.worker._id);
     const catColor = item.cat === "qualified"
       ? "border-green-200 dark:border-green-800 hover:border-green-400 bg-green-50 dark:bg-green-900/10"
       : item.cat === "disqualified"
@@ -187,18 +376,44 @@ const RosterBuilder = () => {
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">{item.worker?.fullName}</p>
           <p className="text-xs text-gray-400 dark:text-slate-500">
-            {item.worker?.workerId} · {item.worker?.department?.replace(/-/g, " ")}
-            {item.totalScore ? ` · ${item.totalScore} pts` : ""}
+            {getWorkerIdLabel(item.worker)} · {item.worker?.department?.replace(/-/g, " ")}
+            {item.rank ? ` · Rank #${item.rank}` : " · No report"}
+            {item.rank ? ` · ${item.totalScore || 0} pts` : ""}
           </p>
         </div>
+        <span
+          className={cn(
+            "text-[11px] px-2 py-1 rounded-full font-semibold flex-shrink-0",
+            item.cat === "qualified"
+              ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+              : item.cat === "disqualified"
+              ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
+              : "bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400"
+          )}
+        >
+          {item.cat === "qualified"
+            ? "Qualified"
+            : item.cat === "disqualified"
+            ? "Not qualified"
+            : "No report"}
+        </span>
         {assigned && <CheckCircle className="w-5 h-5 text-purple-500 flex-shrink-0" />}
       </div>
     );
   };
 
-  if (loading) return <Loader text="Loading qualification data..." />;
+  if (loading || loadingExistingRoster) return <Loader text="Loading qualification data..." />;
 
   const totalAssigned = Object.values(slots).reduce((t, s) => t + s.assignments.length, 0);
+  const rosterWeekLabel = getWeekLabel(new Date(rosterWeekReference || weekRef.toISOString()));
+  const rankingWeekLabel = rankingWeekReference
+    ? getWeekLabel(new Date(rankingWeekReference))
+    : null;
+  const publishButtonLabel = published
+    ? republishNeeded
+      ? "Republish Changes"
+      : "Republish"
+    : "Publish";
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -207,13 +422,115 @@ const RosterBuilder = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="section-title">Roster Builder</h1>
-          <p className="section-subtitle">{getWeekLabel(weekRef)} · {totalAssigned} workers assigned</p>
+          <p className="section-subtitle">{rosterWeekLabel} · {totalAssigned} workers assigned</p>
+          {rankingWeekLabel && (
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+              Ranking uses the immediately previous finalized qualification week: {rankingWeekLabel}
+            </p>
+          )}
+          {published && (
+            <p className="text-xs mt-1 text-blue-600 dark:text-blue-400">
+              {republishNeeded
+                ? "This roster has unpublished changes. Republish so workers are prompted to check their assignments again."
+                : "This roster is already published. You can still edit it and republish updates if needed."}
+            </p>
+          )}
         </div>
         <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => applyRosterToForm(null)}
+            className="btn-outline text-sm flex items-center gap-1.5"
+          >
+            <Plus className="w-4 h-4" />
+            New Roster
+          </button>
+          {rosterId && !published && (
+            <button
+              onClick={handleResetAssignments}
+              className="btn-outline text-sm flex items-center gap-1.5"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Reset Assignments
+            </button>
+          )}
           <button onClick={handleWhatsApp} className="btn-ghost text-sm flex items-center gap-1.5"><Copy className="w-4 h-4" />WhatsApp</button>
           <button onClick={handleSave} disabled={saving} className="btn-outline text-sm flex items-center gap-1.5"><Save className="w-4 h-4" />{saving ? "Saving..." : "Save Draft"}</button>
-          <button onClick={handlePublish} disabled={published} className="btn-primary text-sm flex items-center gap-1.5"><Send className="w-4 h-4" />{published ? "Published" : "Publish"}</button>
+          <button onClick={handlePublish} className="btn-primary text-sm flex items-center gap-1.5"><Send className="w-4 h-4" />{publishButtonLabel}</button>
         </div>
+      </div>
+
+      <div className="card p-5">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+          <div>
+            <h2 className="font-bold text-gray-900 dark:text-slate-100">Saved Rosters</h2>
+            <p className="text-xs text-gray-500 dark:text-slate-400">
+              {availableRosters.length} roster{availableRosters.length === 1 ? "" : "s"} for this week and service type.
+            </p>
+          </div>
+          <button
+            onClick={() => applyRosterToForm(null)}
+            className="btn-ghost text-xs flex items-center gap-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Start another roster
+          </button>
+        </div>
+
+        {availableRosters.length === 0 ? (
+          <p className="text-sm text-gray-500 dark:text-slate-400">
+            No saved roster yet for this service. Create one from the form below.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {availableRosters.map((roster) => {
+              const isActive = roster._id === rosterId;
+              const assignmentCount = (roster.slots || []).reduce(
+                (sum, slot) => sum + ((slot.assignments || []).length || 0),
+                0
+              );
+
+              return (
+                <button
+                  key={roster._id}
+                  onClick={() => applyRosterToForm(roster)}
+                  className={cn(
+                    "text-left rounded-xl border p-4 transition-all",
+                    isActive
+                      ? "border-purple-400 bg-purple-50 dark:bg-purple-900/20"
+                      : "border-gray-200 dark:border-slate-700 hover:border-purple-300"
+                  )}
+                >
+                  <div className="flex items-center gap-2 flex-wrap mb-2">
+                    <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+                      {roster.specialServiceName || `${roster.serviceType} service`}
+                    </p>
+                    <span
+                      className={cn(
+                        "text-[11px] px-2 py-0.5 rounded-full font-semibold",
+                        roster.isPublished
+                          ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                          : "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
+                      )}
+                    >
+                      {roster.isPublished ? "Published" : "Draft"}
+                    </span>
+                    {roster.needsRepublish && (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
+                        Needs republish
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-slate-400">
+                    {new Date(roster.serviceDate).toLocaleString()}
+                  </p>
+                  <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">
+                    {assignmentCount} assignment{assignmentCount === 1 ? "" : "s"}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {allWorkers.length === 0 && (
@@ -330,7 +647,7 @@ const RosterBuilder = () => {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">{a.worker.fullName}</p>
-                        <p className="text-xs text-gray-400 dark:text-slate-500">{a.worker.workerId} · {a.totalScore || 0} pts · {a.isQualified ? "Qualified" : "Not qualified"}</p>
+                        <p className="text-xs text-gray-400 dark:text-slate-500">{getWorkerIdLabel(a.worker)} · {a.score ?? a.totalScore ?? 0} pts · {a.isQualified ? "Qualified" : "Not qualified"}</p>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <button
@@ -351,46 +668,57 @@ const RosterBuilder = () => {
       </div>
 
       {/* Worker assignment modal */}
-      <Modal isOpen={!!workerModal} onClose={() => setWorkerModal(null)} title={`Assign Workers: ${DEPARTMENTS.find((d) => d.value === workerModal)?.label || ""}`} size="2xl">
+      <Modal isOpen={!!workerModal} onClose={() => setWorkerModal(null)} title={`Assign Workers: ${allDepartments.find((d) => d.value === workerModal)?.label || ""}`} size="2xl">
         {workerModal && (
           <div className="space-y-4">
-            <input className="input-field" placeholder="Search by name or Worker ID..." value={workerSearch} onChange={(e) => setWorkerSearch(e.target.value)} autoFocus />
+            <input className="input-field" placeholder="Search by name or Worker ID..." value={workerSearch} onChange={(e) => { setWorkerSearch(e.target.value); setModalPage(1); }} autoFocus />
 
             <p className="text-xs text-gray-500 dark:text-slate-400">
               Currently assigned: <strong>{slots[workerModal]?.assignments?.length || 0}</strong>.
-              Workers who did not submit a report this week are shown but marked separately.
+              Workers are ranked from the previous finalized week, then non-submitters are listed after them.
             </p>
+            {rankingWeekLabel && (
+              <p className="text-xs text-purple-600 dark:text-purple-400">
+                Showing previous-week ranking from {rankingWeekLabel}.
+              </p>
+            )}
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                {
+                  label: "All workers",
+                  value: filteredWorkers.length,
+                  color: "text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20",
+                },
+                {
+                  label: "Qualified",
+                  value: filteredWorkers.filter((item) => item.cat === "qualified").length,
+                  color: "text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20",
+                },
+                {
+                  label: "Not qualified",
+                  value: filteredWorkers.filter((item) => item.cat === "disqualified").length,
+                  color: "text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20",
+                },
+                {
+                  label: "No report",
+                  value: filteredWorkers.filter((item) => item.cat === "no-report").length,
+                  color: "text-gray-600 dark:text-slate-300 bg-gray-100 dark:bg-slate-800",
+                },
+              ].map((stat) => (
+                <div key={stat.label} className={cn("rounded-xl px-3 py-2", stat.color)}>
+                  <p className="text-[11px] uppercase tracking-wider opacity-80">{stat.label}</p>
+                  <p className="text-lg font-bold">{stat.value}</p>
+                </div>
+              ))}
+            </div>
 
             <div className="max-h-[55vh] overflow-y-auto space-y-4 pr-1">
-              {qualifiedFiltered.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-green-700 dark:text-green-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <CheckCircle className="w-3.5 h-3.5" /> Qualified this week ({qualifiedFiltered.length})
-                  </p>
-                  <div className="space-y-1.5">
-                    {qualifiedFiltered.filter((item) => item?.worker?._id).slice((modalPage-1)*MODAL_PER_PAGE, modalPage*MODAL_PER_PAGE).map((item) => <WorkerItem key={item.worker._id} item={item} dept={workerModal} />)}
-                      {Math.ceil(qualifiedFiltered.length/MODAL_PER_PAGE) > 1 && <Pagination page={modalPage} totalPages={Math.ceil(qualifiedFiltered.length/MODAL_PER_PAGE)} totalItems={qualifiedFiltered.length} perPage={MODAL_PER_PAGE} label="qualified" onPage={setModalPage} />}
-                  </div>
-                </div>
-              )}
-              {disqualifiedFiltered.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5" /> Not qualified ({disqualifiedFiltered.length})
-                  </p>
-                  <div className="space-y-1.5">
-                    {disqualifiedFiltered.filter((item) => item?.worker?._id).map((item) => <WorkerItem key={item.worker._id} item={item} dept={workerModal} />)}
-                  </div>
-                </div>
-              )}
-              {noReportFiltered.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <AlertCircle className="w-3.5 h-3.5" /> No report submitted ({noReportFiltered.length})
-                  </p>
-                  <div className="space-y-1.5">
-                    {noReportFiltered.filter((item) => item?.worker?._id).map((item) => <WorkerItem key={item.worker._id} item={item} dept={workerModal} />)}
-                  </div>
+              {pagedWorkers.length > 0 && (
+                <div className="space-y-1.5">
+                  {pagedWorkers
+                    .filter((item) => item?.worker?._id)
+                    .map((item) => <WorkerItem key={item.worker._id} item={item} dept={workerModal} />)}
                 </div>
               )}
               {filteredWorkers.length === 0 && (
@@ -400,9 +728,18 @@ const RosterBuilder = () => {
               )}
             </div>
 
+            <Pagination
+              page={safeModalPage}
+              totalPages={totalModalPages}
+              totalItems={filteredWorkers.length}
+              perPage={MODAL_PER_PAGE}
+              label="workers"
+              onPage={setModalPage}
+            />
+
             <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-slate-700">
               <p className="text-sm text-gray-500 dark:text-slate-400">
-                {slots[workerModal]?.assignments?.length || 0} assigned to {DEPARTMENTS.find((d) => d.value === workerModal)?.label}
+                {slots[workerModal]?.assignments?.length || 0} assigned to {allDepartments.find((d) => d.value === workerModal)?.label}
               </p>
               <button onClick={() => setWorkerModal(null)} className="btn-primary">Done</button>
             </div>

@@ -40,10 +40,15 @@ export const DEPARTMENTS = [
 
 export const SOUL_STATUSES = [
   { value: "saved", label: "Got saved" },
+  { value: "not_saved", label: "Not saved yet" },
   { value: "filled", label: "Got saved and filled" },
   { value: "saved-not-filled", label: "Got saved but not yet filled" },
   { value: "already-saved", label: "Already saved and filled" },
   { value: "already-saved-not-filled", label: "Already saved but not yet filled" },
+  {
+    value: "already-saved-filled",
+    label: "Already saved but got filled",
+  }
 ];
 
 export const NOTIFICATION_TYPES = {
@@ -60,15 +65,19 @@ export const NOTIFICATION_TYPES = {
 };
 
 export const QUALIFICATION_CRITERIA = {
-  MIN_SOULS:            10, // 30pts — souls preached to
-  MIN_FELLOWSHIP_HOURS: 2,  // 10pts — hours of fellowship prayer
-  MIN_CHURCH_ATTENDEES: 4,  // 20pts — people 12+ brought to church
-  // Tuesday service:  10pts — worker attended
-  // Sunday service:   10pts — worker attended
-  // Cell meeting:     20pts — worker attended at least once (boolean)
-  // Total:           100pts — all must pass to fully qualify
+  MIN_SOULS: 10,
+  MIN_FELLOWSHIP_HOURS: 2,
+  MIN_CHURCH_ATTENDEES: 4,
+  MIN_CELL_PRAYER_HOURS: 2,
+  // Souls preached to: 30pts max (3pts per soul, capped at 10 souls)
+// Tuesday service: 10pts
+// Sunday service: 10pts
+// Fellowship prayer: 10pts (min 2 hours)
+// Cell meeting: 10pts
+// Cell prayer: 10pts (min 2 hours)
+// People 12+ brought to church: 20pts max (5pts per person, capped at 4)
+// Total: 100pts
 };
-
 export const PORTAL_SCHEDULE = {
   OPENS: "Friday midnight",
   CLOSES: "Monday 2:59pm",
@@ -79,4 +88,4 @@ export const WORKER_STATUS = {
   PENDING: "pending",
   APPROVED: "approved",
   SUSPENDED: "suspended",
-};
+};  

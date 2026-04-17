@@ -1,4 +1,5 @@
 ﻿import { Bell, CheckCheck, Trash2, ExternalLink } from "lucide-react";
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useNotifications } from "../../hooks/useNotifications";
 import { timeAgo } from "../../utils/formatDate";
@@ -9,15 +10,45 @@ const typeColors = {
   "portal-open": "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400",
   "portal-closing-soon": "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400",
   "portal-closed": "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400",
-  "account-approved": "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400",
   "roster-published": "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400",
-  "qualification-result": "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400",
+  "report-reminder": "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400",
+  "assignment-update": "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400",
+  "front-desk": "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-400",
   general: "bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-300",
 };
 
+const WORKER_SAFE_TYPES = new Set([
+  "portal-open",
+  "portal-closing-soon",
+  "portal-closed",
+  "roster-published",
+  "report-reminder",
+  "assignment-update",
+  "front-desk",
+  "general",
+]);
+
 const Notifications = () => {
   const navigate = useNavigate();
-  const { notifications, unreadCount, loading, markAsRead, markAllAsRead, deleteNotification } = useNotifications();
+  const {
+    notifications,
+    unreadCount,
+    loading,
+    markAsRead,
+    markAllAsRead,
+    deleteNotification,
+  } = useNotifications();
+
+  const safeNotifications = useMemo(() => {
+    return (notifications || []).filter((n) => {
+      if (!n?.type) return true;
+      return WORKER_SAFE_TYPES.has(n.type);
+    });
+  }, [notifications]);
+
+  const safeUnreadCount = useMemo(() => {
+    return safeNotifications.filter((n) => !n.isRead).length;
+  }, [safeNotifications]);
 
   const handleClick = (n) => {
     if (!n.isRead) markAsRead(n._id);
@@ -28,28 +59,36 @@ const Notifications = () => {
 
   return (
     <div className="space-y-6 animate-fade-in max-w-3xl mx-auto">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="section-title">Notifications</h1>
-          <p className="section-subtitle">{unreadCount} unread</p>
+          <p className="section-subtitle">{safeUnreadCount} unread</p>
         </div>
-        {unreadCount > 0 && (
-          <button onClick={markAllAsRead} className="btn-outline text-sm flex items-center gap-2">
+
+        {safeUnreadCount > 0 && (
+          <button
+            onClick={markAllAsRead}
+            className="btn-outline text-sm flex items-center gap-2"
+          >
             <CheckCheck className="w-4 h-4" />
             Mark all read
           </button>
         )}
       </div>
 
-      {notifications.length === 0 ? (
+      {safeNotifications.length === 0 ? (
         <div className="card p-16 text-center">
           <Bell className="w-12 h-12 text-gray-300 dark:text-slate-600 mx-auto mb-4" />
-          <h3 className="font-semibold text-gray-900 dark:text-slate-100 mb-2">No notifications yet</h3>
-          <p className="text-sm text-gray-500 dark:text-slate-400">You will receive alerts here for portal updates, roster assignments and more.</p>
+          <h3 className="font-semibold text-gray-900 dark:text-slate-100 mb-2">
+            No notifications yet
+          </h3>
+          <p className="text-sm text-gray-500 dark:text-slate-400">
+            You will receive alerts here for portal updates, roster publishing, and reminders relevant to you.
+          </p>
         </div>
       ) : (
         <div className="card divide-y divide-gray-100 dark:divide-slate-700">
-          {notifications.map((n) => (
+          {safeNotifications.map((n) => (
             <div
               key={n._id}
               className={cn(
@@ -58,24 +97,52 @@ const Notifications = () => {
               )}
               onClick={() => handleClick(n)}
             >
-              {!n.isRead && <div className="w-2 h-2 bg-purple-600 rounded-full flex-shrink-0 mt-2" />}
+              {!n.isRead && (
+                <div className="w-2 h-2 bg-purple-600 rounded-full flex-shrink-0 mt-2" />
+              )}
+
               <div className={cn("flex-1 min-w-0", n.isRead && "pl-6")}>
                 <div className="flex items-start justify-between gap-2 mb-1">
-                  <p className={cn("text-sm font-semibold", n.isRead ? "text-gray-700 dark:text-slate-300" : "text-gray-900 dark:text-slate-100")}>
+                  <p
+                    className={cn(
+                      "text-sm font-semibold",
+                      n.isRead
+                        ? "text-gray-700 dark:text-slate-300"
+                        : "text-gray-900 dark:text-slate-100"
+                    )}
+                  >
                     {n.title}
                   </p>
-                  <span className={cn("text-xs px-2 py-0.5 rounded-full flex-shrink-0", typeColors[n.type] || typeColors.general)}>
+
+                  <span
+                    className={cn(
+                      "text-xs px-2 py-0.5 rounded-full flex-shrink-0 capitalize",
+                      typeColors[n.type] || typeColors.general
+                    )}
+                  >
                     {n.type?.replace(/-/g, " ")}
                   </span>
                 </div>
-                <p className="text-sm text-gray-500 dark:text-slate-400 mb-2">{n.message}</p>
+
+                <p className="text-sm text-gray-500 dark:text-slate-400 mb-2">
+                  {n.message}
+                </p>
+
                 <div className="flex items-center gap-3">
-                  <span className="text-xs text-gray-400 dark:text-slate-500">{timeAgo(n.createdAt)}</span>
-                  {n.link && <ExternalLink className="w-3 h-3 text-gray-400 dark:text-slate-500" />}
+                  <span className="text-xs text-gray-400 dark:text-slate-500">
+                    {timeAgo(n.createdAt)}
+                  </span>
+                  {n.link && (
+                    <ExternalLink className="w-3 h-3 text-gray-400 dark:text-slate-500" />
+                  )}
                 </div>
               </div>
+
               <button
-                onClick={(e) => { e.stopPropagation(); deleteNotification(n._id); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteNotification(n._id);
+                }}
                 className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 flex-shrink-0"
               >
                 <Trash2 className="w-4 h-4" />

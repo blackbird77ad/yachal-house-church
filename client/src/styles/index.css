@@ -583,3 +583,75 @@ nav {
     font-size: 16px !important;
   }
 }
+
+/* =========================
+   PRINT PAGE FIX
+   ========================= */
+@page {
+  size: A4;
+  margin: 16mm 14mm 16mm 14mm;
+}
+
+@media print {
+  html,
+  body {
+    width: auto !important;
+    max-width: none !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 12px !important;
+    line-height: 1.45 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #root {
+    display: block !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    max-width: none !important;
+  }
+
+  /* Main printable wrapper */
+  .print-sheet {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+  }
+
+  /* Force content to stay inside page */
+  .print-sheet,
+  .print-sheet * {
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
+    white-space: normal !important;
+  }
+
+  /* Remove UI styling that causes awkward print edges */
+  .card {
+    box-shadow: none !important;
+    border: 1px solid #ddd !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+
+  .page-container {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Optional: hide buttons/nav when printing */
+  .no-print {
+    display: none !important;
+  }
+}

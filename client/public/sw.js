@@ -1,5 +1,8 @@
 const CACHE_NAME = "yachal-house-portal-v3";
 const APP_SHELL = "/login";
+const IS_LOCALHOST =
+  self.location.hostname === "localhost" ||
+  self.location.hostname === "127.0.0.1";
 
 const STATIC_ASSETS = [
   APP_SHELL,
@@ -16,6 +19,11 @@ const STATIC_ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
+  if (IS_LOCALHOST) {
+    self.skipWaiting();
+    return;
+  }
+
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)).catch(() => {})
@@ -25,6 +33,13 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
+      if (IS_LOCALHOST) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+        await self.registration.unregister();
+        return;
+      }
+
       const keys = await caches.keys();
       await Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)));
       await self.clients.claim();
@@ -33,6 +48,8 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
+  if (IS_LOCALHOST) return;
+
   const { request } = event;
   if (request.method !== "GET") return;
   if (!request.url.startsWith("http")) return;
@@ -94,6 +111,7 @@ self.addEventListener("fetch", (event) => {
 
 // Push notifications
 self.addEventListener("push", (event) => {
+  if (IS_LOCALHOST) return;
   if (!event.data) return;
   let data = {};
   try { data = event.data.json(); } catch { data = { title: "Yachal House", body: event.data.text() }; }
@@ -109,6 +127,7 @@ self.addEventListener("push", (event) => {
 });
 
 self.addEventListener("notificationclick", (event) => {
+  if (IS_LOCALHOST) return;
   event.notification.close();
   const url = event.notification.data?.url || "/portal/dashboard";
   event.waitUntil(

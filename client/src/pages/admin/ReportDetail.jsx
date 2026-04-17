@@ -356,23 +356,113 @@ const DepartmentalContent = ({ report }) => {
   return (
     <>
       <Section title="Department Details">
-        <Field label="Department" value={d.department} />
-        <Field label="Service"    value={d.service} />
+        <Field
+          label="Department"
+          value={d.department === "other" ? d.otherDepartment : d.department}
+        />
+        <Field
+          label="Service"
+          value={d.service === "other" ? d.otherService : d.service}
+        />
         <Field label="Date"       value={d.serviceDate ? formatDate(d.serviceDate) : null} />
       </Section>
       {d.attendees?.length > 0 && (
         <Section title={`Attendees (${d.attendees.length})`}>
-          <TableHead cols={[{ label: "#", w: 0.3 }, { label: "Name", w: 2 }, { label: "Time In", w: 1.5 }, { label: "Time Out", w: 1.5 }, { label: "Role", w: 1.5 }]} />
+          <TableHead cols={[{ label: "#", w: 0.3 }, { label: "Name", w: 2 }, { label: "Arrival Time", w: 1.5 }]} />
           {d.attendees.map((a, i) => (
             <div key={i} style={{ display: "flex", padding: "3px 8px", backgroundColor: i % 2 === 0 ? "#f9fafb" : "white" }}>
-              {[{ w: 0.3, val: i + 1 }, { w: 2, val: a.name, bold: true }, { w: 1.5, val: a.timeIn }, { w: 1.5, val: a.timeOut }, { w: 1.5, val: a.role }].map(({ w, val, bold }, j) => (
+              {[{ w: 0.3, val: i + 1 }, { w: 2, val: a.workerId ? `${a.name} (${a.workerId})` : a.name, bold: true }, { w: 1.5, val: a.time || "—" }].map(({ w, val, bold }, j) => (
                 <div key={j} style={{ flex: w, fontSize: 10, color: bold ? "#111" : "#374151", fontWeight: bold ? 600 : 400, paddingRight: 8 }}>{val}</div>
               ))}
             </div>
           ))}
         </Section>
       )}
-      {d.observations && <Section title="Observations"><div style={{ fontSize: 11 }}>{d.observations}</div></Section>}
+      {d.lateness?.length > 0 && (
+        <Section title={`Lateness (${d.lateness.length})`}>
+          <TableHead cols={[{ label: "#", w: 0.3 }, { label: "Name", w: 2 }, { label: "Permission Time", w: 1.5 }]} />
+          {d.lateness.map((a, i) => (
+            <div key={i} style={{ display: "flex", padding: "3px 8px", backgroundColor: i % 2 === 0 ? "#f9fafb" : "white" }}>
+              {[{ w: 0.3, val: i + 1 }, { w: 2, val: a.workerId ? `${a.name} (${a.workerId})` : a.name, bold: true }, { w: 1.5, val: a.time || "—" }].map(({ w, val, bold }, j) => (
+                <div key={j} style={{ flex: w, fontSize: 10, color: bold ? "#111" : "#374151", fontWeight: bold ? 600 : 400, paddingRight: 8 }}>{val}</div>
+              ))}
+            </div>
+          ))}
+        </Section>
+      )}
+      {d.absentees?.length > 0 && (
+        <Section title={`Absentees (${d.absentees.length})`}>
+          <TableHead cols={[{ label: "#", w: 0.3 }, { label: "Name", w: 2 }, { label: "Permission Time", w: 1.5 }]} />
+          {d.absentees.map((a, i) => (
+            <div key={i} style={{ display: "flex", padding: "3px 8px", backgroundColor: i % 2 === 0 ? "#f9fafb" : "white" }}>
+              {[{ w: 0.3, val: i + 1 }, { w: 2, val: a.workerId ? `${a.name} (${a.workerId})` : a.name, bold: true }, { w: 1.5, val: a.time || "—" }].map(({ w, val, bold }, j) => (
+                <div key={j} style={{ flex: w, fontSize: 10, color: bold ? "#111" : "#374151", fontWeight: bold ? 600 : 400, paddingRight: 8 }}>{val}</div>
+              ))}
+            </div>
+          ))}
+        </Section>
+      )}
+      {d.teamAssignments?.length > 0 && (
+        <Section title={`Team Assignments (${d.teamAssignments.length})`}>
+          <TableHead cols={[{ label: "#", w: 0.3 }, { label: "Name", w: 2 }, { label: "Assignment", w: 1.8 }]} />
+          {d.teamAssignments.map((a, i) => (
+            <div key={i} style={{ display: "flex", padding: "3px 8px", backgroundColor: i % 2 === 0 ? "#f9fafb" : "white" }}>
+              {[{ w: 0.3, val: i + 1 }, { w: 2, val: a.workerId ? `${a.name} (${a.workerId})` : a.name, bold: true }, { w: 1.8, val: a.assignment || "—" }].map(({ w, val, bold }, j) => (
+                <div key={j} style={{ flex: w, fontSize: 10, color: bold ? "#111" : "#374151", fontWeight: bold ? 600 : 400, paddingRight: 8 }}>{val}</div>
+              ))}
+            </div>
+          ))}
+        </Section>
+      )}
+      {d.convertsToChurch?.length > 0 && (
+        <Section title={`Converts / Disciples To Church (${d.convertsToChurch.length})`}>
+          <TableHead cols={[{ label: "#", w: 0.3 }, { label: "Name", w: 2 }, { label: "Count", w: 1 }]} />
+          {d.convertsToChurch.map((a, i) => (
+            <div key={i} style={{ display: "flex", padding: "3px 8px", backgroundColor: i % 2 === 0 ? "#f9fafb" : "white" }}>
+              {[{ w: 0.3, val: i + 1 }, { w: 2, val: a.workerId ? `${a.name} (${a.workerId})` : a.name, bold: true }, { w: 1, val: a.count ?? 0 }].map(({ w, val, bold }, j) => (
+                <div key={j} style={{ flex: w, fontSize: 10, color: bold ? "#111" : "#374151", fontWeight: bold ? 600 : 400, paddingRight: 8 }}>{val}</div>
+              ))}
+            </div>
+          ))}
+        </Section>
+      )}
+      {d.convertsToCell?.length > 0 && (
+        <Section title={`Converts / Disciples To Cell / Fellowship (${d.convertsToCell.length})`}>
+          <TableHead cols={[{ label: "#", w: 0.3 }, { label: "Name", w: 2 }, { label: "Count", w: 1 }]} />
+          {d.convertsToCell.map((a, i) => (
+            <div key={i} style={{ display: "flex", padding: "3px 8px", backgroundColor: i % 2 === 0 ? "#f9fafb" : "white" }}>
+              {[{ w: 0.3, val: i + 1 }, { w: 2, val: a.workerId ? `${a.name} (${a.workerId})` : a.name, bold: true }, { w: 1, val: a.count ?? 0 }].map(({ w, val, bold }, j) => (
+                <div key={j} style={{ flex: w, fontSize: 10, color: bold ? "#111" : "#374151", fontWeight: bold ? 600 : 400, paddingRight: 8 }}>{val}</div>
+              ))}
+            </div>
+          ))}
+        </Section>
+      )}
+      {d.childrenRegister?.length > 0 && (
+        <Section title={`Children Register (${d.childrenRegister.length})`}>
+          <TableHead cols={[{ label: "#", w: 0.3 }, { label: "Child", w: 1.6 }, { label: "Brought By", w: 1.8 }, { label: "Time", w: 1 }]} />
+          {d.childrenRegister.map((a, i) => (
+            <div key={i} style={{ display: "flex", padding: "3px 8px", backgroundColor: i % 2 === 0 ? "#f9fafb" : "white" }}>
+              {[{ w: 0.3, val: i + 1 }, { w: 1.6, val: a.childName, bold: true }, { w: 1.8, val: a.broughtBy || "—" }, { w: 1, val: a.time || "—" }].map(({ w, val, bold }, j) => (
+                <div key={j} style={{ flex: w, fontSize: 10, color: bold ? "#111" : "#374151", fontWeight: bold ? 600 : 400, paddingRight: 8 }}>{val}</div>
+              ))}
+            </div>
+          ))}
+        </Section>
+      )}
+      {(d.activities || d.comments) && (
+        <Section title="Activity Report">
+          {d.activities && <Field label="Activities / Details / Observations" value={d.activities} full />}
+          {d.comments && <Field label="Comments" value={d.comments} full />}
+        </Section>
+      )}
+      {d.qualifyingWorkers?.length > 0 && (
+        <Section title={`People Who Qualify To Work (${d.qualifyingWorkers.length})`}>
+          <div style={{ fontSize: 11, lineHeight: 1.6, color: "#374151" }}>
+            {d.qualifyingWorkers.join(", ")}
+          </div>
+        </Section>
+      )}
     </>
   );
 };

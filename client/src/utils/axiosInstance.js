@@ -1,61 +1,64 @@
 import axios from "axios";
 
+const resolveApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+
+  if (typeof window !== "undefined") {
+    const { hostname } = window.location;
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return "http://localhost:5000/api";
+    }
+  }
+
+  return "https://yachal-house-church.onrender.com/api";
+};
+
 const axiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "https://yachal-house-church.onrender.com/api",
-  timeout: 30000, // 30s — covers Render cold start
+  baseURL: resolveApiBaseUrl(),
+  timeout: 15000,
   headers: { "Content-Type": "application/json" },
 });
 
-// ── Request — attach JWT token ────────────────────────────────────
+// Request: attach JWT token
 axiosInstance.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("yahal_token");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// ── Response — handle auth, retries, connection errors ───────────
+// Response: handle auth only
 axiosInstance.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const config = error.config;
+    const config = error.config || {};
+    const requestUrl = String(config.url || "");
+    const isAuthPageRequest =
+      requestUrl.includes("/auth/login") ||
+      requestUrl.includes("/auth/register") ||
+      requestUrl.includes("/auth/forgot-password");
 
-    // 401 — token expired or invalid, force logout
-    if (error.response?.status === 401) {
+    // 401: token expired/invalid -> logout once
+    if (error.response?.status === 401 && !isAuthPageRequest) {
       localStorage.removeItem("yahal_token");
       localStorage.removeItem("yahal_user");
-      // Only redirect if not already on login page
+
       if (!window.location.pathname.includes("/login")) {
         window.location.href = "/login";
       }
+
       return Promise.reject(error);
     }
 
-    // 429 — rate limited, wait and retry once
-    if (error.response?.status === 429 && !config._retry429) {
-      config._retry429 = true;
-      const retryAfter = parseInt(error.response.headers["retry-after"] || "15") * 1000;
-      await new Promise((r) => setTimeout(r, Math.min(retryAfter, 15000)));
-      return axiosInstance(config);
-    }
-
-    // Network / connection error — retry once after 3s (Render cold start)
-    if (!config._retryNetwork) {
-      const isNetworkError = !error.response && (
-        error.code === "ERR_NETWORK" ||
-        error.code === "ERR_CONNECTION_CLOSED" ||
-        error.code === "ECONNABORTED" ||
-        error.message === "Network Error"
-      );
-      if (isNetworkError) {
-        config._retryNetwork = true;
-        await new Promise((r) => setTimeout(r, 3000));
-        return axiosInstance(config);
-      }
-    }
-
+    // DO NOT auto-retry 429 globally
+    // DO NOT auto-retry network errors globally
+    // Let each page decide whether it wants a retry.
     return Promise.reject(error);
   }
 );

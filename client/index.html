@@ -58,12 +58,35 @@
         }
       } catch(e) {}
 
-      // Register service worker
+      // Register service worker only outside local development.
+      // On localhost it can cache stale route shells and break Vite HMR.
       if ("serviceWorker" in navigator) {
-        window.addEventListener("load", () => {
-          navigator.serviceWorker.register("/sw.js")
-            .then(reg => console.log("SW registered", reg.scope))
-            .catch(err => console.log("SW failed", err));
+        const isLocalhost =
+          window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1";
+
+        window.addEventListener("load", async () => {
+          if (isLocalhost) {
+            try {
+              const registrations = await navigator.serviceWorker.getRegistrations();
+              await Promise.all(registrations.map((registration) => registration.unregister()));
+
+              if ("caches" in window) {
+                const cacheKeys = await caches.keys();
+                await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+              }
+
+              console.log("Local dev mode: service workers cleared");
+            } catch (err) {
+              console.log("Local dev SW cleanup failed", err);
+            }
+            return;
+          }
+
+          navigator.serviceWorker
+            .register("/sw.js")
+            .then((reg) => console.log("SW registered", reg.scope))
+            .catch((err) => console.log("SW failed", err));
         });
       }
     </script>
