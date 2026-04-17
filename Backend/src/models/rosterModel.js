@@ -14,19 +14,8 @@ const departmentSlotSchema = new mongoose.Schema(
   {
     department: {
       type: String,
-      enum: [
-        "song-ministration",
-        "media",
-        "security",
-        "sunday-school",
-        "ushering",
-        "projection",
-        "brief-writing",
-        "production",
-        "service-coordination",
-        "front-desk",
-      ],
       required: true,
+      trim: true,
     },
     subRole: { type: String, trim: true },
     assignments: [roleAssignmentSchema],
@@ -57,6 +46,10 @@ const rosterSchema = new mongoose.Schema(
     publishedAt: { type: Date },
 
     publishedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+
+    publishCount: { type: Number, default: 0 },
+
+    needsRepublish: { type: Boolean, default: false },
 
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   },

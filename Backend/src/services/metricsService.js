@@ -1,240 +1,491 @@
 import Report from "../models/reportModel.js";
-import PortalWindow from "../models/portalWindowModel.js";
 import Metrics from "../models/metricsModel.js";
 import User from "../models/userModel.js";
+import {
+  getPortalWeekReferenceForNow,
+  getPortalWindowForWeekReference,
+  normalizeWeekReference,
+} from "../utils/portalWeek.js";
 
-// ── Criteria & weights ────────────────────────────────────────────────────────
 const CRITERIA = {
-  MIN_SOULS:            10,  // 30pts
-  MIN_FELLOWSHIP_HOURS: 2,   // 10pts
-  MIN_CHURCH_ATTENDEES: 4,   // 20pts
-  // Tuesday service:   10pts (attended = qualifies)
-  // Sunday service:    10pts (attended = qualifies)
-  // Cell meeting:      20pts (attended = qualifies)
+  MIN_SOULS: 10,
+  MIN_FELLOWSHIP_HOURS: 2,
+  MIN_CHURCH_ATTENDEES: 4,
+  MIN_CELL_PRAYER_HOURS: 2,
 };
 
 const WEIGHTS = {
-  souls:       30,
-  tuesday:     10,
-  sunday:      10,
-  fellowship:  10,
-  cell:        20,
-  attendees:   20,
+  souls: 30,
+  tuesday: 10,
+  sunday: 10,
+  fellowship: 10,
+  cellAttendance: 10,
+  cellPrayer: 10,
+  attendees: 20,
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+const normalizeWeek = (value) => {
+  return normalizeWeekReference(value);
+};
+
+const isSameNormalizedWeek = (a, b) =>
+  normalizeWeek(a).getTime() === normalizeWeek(b).getTime();
+
+const getAuthoritativeOnTimeWeekReference = (report) => {
+  if (report?.submittedAt) {
+    return normalizeWeek(getPortalWeekReferenceForNow(report.submittedAt));
+  }
+
+  if (report?.createdAt) {
+    return normalizeWeek(getPortalWeekReferenceForNow(report.createdAt));
+  }
+
+  if (report?.weekReference) {
+    return normalizeWeek(report.weekReference);
+  }
+
+  return null;
+};
+
+const countTotalSouls = (evangelismData) =>
+  evangelismData?.totalSouls ||
+  evangelismData?.souls?.length ||
+  0;
+
 const countQualifyingSouls = (evangelismData) =>
-  evangelismData?.souls?.length || 0;
+  evangelismData?.qualifyingSouls ||
+  evangelismData?.souls?.filter((s) => !s.age || s.age >= 12).length ||
+  evangelismData?.souls?.length ||
+  0;
 
 const countChurchAttendees = (report) => {
   if (!report.churchAttendees?.length) return 0;
-  let count = 0;
-  const qualifying = report.churchAttendees.filter((a) => a.olderThan12 === true);
-  qualifying.forEach((a) => {
-    if (a.attendedTuesday) count++;
-    if (a.attendedSunday)  count++;
-    if (a.attendedSpecial) count++;
-  });
-  return count;
+
+  return report.churchAttendees.filter(
+    (attendee) =>
+      attendee.olderThan12 === true &&
+      (attendee.attendedTuesday ||
+        attendee.attendedSunday ||
+        attendee.attendedSpecial)
+  ).length;
 };
 
 const getFellowshipHours = (report) => {
   if (!report.fellowshipPrayerData?.prayedThisWeek) return 0;
-  return report.fellowshipPrayerData.hoursOfPrayer || 0;
+  return Number(report.fellowshipPrayerData.hoursOfPrayer || 0);
 };
 
-const didAttendCell = (report) =>
-  report.cellData?.didAttendCell === true;
+const didAttendCellMeeting = (report) => {
+  if (report.cellData?.didAttendCell === true) return true;
+  if (report.cellData?.didAttend === true) return true;
+  return false;
+};
+
+const didPrayWithCellForTwoHours = (report) => {
+  const cellPrayer = report.cellData?.cellPrayer;
+  if (
+    cellPrayer?.didPrayWithCell === true &&
+    Number(cellPrayer?.hours || 0) >= CRITERIA.MIN_CELL_PRAYER_HOURS
+  ) {
+    return true;
+  }
+  return false;
+};
 
 const getServiceAttendance = (report) => {
   let tuesday = false;
-  let sunday  = false;
+  let sunday = false;
+
   if (report.serviceAttendance?.length) {
     const tue = report.serviceAttendance.find((s) => s.serviceType === "tuesday");
     const sun = report.serviceAttendance.find((s) => s.serviceType === "sunday");
     if (tue?.attended === true) tuesday = true;
-    if (sun?.attended === true) sunday  = true;
+    if (sun?.attended === true) sunday = true;
   }
+
   return { tuesday, sunday };
 };
 
-const computeScore = (q) => (
-  (q.soulsQualified      ? WEIGHTS.souls      : 0) +
-  (q.tuesdayQualified    ? WEIGHTS.tuesday    : 0) +
-  (q.sundayQualified     ? WEIGHTS.sunday     : 0) +
-  (q.fellowshipQualified ? WEIGHTS.fellowship : 0) +
-  (q.cellQualified       ? WEIGHTS.cell       : 0) +
-  (q.attendanceQualified ? WEIGHTS.attendees  : 0)
-);
+const roundScore = (value) => Number(value.toFixed(2));
 
-// ── Process ALL workers for a given week ─────────────────────────────────────
+const computeSoulsScore = (qualifyingSouls) => {
+  const perSoul = WEIGHTS.souls / CRITERIA.MIN_SOULS;
+  return roundScore(Math.min(qualifyingSouls * perSoul, WEIGHTS.souls));
+};
+
+const computeAttendeesScore = (churchAttendeeCount) => {
+  const perPerson = WEIGHTS.attendees / CRITERIA.MIN_CHURCH_ATTENDEES;
+  return roundScore(Math.min(churchAttendeeCount * perPerson, WEIGHTS.attendees));
+};
+
+const buildQualificationBreakdown = ({
+  qualifyingSouls,
+  attendedTuesday,
+  attendedSunday,
+  fellowshipHours,
+  attendedCellMeeting,
+  prayedWithCellTwoHours,
+  churchAttendeeCount,
+}) => ({
+  soulsQualified: qualifyingSouls >= CRITERIA.MIN_SOULS,
+  tuesdayQualified: attendedTuesday,
+  sundayQualified: attendedSunday,
+  fellowshipQualified: fellowshipHours >= CRITERIA.MIN_FELLOWSHIP_HOURS,
+  cellAttendanceQualified: attendedCellMeeting,
+  cellPrayerQualified: prayedWithCellTwoHours,
+  attendanceQualified: churchAttendeeCount >= CRITERIA.MIN_CHURCH_ATTENDEES,
+});
+
+const buildScoreBreakdown = ({
+  qualifyingSouls,
+  attendedTuesday,
+  attendedSunday,
+  fellowshipHours,
+  attendedCellMeeting,
+  prayedWithCellTwoHours,
+  churchAttendeeCount,
+}) => ({
+  soulsScore: computeSoulsScore(qualifyingSouls),
+  tuesdayScore: attendedTuesday ? WEIGHTS.tuesday : 0,
+  sundayScore: attendedSunday ? WEIGHTS.sunday : 0,
+  fellowshipScore:
+    fellowshipHours >= CRITERIA.MIN_FELLOWSHIP_HOURS ? WEIGHTS.fellowship : 0,
+  cellAttendanceScore: attendedCellMeeting ? WEIGHTS.cellAttendance : 0,
+  cellPrayerScore: prayedWithCellTwoHours ? WEIGHTS.cellPrayer : 0,
+  attendeesScore: computeAttendeesScore(churchAttendeeCount),
+});
+
+const computeTotalScore = (scoreBreakdown) =>
+  roundScore(
+    scoreBreakdown.soulsScore +
+      scoreBreakdown.tuesdayScore +
+      scoreBreakdown.sundayScore +
+      scoreBreakdown.fellowshipScore +
+      scoreBreakdown.cellAttendanceScore +
+      scoreBreakdown.cellPrayerScore +
+      scoreBreakdown.attendeesScore
+  );
+
+const getMetricSnapshotFromReport = (report) => {
+  if (!report) {
+    return {
+      totalSouls: 0,
+      qualifyingSouls: 0,
+      fellowshipHours: 0,
+      attendedCellMeeting: false,
+      prayedWithCellTwoHours: false,
+      churchAttendeeCount: 0,
+      attendedTuesday: false,
+      attendedSunday: false,
+      reportSubmitted: false,
+    };
+  }
+
+  const serviceAttendance = getServiceAttendance(report);
+
+  return {
+    totalSouls: countTotalSouls(report.evangelismData),
+    qualifyingSouls: countQualifyingSouls(report.evangelismData),
+    fellowshipHours: getFellowshipHours(report),
+    attendedCellMeeting: didAttendCellMeeting(report),
+    prayedWithCellTwoHours: didPrayWithCellForTwoHours(report),
+    churchAttendeeCount: countChurchAttendees(report),
+    attendedTuesday: serviceAttendance.tuesday,
+    attendedSunday: serviceAttendance.sunday,
+    reportSubmitted: true,
+  };
+};
+
+export const getEffectiveRosterWeekReference = (now = new Date()) => {
+  const rosterWeek = normalizeWeek(getPortalWeekReferenceForNow(now));
+  return getRankingWeekReferenceForRosterWeek(rosterWeek);
+};
+
+export const getRankingWeekReferenceForRosterWeek = (rosterWeekReference) => {
+  const rosterWeek = normalizeWeek(rosterWeekReference);
+  const rankingWeek = new Date(rosterWeek);
+  rankingWeek.setUTCDate(rankingWeek.getUTCDate() - 7);
+  rankingWeek.setUTCHours(0, 0, 0, 0);
+  return rankingWeek;
+};
+
+export const ensureWeeklyMetricsFresh = async (
+  weekReference,
+  { maxAgeMinutes = 60, force = false } = {}
+) => {
+  const week = normalizeWeek(weekReference);
+  const freshnessCutoff = new Date(Date.now() - maxAgeMinutes * 60 * 1000);
+  const submissionWindow = getPortalWindowForWeekReference(week);
+
+  const [latestMetric, hasSubmittedReports] = await Promise.all([
+    Metrics.findOne({ weekReference: week, isLateSubmission: false })
+      .select("processedAt updatedAt")
+      .sort({ processedAt: -1, updatedAt: -1 })
+      .lean(),
+    Report.exists({
+      reportType: "evangelism",
+      status: "submitted",
+      isLateSubmission: false,
+      $or: [
+        { weekReference: week },
+        {
+          submittedAt: {
+            $gte: submissionWindow.opensAt,
+            $lte: submissionWindow.closesAt,
+          },
+        },
+        {
+          submittedAt: { $exists: false },
+          createdAt: {
+            $gte: submissionWindow.opensAt,
+            $lte: submissionWindow.closesAt,
+          },
+        },
+      ],
+    }),
+  ]);
+
+  if (!force && !latestMetric && !hasSubmittedReports) {
+    return false;
+  }
+
+  const lastProcessedAt = latestMetric?.processedAt || latestMetric?.updatedAt || null;
+  const isFresh =
+    !force &&
+    lastProcessedAt &&
+    new Date(lastProcessedAt).getTime() >= freshnessCutoff.getTime();
+
+  if (isFresh) {
+    return false;
+  }
+
+  await processWeeklyMetrics(week);
+  return true;
+};
+
 export const processWeeklyMetrics = async (weekReference) => {
-  const week = weekReference instanceof Date ? weekReference : new Date(weekReference);
+  const week = normalizeWeek(weekReference);
+
+  if (isNaN(week.getTime())) {
+    throw new Error(`Invalid weekReference: ${weekReference}`);
+  }
 
   const allWorkers = await User.find({
-    status:   "approved",
+    status: "approved",
     workerId: { $nin: [null, "", "001"] },
   }).select("_id fullName workerId department");
 
-  // Find the portal window for this weekReference to get exact open/close times
-  // This handles cases where reports were saved with a different weekReference
-  // due to previous code bugs — we find by submission time window instead
-  const portalWindow = await PortalWindow.findOne({ weekReference: week });
+  const submissionWindow = getPortalWindowForWeekReference(week);
+  const candidateReports = await Report.find({
+    reportType: "evangelism",
+    status: "submitted",
+    isLateSubmission: false,
+    $or: [
+      { weekReference: week },
+      {
+        submittedAt: {
+          $gte: submissionWindow.opensAt,
+          $lte: submissionWindow.closesAt,
+        },
+      },
+      {
+        submittedAt: { $exists: false },
+        createdAt: {
+          $gte: submissionWindow.opensAt,
+          $lte: submissionWindow.closesAt,
+        },
+      },
+    ],
+  }).populate("submittedBy", "fullName workerId department _id");
 
-  let reports;
-  if (portalWindow) {
-    // Find all submitted reports within the portal window dates
-    // This catches reports regardless of what weekReference they stored
-    reports = await Report.find({
-      status:           "submitted",
-      isLateSubmission: false,
-      submittedAt:      { $gte: portalWindow.opensAt, $lte: portalWindow.closesAt },
-    }).populate("submittedBy", "fullName workerId department _id");
+  const reports = [];
+  const weekReferenceRepairs = [];
 
-    // Correct any reports that have wrong weekReference stored
-    const wrongWeekRef = reports.filter(
-      (r) => r.weekReference?.getTime() !== week.getTime()
-    );
-    if (wrongWeekRef.length > 0) {
-      await Report.updateMany(
-        { _id: { $in: wrongWeekRef.map((r) => r._id) } },
-        { weekReference: week }
-      );
+  for (const report of candidateReports) {
+    const authoritativeWeek = getAuthoritativeOnTimeWeekReference(report);
+    if (!authoritativeWeek) continue;
+
+    const storedWeek = report.weekReference
+      ? normalizeWeek(report.weekReference)
+      : null;
+
+    if (!storedWeek || !isSameNormalizedWeek(storedWeek, authoritativeWeek)) {
+      weekReferenceRepairs.push({
+        updateOne: {
+          filter: { _id: report._id },
+          update: { weekReference: authoritativeWeek },
+        },
+      });
     }
-  } else {
-    // Fallback: query by weekReference directly
-    reports = await Report.find({
-      weekReference:    week,
-      status:           "submitted",
-      isLateSubmission: false,
-    }).populate("submittedBy", "fullName workerId department _id");
+
+    if (isSameNormalizedWeek(authoritativeWeek, week)) {
+      reports.push(report);
+    }
   }
 
-  // Group reports by worker
+  if (weekReferenceRepairs.length > 0) {
+    await Report.bulkWrite(weekReferenceRepairs);
+  }
+
   const byWorker = {};
-  for (const r of reports) {
-    if (!r.submittedBy) continue;
-    const id = r.submittedBy._id.toString();
-    if (!byWorker[id]) byWorker[id] = { worker: r.submittedBy, reports: [] };
-    byWorker[id].reports.push(r);
+  for (const report of reports) {
+    if (!report.submittedBy?._id) continue;
+    const workerId = report.submittedBy._id.toString();
+    const existing = byWorker[workerId];
+
+    if (
+      !existing ||
+      new Date(report.submittedAt || report.createdAt) >
+        new Date(existing.submittedAt || existing.createdAt)
+    ) {
+      byWorker[workerId] = report;
+    }
   }
 
   for (const worker of allWorkers) {
-    const id             = worker._id.toString();
-    const workerReports  = byWorker[id]?.reports || [];
-    const reportSubmitted = workerReports.length > 0;
+    const id = worker._id.toString();
+    const workerReport = byWorker[id] || null;
+    const {
+      totalSouls,
+      qualifyingSouls,
+      fellowshipHours,
+      attendedCellMeeting,
+      prayedWithCellTwoHours,
+      churchAttendeeCount,
+      attendedTuesday,
+      attendedSunday,
+      reportSubmitted,
+    } = getMetricSnapshotFromReport(workerReport);
 
-    let totalSouls          = 0;
-    let qualifyingSouls     = 0;
-    let fellowshipHours     = 0;
-    let attendedCell        = false;
-    let churchAttendeeCount = 0;
-    let attendedTuesday     = false;
-    let attendedSunday      = false;
+    const qualificationBreakdown = buildQualificationBreakdown({
+      qualifyingSouls,
+      attendedTuesday,
+      attendedSunday,
+      fellowshipHours,
+      attendedCellMeeting,
+      prayedWithCellTwoHours,
+      churchAttendeeCount,
+    });
 
-    for (const r of workerReports) {
-      if (r.reportType === "evangelism") {
-        const souls = countQualifyingSouls(r.evangelismData);
-        totalSouls          += souls;
-        qualifyingSouls     += souls;
-        churchAttendeeCount += countChurchAttendees(r);
-        fellowshipHours     += getFellowshipHours(r);
-        if (didAttendCell(r)) attendedCell = true;
-        const sa = getServiceAttendance(r);
-        if (sa.tuesday) attendedTuesday = true;
-        if (sa.sunday)  attendedSunday  = true;
-      }
-      // Legacy separate report types
-      if (r.reportType === "fellowship-prayer") fellowshipHours += getFellowshipHours(r);
-      if (r.reportType === "cell" && r.cellData?.didAttendCell) attendedCell = true;
-    }
+    const scoreBreakdown = buildScoreBreakdown({
+      qualifyingSouls,
+      attendedTuesday,
+      attendedSunday,
+      fellowshipHours,
+      attendedCellMeeting,
+      prayedWithCellTwoHours,
+      churchAttendeeCount,
+    });
 
-    const qualificationBreakdown = {
-      soulsQualified:      qualifyingSouls     >= CRITERIA.MIN_SOULS,
-      tuesdayQualified:    attendedTuesday,
-      sundayQualified:     attendedSunday,
-      fellowshipQualified: fellowshipHours     >= CRITERIA.MIN_FELLOWSHIP_HOURS,
-      cellQualified:       attendedCell,
-      attendanceQualified: churchAttendeeCount >= CRITERIA.MIN_CHURCH_ATTENDEES,
-    };
-
-    const totalScore  = computeScore(qualificationBreakdown);
-    const isQualified = totalScore === 100;
+    const totalScore = computeTotalScore(scoreBreakdown);
+    const isQualified = totalScore >= 100;
 
     await Metrics.findOneAndUpdate(
       { worker: worker._id, weekReference: week, isLateSubmission: false },
       {
-        worker: worker._id, weekReference: week, isLateSubmission: false,
-        totalSouls, qualifyingSouls, fellowshipHours,
-        attendedCell, attendedTuesday, attendedSunday,
-        churchAttendeeCount, reportSubmitted,
-        isQualified, qualificationBreakdown, totalScore,
+        worker: worker._id,
+        weekReference: week,
+        isLateSubmission: false,
+        totalSouls,
+        qualifyingSouls,
+        fellowshipHours,
+        attendedCell: attendedCellMeeting,
+        attendedCellMeeting,
+        cellPrayerHours: prayedWithCellTwoHours ? CRITERIA.MIN_CELL_PRAYER_HOURS : 0,
+        cellPrayerVerified: prayedWithCellTwoHours,
+        prayedWithCellTwoHours,
+        attendedTuesday,
+        attendedSunday,
+        churchAttendeeCount,
+        reportSubmitted,
+        isQualified,
+        qualificationBreakdown,
+        scoreBreakdown,
+        totalScore,
         processedAt: new Date(),
       },
       { upsert: true, new: true }
     );
 
-    await User.findByIdAndUpdate(worker._id, { isQualified, score: totalScore });
+    await User.findByIdAndUpdate(worker._id, {
+      isQualified,
+      score: totalScore,
+    });
   }
 };
 
-// ── Process late submission for a single worker ───────────────────────────────
 export const processLateMetrics = async (userId, weekReference) => {
-  const week = weekReference instanceof Date ? weekReference : new Date(weekReference);
+  const week = normalizeWeek(weekReference);
 
-  const reports = await Report.find({
-    submittedBy: userId, weekReference: week,
-    status: "submitted", isLateSubmission: true,
-  });
-  if (!reports.length) return;
+  const report = await Report.findOne({
+    submittedBy: userId,
+    weekReference: week,
+    reportType: "evangelism",
+    status: "submitted",
+    isLateSubmission: true,
+  }).sort({ submittedAt: -1, createdAt: -1 });
+
+  if (!report) return;
 
   const worker = await User.findById(userId).select("fullName workerId department");
   if (!worker || worker.workerId === "001") return;
 
-  let totalSouls          = 0;
-  let qualifyingSouls     = 0;
-  let fellowshipHours     = 0;
-  let attendedCell        = false;
-  let churchAttendeeCount = 0;
-  let attendedTuesday     = false;
-  let attendedSunday      = false;
+  const {
+    totalSouls,
+    qualifyingSouls,
+    fellowshipHours,
+    attendedCellMeeting,
+    prayedWithCellTwoHours,
+    churchAttendeeCount,
+    attendedTuesday,
+    attendedSunday,
+  } = getMetricSnapshotFromReport(report);
 
-  for (const r of reports) {
-    if (r.reportType === "evangelism") {
-      const souls = countQualifyingSouls(r.evangelismData);
-      totalSouls          += souls;
-      qualifyingSouls     += souls;
-      churchAttendeeCount += countChurchAttendees(r);
-      fellowshipHours     += getFellowshipHours(r);
-      if (didAttendCell(r)) attendedCell = true;
-      const sa = getServiceAttendance(r);
-      if (sa.tuesday) attendedTuesday = true;
-      if (sa.sunday)  attendedSunday  = true;
-    }
-    if (r.reportType === "fellowship-prayer") fellowshipHours += getFellowshipHours(r);
-    if (r.reportType === "cell" && r.cellData?.didAttendCell) attendedCell = true;
-  }
+  const qualificationBreakdown = buildQualificationBreakdown({
+    qualifyingSouls,
+    attendedTuesday,
+    attendedSunday,
+    fellowshipHours,
+    attendedCellMeeting,
+    prayedWithCellTwoHours,
+    churchAttendeeCount,
+  });
 
-  const qualificationBreakdown = {
-    soulsQualified:      qualifyingSouls     >= CRITERIA.MIN_SOULS,
-    tuesdayQualified:    attendedTuesday,
-    sundayQualified:     attendedSunday,
-    fellowshipQualified: fellowshipHours     >= CRITERIA.MIN_FELLOWSHIP_HOURS,
-    cellQualified:       attendedCell,
-    attendanceQualified: churchAttendeeCount >= CRITERIA.MIN_CHURCH_ATTENDEES,
-  };
+  const scoreBreakdown = buildScoreBreakdown({
+    qualifyingSouls,
+    attendedTuesday,
+    attendedSunday,
+    fellowshipHours,
+    attendedCellMeeting,
+    prayedWithCellTwoHours,
+    churchAttendeeCount,
+  });
 
-  const totalScore  = computeScore(qualificationBreakdown);
-  const isQualified = totalScore === 100;
+  const totalScore = computeTotalScore(scoreBreakdown);
+  const isQualified = totalScore >= 100;
 
   await Metrics.findOneAndUpdate(
     { worker: userId, weekReference: week, isLateSubmission: true },
     {
-      worker: userId, weekReference: week, isLateSubmission: true,
-      totalSouls, qualifyingSouls, fellowshipHours,
-      attendedCell, attendedTuesday, attendedSunday,
-      churchAttendeeCount, reportSubmitted: true,
-      isQualified, qualificationBreakdown, totalScore,
+      worker: userId,
+      weekReference: week,
+      isLateSubmission: true,
+      totalSouls,
+      qualifyingSouls,
+      fellowshipHours,
+      attendedCell: attendedCellMeeting,
+      attendedCellMeeting,
+      cellPrayerHours: prayedWithCellTwoHours ? CRITERIA.MIN_CELL_PRAYER_HOURS : 0,
+      cellPrayerVerified: prayedWithCellTwoHours,
+      prayedWithCellTwoHours,
+      attendedTuesday,
+      attendedSunday,
+      churchAttendeeCount,
+      reportSubmitted: true,
+      isQualified,
+      qualificationBreakdown,
+      scoreBreakdown,
+      totalScore,
       processedAt: new Date(),
     },
     { upsert: true, new: true }
@@ -242,7 +493,7 @@ export const processLateMetrics = async (userId, weekReference) => {
 };
 
 export const getLateMetricsSummary = async (weekReference) => {
-  const week = weekReference instanceof Date ? weekReference : new Date(weekReference);
+  const week = normalizeWeek(weekReference);
   return Metrics.find({ weekReference: week, isLateSubmission: true })
     .populate("worker", "fullName workerId department")
     .sort({ totalScore: -1 });

@@ -35,6 +35,12 @@ export const generateWorkerId = async () => {
 export const register = async (req, res, next) => {
   try {
     const { fullName, email, password, phone } = req.body;
+    if (!fullName?.trim() || !email?.trim() || !password) {
+      return res.status(400).json({
+        message: "Full name, email, and password are required.",
+      });
+    }
+
     const existing = await User.findOne({ email: email.toLowerCase().trim() });
     if (existing) return res.status(400).json({ message: "An account with this email already exists." });
 
@@ -78,10 +84,11 @@ export const login = async (req, res, next) => {
       return res.status(400).json({ message: "Email or Worker ID and password are required." });
     }
 
-    const isEmail = identifier.includes("@");
+    const normalizedIdentifier = identifier.toString().trim();
+    const isEmail = normalizedIdentifier.includes("@");
     const user = isEmail
-      ? await User.findOne({ email: identifier.toLowerCase().trim() })
-      : await User.findOne({ workerId: identifier.trim() });
+      ? await User.findOne({ email: normalizedIdentifier.toLowerCase() })
+      : await User.findOne({ workerId: normalizedIdentifier });
 
     if (!user) return res.status(401).json({ message: "Invalid credentials. Check your email or Worker ID and password." });
 
@@ -93,7 +100,21 @@ export const login = async (req, res, next) => {
       return res.status(403).json({ message: "Your account has been suspended. Contact your admin." });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
+    const storedPassword = user.password || "";
+    const looksHashed = /^\$2[aby]\$\d{2}\$/.test(storedPassword);
+
+    let isMatch = false;
+    if (looksHashed) {
+      isMatch = await bcrypt.compare(password, storedPassword);
+    } else if (storedPassword) {
+      isMatch = password === storedPassword;
+
+      // Backfill legacy plain-text passwords the next time the user logs in.
+      if (isMatch) {
+        user.password = await bcrypt.hash(password, 12);
+      }
+    }
+
     if (!isMatch) return res.status(401).json({ message: "Invalid credentials. Check your email or Worker ID and password." });
 
     user.lastLogin = new Date();

@@ -3,6 +3,8 @@ import {
   getDashboardSummary,
   getPendingWorkers,
   overridePortal,
+  cleanupPortalRecords,
+  fixReportWeekReferences,
   getLeaderboard,
   createSpecialService,
   sendBulkNotification,
@@ -17,6 +19,8 @@ router.use(protect, isAdminLevel);
 router.get("/dashboard", getDashboardSummary);
 router.get("/pending-workers", getPendingWorkers);
 router.post("/portal-override", overridePortal);
+router.post("/portal-cleanup", protect, isAdminLevel, cleanupPortalRecords);
+router.post("/fix-week-references", protect, isAdminLevel, fixReportWeekReferences);
 router.get("/leaderboard", getLeaderboard);
 router.post("/special-service", createSpecialService);
 router.post("/notify", sendBulkNotification);

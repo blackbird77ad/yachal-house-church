@@ -1,253 +1,298 @@
 import cron from "node-cron";
 import PortalWindow from "../models/portalWindowModel.js";
 import Metrics from "../models/metricsModel.js";
-import { processWeeklyMetrics } from "./metricsService.js";
-import { sendPortalOpenEmail, sendPortalClosingEmail, sendQualificationResultsEmail } from "./emailService.js";
-import { createBulkNotification } from "./notificationService.js";
 import User from "../models/userModel.js";
-import { autoCloseExpiredSessions } from "../controllers/attendanceController.js";
-import { sendPushToMany } from "./pushService.js";
+import Notification from "../models/notificationModel.js";
+import Roster from "../models/rosterModel.js";
 import FrontDeskSession from "../models/frontDeskSessionModel.js";
 import Attendance from "../models/attendanceModel.js";
 import PushSubscription from "../models/pushSubscriptionModel.js";
+import {
+  ensureWeeklyMetricsFresh,
+  processWeeklyMetrics,
+} from "./metricsService.js";
+import {
+  sendPortalOpenEmail,
+  sendPortalClosedEmail,
+  sendPortalDeadlineReminderEmail,
+  sendQualificationResultsEmail,
+} from "./emailService.js";
+import { createBulkNotification } from "./notificationService.js";
+import { autoCloseExpiredSessions } from "../controllers/attendanceController.js";
+import { sendPushToMany } from "./pushService.js";
+import {
+  getPortalWeekReferenceForNow,
+  getPortalWindowForWeekReference,
+  isWithinSubmissionWindow,
+} from "../utils/portalWeek.js";
 
-// This calendar Monday (midnight)
-const getThisWeekMonday = () => {
-  const now = new Date();
-  const day = now.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + diff);
-  monday.setHours(0, 0, 0, 0);
-  return monday;
-};
-
-// Next calendar Monday (midnight) = closing Monday of NEXT portal window
-const getNextWeekMonday = () => {
-  const monday = new Date(getThisWeekMonday());
-  monday.setDate(monday.getDate() + 7);
-  return monday;
-};
-
-// Closing Monday of the CURRENT portal window
-// = this Monday (if before 2:59pm) or next Monday (if after 3pm / Tue-Sun)
-const getPortalWeekReference = () => {
-  const now = new Date();
-  const day = now.getDay();
-  if (day === 1 && now.getHours() < 15) return getThisWeekMonday();
-  return getNextWeekMonday();
-};
-
-const getNextMonday259pm = () => {
-  const monday = getNextWeekMonday();
-  monday.setHours(14, 59, 0, 0);
-  return monday;
-};
+const getApprovedRecipients = async () =>
+  User.find({ status: "approved" }).select("_id email fullName notificationPreferences");
 
 const openPortal = async () => {
   try {
     const now = new Date();
-    const weekReference = getNextWeekMonday();
-    const closesAt = getNextMonday259pm();
-    const existing = await PortalWindow.findOne({ weekReference });
-    if (existing) {
-      existing.isOpen = true;
-      existing.opensAt = now;
-      existing.closesAt = closesAt;
-      await existing.save();
+    const weekReference = getPortalWeekReferenceForNow(now);
+    const { opensAt, closesAt } = getPortalWindowForWeekReference(weekReference);
+
+    let portal = await PortalWindow.findOne({ weekReference });
+
+    if (!portal) {
+      portal = await PortalWindow.create({
+        weekReference,
+        opensAt,
+        closesAt,
+        isOpen: true,
+      });
     } else {
-      await PortalWindow.create({ weekReference, opensAt: now, closesAt, isOpen: true });
+      portal.isOpen = true;
+      portal.opensAt = opensAt;
+      portal.closesAt = closesAt;
+      await portal.save();
     }
-    const workers = await User.find({ status: "approved" }).select("_id email fullName");
+
+    const workers = await getApprovedRecipients();
+    const emailWorkers = workers.filter((w) => w.email);
+
     await createBulkNotification(workers.map((w) => w._id), {
       type: "portal-open",
       title: "Report portal is now open",
       message: "You can now submit your weekly report. Portal closes Monday at 2:59pm.",
       link: "/portal/submit-report",
     });
-    await sendPortalOpenEmail(workers);
+
+    if (emailWorkers.length > 0) {
+      await sendPortalOpenEmail(emailWorkers);
+    }
+
     await sendPushToMany(workers.map((w) => w._id), {
       title: "Portal is now open",
       body: "Submit your weekly report before Monday 2:59pm.",
       url: "/portal/submit-report",
     });
-    console.log("Scheduler: Portal opened for week of", weekReference.toDateString());
-  } catch (err) { console.error("Scheduler openPortal error:", err.message); }
+
+    console.log("Scheduler: Portal opened for", weekReference.toDateString());
+  } catch (err) {
+    console.error("Scheduler openPortal error:", err.message);
+  }
 };
 
-// Monday 12pm reminder
 const sendClosingReminder = async () => {
   try {
-    const workers = await User.find({ status: "approved" }).select("_id email fullName");
+    const workers = await getApprovedRecipients();
+    const emailWorkers = workers.filter((w) => w.email);
+
     await createBulkNotification(workers.map((w) => w._id), {
       type: "portal-closing-soon",
-      title: "Portal closes in 3 hours",
-      message: "The portal closes today at 2:59pm. Submit your report now if you have not done so. The portal reopens on Friday.",
+      title: "Report deadline is today at 2:59pm",
+      message:
+        "Submit your report before 2:59pm today. If it is not submitted before the deadline, it will count against your qualification for the week.",
       link: "/portal/submit-report",
     });
-    await sendPortalClosingEmail(workers);
+
+    if (emailWorkers.length > 0) {
+      await sendPortalDeadlineReminderEmail(emailWorkers);
+    }
+
     await sendPushToMany(workers.map((w) => w._id), {
-      title: "Portal closes in 3 hours",
-      body: "Submit your report now. Portal closes at 2:59pm today.",
+      title: "Report deadline is today at 2:59pm",
+      body: "Submit before 2:59pm. Missing the deadline affects weekly qualification.",
       url: "/portal/submit-report",
     });
-    console.log("Scheduler: Monday 12pm closing reminder sent");
-  } catch (err) { console.error("Scheduler closingReminder error:", err.message); }
+
+    console.log("Scheduler: Deadline reminder sent");
+  } catch (err) {
+    console.error("Scheduler closingReminder error:", err.message);
+  }
 };
 
 const closePortalAndProcess = async () => {
   try {
-    const weekReference = getThisWeekMonday();
+    const weekReference = getPortalWeekReferenceForNow(new Date());
     const portal = await PortalWindow.findOne({ weekReference });
+
     if (portal) {
       portal.isOpen = false;
       portal.isProcessed = true;
       portal.processedAt = new Date();
       await portal.save();
     }
+
+    const allRecipients = await getApprovedRecipients();
+    const emailRecipients = allRecipients.filter((recipient) => recipient.email);
+
+    await createBulkNotification(allRecipients.map((recipient) => recipient._id), {
+      type: "portal-closed",
+      title: "Portal is now closed",
+      message:
+        "The weekly submission window has closed. Reports not submitted before the deadline count against qualification for the week.",
+      link: "/portal/my-reports",
+    });
+
+    if (emailRecipients.length > 0) {
+      await sendPortalClosedEmail(emailRecipients, "Weekly deadline reached.");
+    }
+
     await processWeeklyMetrics(weekReference);
 
-    // Fetch results and email admin/mod/pastor
-    const metrics = await Metrics.find({ weekReference, isLateSubmission: false })
+    const metrics = await Metrics.find({
+      weekReference,
+      isLateSubmission: false,
+    })
       .populate("worker", "fullName workerId department")
       .sort({ totalScore: -1 });
 
     const qualified = metrics.filter((m) => m.isQualified);
     const disqualified = metrics.filter((m) => !m.isQualified);
 
-    const recipients = await User.find({ status: "approved", role: { $in: ["pastor", "admin", "moderator"] } }).select("_id email fullName");
-    await sendQualificationResultsEmail(recipients, qualified, disqualified);
+    const recipients = await User.find({
+      status: "approved",
+      role: { $in: ["pastor", "admin", "moderator"] },
+    }).select("_id email fullName notificationPreferences");
 
-    // Notify admin/mod/pastor with roster action prompt
-    const weekLabel = weekReference.toLocaleDateString("en-GH", { day: "numeric", month: "long", year: "numeric" });
+    const adminEmailRecipients = recipients.filter((r) => r.notificationPreferences?.email);
+
+    if (adminEmailRecipients.length > 0) {
+      await sendQualificationResultsEmail(adminEmailRecipients, qualified, disqualified);
+    }
+
     await createBulkNotification(recipients.map((r) => r._id), {
       type: "qualification-result",
       title: "Qualification results ready - Action required",
-      message: `Week ending ${weekLabel}: ${qualified.length} qualified, ${disqualified.length} not qualified. Please assign workers to the duty roster and publish it. Workers will be notified.`,
+      message: `Qualification has been processed. ${qualified.length} qualified, ${disqualified.length} not qualified.`,
       link: "/admin/qualification",
     });
 
-    // Push notification to admin/mod/pastor
-    try {
-      const { sendPushToMany } = await import("./pushService.js");
-      await sendPushToMany(recipients.map((r) => r._id), {
-        title: "Qualification results ready",
-        body: `${qualified.length} qualified. Assign workers to roster now.`,
-        url: "/admin/qualification",
-      });
-    } catch {}
-
-    // Notify all workers the portal has closed
-    const allWorkers = await User.find({ status: "approved", workerId: { $ne: "001" } }).select("_id");
-    await createBulkNotification(allWorkers.map((w) => w._id), {
-      type: "qualification-result",
-      title: "Portal closed for this week",
-      message: "Report submission is now closed. The duty roster will be published soon. Check your My Roster page.",
-      link: "/portal/roster",
-    });
-
-    // Notify admins to assign roster
-    await createBulkNotification(recipients.map((r) => r._id), {
-      type: "general",
-      title: "Qualification complete - assign roster now",
-      message: `This week's qualification is done. ${qualified.length} workers qualified. Go to Roster Builder to assign and publish the duty roster for Sunday.`,
-      link: "/admin/roster",
-    });
-    await sendPushToMany(recipients.map((r) => r._id), {
-      title: "Qualification done - assign roster",
-      body: `${qualified.length} workers qualified. Assign the duty roster now.`,
-      url: "/admin/roster",
-    });
-    console.log("Scheduler: Portal closed and metrics processed. Results emailed to admin team.");
-  } catch (err) { console.error("Scheduler closePortalAndProcess error:", err.message); }
+    console.log("Scheduler: Portal closed and metrics processed");
+  } catch (err) {
+    console.error("Scheduler closePortalAndProcess error:", err.message);
+  }
 };
 
-
-// ── Data cleanup — runs every Sunday at 3am ───────────────────────────────
 const runCleanup = async () => {
   try {
     const now = new Date();
-
-    // 1. Read notifications — handled automatically by MongoDB TTL on readAt field
-    //    (deleted 15 days after readAt is set). No manual cleanup needed.
-    const notifDeleted = 0;
-
-    // 2. Unread notifications older than 30 days — clean up manually
-    const unreadCutoff = new Date(now - 30 * 24 * 60 * 60 * 1000);
-    const { deletedCount: oldNotifDeleted } = await Notification.deleteMany({
-      isRead: false,
-      createdAt: { $lt: unreadCutoff },
-    });
-
-    // 3. Delete closed front desk sessions older than 6 months
     const sessionCutoff = new Date(now - 180 * 24 * 60 * 60 * 1000);
+    const readNotificationCutoff = new Date(now - 7 * 24 * 60 * 60 * 1000);
+    const unreadNotificationCutoff = new Date(now - 30 * 24 * 60 * 60 * 1000);
+    const rosterCutoff = new Date(now - 30 * 24 * 60 * 60 * 1000);
+
     const { deletedCount: sessionsDeleted } = await FrontDeskSession.deleteMany({
       isOpen: false,
       createdAt: { $lt: sessionCutoff },
     });
 
-    // 4. Delete orphaned attendance records (no session)
     const activeSessions = await FrontDeskSession.find({}).distinct("_id");
     const { deletedCount: attendanceDeleted } = await Attendance.deleteMany({
       session: { $nin: activeSessions },
       createdAt: { $lt: sessionCutoff },
     });
 
-    // 5. Delete duplicate push subscriptions (keep latest per user)
     const pushSubs = await PushSubscription.aggregate([
       { $sort: { createdAt: -1 } },
       { $group: { _id: "$user", latestId: { $first: "$_id" }, allIds: { $push: "$_id" } } },
-      { $match: { "allIds.1": { $exists: true } } }, // has more than 1
+      { $match: { "allIds.1": { $exists: true } } },
     ]);
+
     for (const sub of pushSubs) {
       const toDelete = sub.allIds.filter((id) => id.toString() !== sub.latestId.toString());
-      if (toDelete.length) await PushSubscription.deleteMany({ _id: { $in: toDelete } });
+      if (toDelete.length) {
+        await PushSubscription.deleteMany({ _id: { $in: toDelete } });
+      }
     }
 
-    console.log(`Cleanup done: ${notifDeleted + oldNotifDeleted} notifications, ${sessionsDeleted} sessions, ${attendanceDeleted} attendance records removed.`);
+    const [{ deletedCount: readNotificationsDeleted }, { deletedCount: unreadNotificationsDeleted }] =
+      await Promise.all([
+        Notification.deleteMany({
+          isRead: true,
+          readAt: { $lt: readNotificationCutoff },
+        }),
+        Notification.deleteMany({
+          isRead: false,
+          createdAt: { $lt: unreadNotificationCutoff },
+        }),
+      ]);
+
+    const { deletedCount: rostersDeleted } = await Roster.deleteMany({
+      isPublished: true,
+      publishedAt: { $lt: rosterCutoff },
+    });
+
+    console.log(
+      `Cleanup done: ${sessionsDeleted} sessions, ${attendanceDeleted} attendance records, ${readNotificationsDeleted} read notifications, ${unreadNotificationsDeleted} unread notifications removed, ${rostersDeleted} published rosters removed.`
+    );
   } catch (err) {
     console.error("Cleanup error:", err.message);
   }
 };
 
+const refreshLiveQualification = async () => {
+  try {
+    const now = new Date();
+
+    if (!isWithinSubmissionWindow(now)) {
+      return;
+    }
+
+    const weekReference = getPortalWeekReferenceForNow(now);
+    await ensureWeeklyMetricsFresh(weekReference, {
+      maxAgeMinutes: 0,
+      force: true,
+    });
+
+    console.log("Scheduler: Live qualification refreshed for", weekReference.toDateString());
+  } catch (err) {
+    console.error("Scheduler refreshLiveQualification error:", err.message);
+  }
+};
+
 export const initScheduler = () => {
-  cron.schedule("0 0 * * 5", openPortal, { timezone: "Africa/Accra" });         // Friday midnight
-  cron.schedule("0 12 * * 1", sendClosingReminder, { timezone: "Africa/Accra" }); // Monday 12pm
-  cron.schedule("59 14 * * 1", closePortalAndProcess, { timezone: "Africa/Accra" }); // Monday 2:59pm
-  // Every 15 mins check for expired front desk sessions (4hr auto-close)
+  cron.schedule("0 0 * * 5", openPortal, { timezone: "Africa/Accra" });
+  cron.schedule("0 * * * *", refreshLiveQualification, { timezone: "Africa/Accra" });
+  cron.schedule("0 10 * * 1", sendClosingReminder, { timezone: "Africa/Accra" });
+  cron.schedule("0 12 * * 1", sendClosingReminder, { timezone: "Africa/Accra" });
+  cron.schedule("59 14 * * 1", closePortalAndProcess, { timezone: "Africa/Accra" });
   cron.schedule("*/15 * * * *", autoCloseExpiredSessions, { timezone: "Africa/Accra" });
-  cron.schedule("0 3 * * 0", runCleanup, { timezone: "Africa/Accra" }); // Sunday 3am cleanup
+  cron.schedule("0 3 * * 0", runCleanup, { timezone: "Africa/Accra" });
   console.log("Scheduler: Cron jobs initialized (Africa/Accra timezone)");
 };
 
 export const syncPortalStateOnStartup = async () => {
   try {
     const now = new Date();
-    const day = now.getDay();
-    const hour = now.getHours();
-    const minute = now.getMinutes();
-    const isWithinWindow =
-      (day === 5 && hour >= 0) || day === 6 || day === 0 ||
-      (day === 1 && (hour < 14 || (hour === 14 && minute < 59)));
 
-    if (isWithinWindow) {
-      const weekReference = day === 1 ? getThisWeekMonday() : getNextWeekMonday();
-      const closesAt = new Date(getNextWeekMonday());
-      if (day === 1) { closesAt.setDate(closesAt.getDate() - 7); }
-      closesAt.setHours(14, 59, 0, 0);
-      const existing = await PortalWindow.findOne({ weekReference });
-      if (!existing) {
-        await PortalWindow.create({ weekReference, opensAt: now, closesAt, isOpen: true });
-        console.log("Startup sync: Portal window created and opened");
-      } else if (!existing.isOpen) {
-        existing.isOpen = true;
-        await existing.save();
-        console.log("Startup sync: Portal reopened");
-      } else {
-        console.log("Startup sync: Portal already open");
-      }
-    } else {
+    if (!isWithinSubmissionWindow(now)) {
       console.log("Startup sync: Outside portal window");
+      return;
     }
-  } catch (err) { console.error("Startup sync error:", err.message); }
+
+    const weekReference = getPortalWeekReferenceForNow(now);
+    const { opensAt, closesAt } = getPortalWindowForWeekReference(weekReference);
+
+    let existing = await PortalWindow.findOne({ weekReference });
+
+    if (!existing) {
+      await PortalWindow.create({
+        weekReference,
+        opensAt,
+        closesAt,
+        isOpen: true,
+      });
+      console.log("Startup sync: Portal window created and opened");
+      return;
+    }
+
+    if (!existing.isOpen) {
+      existing.isOpen = true;
+      existing.opensAt = opensAt;
+      existing.closesAt = closesAt;
+      await existing.save();
+      console.log("Startup sync: Portal reopened");
+      return;
+    }
+
+    console.log("Startup sync: Portal already open");
+  } catch (err) {
+    console.error("Startup sync error:", err.message);
+  }
 };

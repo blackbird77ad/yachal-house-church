@@ -19,5 +19,6 @@ router.post("/check-in",           protect, checkInWorker);
 router.get("/session/:sessionId",  protect, getSessionAttendance);
 router.get("/report/:sessionId",   protect, isAdminLevel, getSessionReport);
 router.put("/close/:sessionId",    protect, closeSession);
+router.get("/my-week", protect, getMyWeekAttendance);
 
 export default router;

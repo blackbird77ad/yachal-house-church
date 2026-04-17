@@ -18,6 +18,8 @@ const metricsSchema = new mongoose.Schema(
 
     // Cell meeting — 20pts (attended = qualifies)
     attendedCell:        { type: Boolean, default: false },
+    attendedCellMeeting: { type: Boolean, default: false },
+    prayedWithCellTwoHours: { type: Boolean, default: false },
 
     // Worker's own service attendance — 10pts each
     attendedTuesday:     { type: Boolean, default: false },
@@ -87,13 +89,26 @@ const metricsSchema = new mongoose.Schema(
 
     // Breakdown — new fields added, old ones kept for history
     qualificationBreakdown: {
-      soulsQualified:      { type: Boolean, default: false }, // 30pts
-      tuesdayQualified:    { type: Boolean, default: false }, // 10pts (new)
-      sundayQualified:     { type: Boolean, default: false }, // 10pts (new)
-      fellowshipQualified: { type: Boolean, default: false }, // 10pts
-      cellQualified:       { type: Boolean, default: false }, // 20pts
-      attendanceQualified: { type: Boolean, default: false }, // 20pts
-      reportQualified:     { type: Boolean },                 // legacy — kept for old records
+      soulsQualified:          { type: Boolean, default: false }, // 30pts (partial)
+      tuesdayQualified:        { type: Boolean, default: false }, // 10pts
+      sundayQualified:         { type: Boolean, default: false }, // 10pts
+      fellowshipQualified:     { type: Boolean, default: false }, // 10pts
+      cellAttendanceQualified: { type: Boolean, default: false }, // 10pts
+      cellPrayerQualified:     { type: Boolean, default: false }, // 10pts
+      attendanceQualified:     { type: Boolean, default: false }, // 20pts (partial)
+      // Legacy kept for backward compat
+      cellQualified:   { type: Boolean },
+      reportQualified: { type: Boolean },
+    },
+
+    scoreBreakdown: {
+      soulsScore:          { type: Number, default: 0 },
+      tuesdayScore:        { type: Number, default: 0 },
+      sundayScore:         { type: Number, default: 0 },
+      fellowshipScore:     { type: Number, default: 0 },
+      cellAttendanceScore: { type: Number, default: 0 },
+      cellPrayerScore:     { type: Number, default: 0 },
+      attendeesScore:      { type: Number, default: 0 },
     },
 
     processedAt: { type: Date },
@@ -101,7 +116,10 @@ const metricsSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-metricsSchema.index({ worker: 1, weekReference: 1 }, { unique: true });
+metricsSchema.index(
+  { worker: 1, weekReference: 1, isLateSubmission: 1 },
+  { unique: true }
+);
 metricsSchema.index({ weekReference: 1 });
 metricsSchema.index({ isQualified: 1 });
 metricsSchema.index({ isLateSubmission: 1 });

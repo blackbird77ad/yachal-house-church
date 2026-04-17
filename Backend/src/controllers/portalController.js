@@ -1,53 +1,80 @@
 import PortalWindow from "../models/portalWindowModel.js";
-
-const getNextFriday = () => {
-  const now = new Date();
-  const day = now.getDay();
-  const daysUntilFriday = day === 5 ? 7 : (5 - day + 7) % 7 || 7;
-  const friday = new Date(now);
-  friday.setDate(now.getDate() + daysUntilFriday);
-  friday.setHours(0, 0, 0, 0);
-  return friday;
-};
+import { getCurrentPortalState } from "../services/portalStateService.js";
 
 export const getPortalStatus = async (req, res, next) => {
   try {
     const now = new Date();
-
-    const portal = await PortalWindow.findOne({
-      isOpen: true,
-      opensAt: { $lte: now },
-      closesAt: { $gte: now },
+    const {
+      portal,
+      isOpen,
+      isManualOverride,
+      isScheduledWindowOpen,
+      isManuallyPaused,
+      weekReference,
+      systemWeek,
+      scheduledWindow,
+      opensAt,
+      closesAt,
+      nextOpenAt,
+    } = await getCurrentPortalState(now, {
+      populateOverride: true,
     });
 
-    if (!portal) {
-      const nextPortal = await PortalWindow.findOne({
-        opensAt: { $gte: now },
-      }).sort({ opensAt: 1 });
+    const override = portal
+      ? {
+          reason: portal.overrideReason || null,
+          overriddenBy: portal.overriddenBy || null,
+        }
+      : null;
 
-      // Get the most recent portal to return its weekReference
-      const lastPortal = await PortalWindow.findOne().sort({ opensAt: -1 });
-      const nextOpenAt = nextPortal?.opensAt || getNextFriday();
+    let timeLeft = null;
+    if (isOpen && closesAt) {
+      const timeLeftMs = Math.max(0, new Date(closesAt).getTime() - now.getTime());
+      timeLeft = {
+        hours: Math.floor(timeLeftMs / (1000 * 60 * 60)),
+        minutes: Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60)),
+      };
+    }
 
+    if (!isOpen) {
       return res.status(200).json({
         isOpen: false,
+        canSubmit: false,
+        opensAt: null,
+        closesAt: null,
         nextOpenAt,
-        weekReference: lastPortal?.weekReference || null,
-        message: "Portal is closed. Opens every Friday at midnight.",
+        weekReference,
+        portalWeekReference: portal?.weekReference || weekReference,
+        isScheduledWindowOpen,
+        isManualOverride,
+        isManuallyPaused,
+        systemWeek,
+        scheduledWindow,
+        override,
+        message: isManuallyPaused
+          ? "Submission is paused by admin."
+          : "Submission is closed.",
       });
     }
 
-    const timeLeftMs = new Date(portal.closesAt) - now;
-    const hoursLeft = Math.max(0, Math.floor(timeLeftMs / (1000 * 60 * 60)));
-    const minutesLeft = Math.max(0, Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60)));
-
-    res.status(200).json({
+    return res.status(200).json({
       isOpen: true,
-      opensAt: portal.opensAt,
-      closesAt: portal.closesAt,
-      weekReference: portal.weekReference,
-      timeLeft: { hours: hoursLeft, minutes: minutesLeft },
-      message: `Portal is open. Closes in ${hoursLeft}h ${minutesLeft}m.`,
+      canSubmit: true,
+      opensAt,
+      closesAt,
+      nextOpenAt,
+      weekReference,
+      portalWeekReference: portal?.weekReference || weekReference,
+      timeLeft,
+      isScheduledWindowOpen,
+      isManualOverride,
+      isManuallyPaused,
+      systemWeek,
+      scheduledWindow,
+      override,
+      message: timeLeft
+        ? `Submission is open. Closes in ${timeLeft.hours}h ${timeLeft.minutes}m.`
+        : "Submission is open.",
     });
   } catch (error) {
     next(error);
@@ -59,9 +86,9 @@ export const getPortalHistory = async (req, res, next) => {
     const portals = await PortalWindow.find()
       .populate("overriddenBy", "fullName role")
       .sort({ createdAt: -1 })
-      .limit(12);
+      .limit(20);
 
-    res.status(200).json({ portals });
+    return res.status(200).json({ portals });
   } catch (error) {
     next(error);
   }

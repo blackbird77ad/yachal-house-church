@@ -109,6 +109,11 @@ const userSchema = new mongoose.Schema(
       inApp: { type: Boolean, default: true },
     },
 
+    mustChangePassword: {
+      type: Boolean,
+      default: false,
+    },
+
     passwordResetToken: String,
     passwordResetExpires: Date,
   },

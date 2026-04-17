@@ -2,11 +2,19 @@ import mongoose from "mongoose";
 
 const soulSchema = new mongoose.Schema(
   {
-    fullName: { type: String, required: true, trim: true },
+    fullName: { type: String, trim: true },
     status: {
       type: String,
-      enum: ["saved", "filled", "saved-not-filled", "already-saved", "already-saved-not-filled"],
-      required: true,
+      enum: [
+        "saved",
+        "not_saved",
+        "filled",
+        "saved-not-filled",
+        "already-saved",
+        "already-saved-not-filled",
+        "already-saved-filled",
+      ],
+      default: "not_saved",
     },
     location: { type: String, trim: true },
     phone: { type: String, trim: true },
@@ -27,9 +35,19 @@ const churchAttendeeSchema = new mongoose.Schema(
 
 const followUpSchema = new mongoose.Schema(
   {
-    fullName: { type: String, required: true, trim: true },
+    fullName: { type: String, trim: true },
     topic: { type: String, trim: true },
     scriptures: [{ type: String }],
+  },
+  { _id: false }
+);
+
+const fellowshipParticipantSchema = new mongoose.Schema(
+  {
+    type: { type: String, enum: ["worker", "manual"], default: "manual" },
+    workerId: { type: String, trim: true },
+    fullName: { type: String, trim: true },
+    isApprovedWorker: { type: Boolean, default: false },
   },
   { _id: false }
 );
@@ -180,12 +198,23 @@ const reportSchema = new mongoose.Schema(
       prayerDay: { type: String },
       prayerStartTime: { type: String },
       hoursOfPrayer: { type: Number, default: 0 },
+      fellowship: { type: String, trim: true },
+      meetingDate: { type: Date },
+      timeStarted: { type: String, trim: true },
+      timeEnded: { type: String, trim: true },
+      duration: { type: Number, default: 0 },
+      prayerLedBy: { type: String, trim: true },
+      participants: [fellowshipParticipantSchema],
+      comments: { type: String, trim: true },
     },
 
     productionData: {
       meeting: { type: String },
       meetingDate: { type: Date },
       reportingTime: { type: String },
+      serviceStartTime: { type: String, trim: true },
+      serviceCloseTime: { type: String, trim: true },
+      coordinatorReportingTime: { type: String, trim: true },
       prayer: { type: String },
       songMinistration: [{ type: String }],
       media: { type: String },
@@ -199,7 +228,18 @@ const reportSchema = new mongoose.Schema(
         thirtyToSixtyMins: [{ type: String }],
         tenToThirtyMins: [{ type: String }],
       },
-      permissionsSought: [{ type: String }],
+      departmentAssignments: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {},
+      },
+      autoSummary: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {},
+      },
+      permissionsSought: {
+        type: mongoose.Schema.Types.Mixed,
+        default: "",
+      },
       observations: { type: String },
       challenges: { type: String },
       suggestions: { type: String },
@@ -211,9 +251,11 @@ const reportSchema = new mongoose.Schema(
       workerHourBefore: [{ type: String }],
       workerThirtyMins: [{ type: String }],
       workerAfterService: [{ type: String }],
+      workerAbsent: [{ type: String }],
       preServicePrayers: {
         thirtyToSixtyMins: [{ type: String }],
         tenToThirtyMins: [{ type: String }],
+        notSeenPraying: [{ type: String }],
       },
       observationsBefore: { type: String },
       observationsDuring: { type: String },
@@ -222,11 +264,15 @@ const reportSchema = new mongoose.Schema(
 
     departmentalData: {
       department: { type: String },
+      otherDepartment: { type: String },
       service: { type: String },
+      otherService: { type: String },
+      serviceDate: { type: Date },
 
       attendees: [
         {
           name: { type: String },
+          workerId: { type: String },
           time: { type: String },
           _id: false,
         },
@@ -235,6 +281,7 @@ const reportSchema = new mongoose.Schema(
       lateness: [
         {
           name: { type: String },
+          workerId: { type: String },
           time: { type: String },
           _id: false,
         },
@@ -243,6 +290,7 @@ const reportSchema = new mongoose.Schema(
       absentees: [
         {
           name: { type: String },
+          workerId: { type: String },
           time: { type: String },
           _id: false,
         },
@@ -251,6 +299,7 @@ const reportSchema = new mongoose.Schema(
       teamAssignments: [
         {
           name: { type: String },
+          workerId: { type: String },
           assignment: { type: String },
           _id: false,
         },
@@ -265,6 +314,7 @@ const reportSchema = new mongoose.Schema(
       convertsToChurch: [
         {
           name: { type: String },
+          workerId: { type: String },
           count: { type: Number },
           _id: false,
         },
@@ -273,7 +323,17 @@ const reportSchema = new mongoose.Schema(
       convertsToCell: [
         {
           name: { type: String },
+          workerId: { type: String },
           count: { type: Number },
+          _id: false,
+        },
+      ],
+
+      childrenRegister: [
+        {
+          childName: { type: String },
+          broughtBy: { type: String },
+          time: { type: String },
           _id: false,
         },
       ],

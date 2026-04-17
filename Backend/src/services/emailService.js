@@ -152,6 +152,41 @@ export const sendPortalClosingEmail = async (workers) => {
   }
 };
 
+export const sendPortalClosedEmail = async (workers, reason = "") => {
+  for (const worker of workers) {
+    await send({
+      to: worker.email,
+      subject: "Report portal is now closed",
+      html: base(`
+        <h2 style="margin:0 0 16px;color:#1f2937;font-size:22px;">Portal Closed</h2>
+        <p style="color:#374151;font-size:15px;line-height:1.6;">Dear ${worker.fullName}, the Yachal House report submission portal is now closed.</p>
+        <p style="color:#374151;font-size:15px;line-height:1.6;">Saved drafts remain available, but reports not submitted before the deadline count against weekly qualification.</p>
+        ${reason ? `<p style="color:#6b7280;font-size:14px;line-height:1.6;">Reason: ${reason}</p>` : ""}
+        <div style="text-align:center;margin:24px 0;">
+          <a href="${APP_URL}/portal/my-reports" style="background:#111827;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">View My Reports</a>
+        </div>
+      `),
+    });
+  }
+};
+
+export const sendPortalDeadlineReminderEmail = async (workers) => {
+  for (const worker of workers) {
+    await send({
+      to: worker.email,
+      subject: "Reminder: report deadline is Monday 2:59pm",
+      html: base(`
+        <h2 style="margin:0 0 16px;color:#1f2937;font-size:22px;">Submission Deadline Reminder</h2>
+        <p style="color:#374151;font-size:15px;line-height:1.6;">Dear ${worker.fullName}, the report portal closes today at <strong>Monday 2:59pm Ghana time</strong>.</p>
+        <p style="color:#374151;font-size:15px;line-height:1.6;">If your report is not submitted before the deadline, it will count against your qualification for the week.</p>
+        <div style="text-align:center;margin:24px 0;">
+          <a href="${APP_URL}/portal/submit-report" style="background:#dc2626;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">Submit Report</a>
+        </div>
+      `),
+    });
+  }
+};
+
 export const sendQualificationResultsEmail = async (recipients, qualifiedList, disqualifiedList) => {
   const formatList = (list, qualified) => list.map((m, i) =>
     `<tr style="background:${i % 2 === 0 ? "#ffffff" : "#f9fafb"};">
@@ -185,16 +220,67 @@ export const sendQualificationResultsEmail = async (recipients, qualifiedList, d
   }
 };
 
-export const sendRosterPublishedEmail = async (workers) => {
-  for (const worker of workers) {
+export const sendRosterPublishedEmail = async (
+  workers,
+  roster,
+  assignments = [],
+  { isRepublish = false } = {}
+) => {
+  const recipientList = Array.isArray(workers) ? workers : [workers];
+  const serviceLabel = roster?.serviceType
+    ? `${roster.serviceType.charAt(0).toUpperCase()}${roster.serviceType.slice(1)} Service`
+    : "Duty Roster";
+  const dateLabel = roster?.serviceDate
+    ? new Date(roster.serviceDate).toLocaleString("en-GH", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "Upcoming service";
+
+  const assignmentLines = Array.isArray(assignments)
+    ? assignments
+        .map(
+          (assignment) =>
+            `<li style="margin:0 0 6px;">${assignment.department?.replace(/-/g, " ")}${assignment.subRole ? ` (${assignment.subRole})` : ""}${assignment.isCoordinator ? " - Coordinator" : ""}</li>`
+        )
+        .join("")
+    : "";
+
+  for (const worker of recipientList) {
+    if (!worker?.email) continue;
+
     await send({
       to: worker.email,
-      subject: "Your duty roster has been published",
+      subject: isRepublish
+        ? "Your duty roster has been updated"
+        : "Your duty roster has been published",
       html: base(`
-        <h2 style="margin:0 0 16px;color:#1f2937;font-size:22px;">Roster Published</h2>
-        <p style="color:#374151;font-size:15px;line-height:1.6;">Dear ${worker.fullName}, the duty roster for the upcoming service has been published. Check the portal to see your assignment.</p>
+        <h2 style="margin:0 0 16px;color:#1f2937;font-size:22px;">${isRepublish ? "Roster Updated" : "Roster Published"}</h2>
+        <p style="color:#374151;font-size:15px;line-height:1.6;">Dear ${worker.fullName}, ${isRepublish ? "the duty roster has been updated. Please check the portal again because your assignment may have changed." : "the duty roster for the upcoming service has been published. Check the portal to see your assignment."}</p>
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin:20px 0;">
+          <p style="margin:0 0 6px;color:#111827;font-size:14px;font-weight:bold;">${serviceLabel}</p>
+          <p style="margin:0 0 6px;color:#4b5563;font-size:14px;">Service date: ${dateLabel}</p>
+          ${roster?.specialServiceName ? `<p style="margin:0 0 6px;color:#4b5563;font-size:14px;">Special service: ${roster.specialServiceName}</p>` : ""}
+          ${roster?.notes ? `<p style="margin:0;color:#4b5563;font-size:14px;">Notes: ${roster.notes}</p>` : ""}
+        </div>
+        ${assignmentLines ? `
+          <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:16px;margin:20px 0;">
+            <p style="margin:0 0 10px;color:#4c1d95;font-size:14px;font-weight:bold;">Your current assignment${assignments.length > 1 ? "s" : ""}</p>
+            <ul style="margin:0;padding-left:18px;color:#374151;font-size:14px;line-height:1.6;">
+              ${assignmentLines}
+            </ul>
+          </div>
+        ` : `
+          <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin:20px 0;">
+            <p style="margin:0;color:#374151;font-size:14px;line-height:1.6;">You do not currently have a department assignment on this roster, but you can still open the portal to view the full published roster.</p>
+          </div>
+        `}
         <div style="text-align:center;margin:24px 0;">
-          <a href="${APP_URL}/portal/dashboard" style="background:#4c1d95;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">View Dashboard</a>
+          <a href="${APP_URL}/portal/roster" style="background:#4c1d95;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">View Full Roster</a>
         </div>
       `),
     });

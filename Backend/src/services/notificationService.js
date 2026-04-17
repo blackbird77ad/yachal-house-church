@@ -13,14 +13,19 @@ export const createNotification = async (userId, { type, title, message, link, s
       isRead: false,
     });
   } catch (err) {
+    console.error("createNotification error:", err.message);
   }
 };
 
-export const createBulkNotification = async (userIds, { type, title, message, link }) => {
+export const createBulkNotification = async (
+  userIds,
+  { type, title, message, link, senderId }
+) => {
   try {
     if (!userIds || userIds.length === 0) return;
     const docs = userIds.map((userId) => ({
       recipient: userId,
+      sender: senderId || null,
       type: type || "general",
       title,
       message,
@@ -29,6 +34,7 @@ export const createBulkNotification = async (userIds, { type, title, message, li
     }));
     return await Notification.insertMany(docs, { ordered: false });
   } catch (err) {
+    console.error("createBulkNotification error:", err.message);
   }
 };
 
@@ -48,6 +54,7 @@ export const markAsRead = async (notificationId, userId) => {
       { new: true }
     );
   } catch (err) {
+    console.error("markAsRead error:", err.message);
   }
 };
 
@@ -58,6 +65,7 @@ export const markAllAsRead = async (userId) => {
       { isRead: true, readAt: new Date() }
     );
   } catch (err) {
+    console.error("markAllAsRead error:", err.message);
   }
 };
 
@@ -65,5 +73,6 @@ export const deleteNotification = async (notificationId, userId) => {
   try {
     return await Notification.findOneAndDelete({ _id: notificationId, recipient: userId });
   } catch (err) {
+    console.error("deleteNotification error:", err.message);
   }
 };

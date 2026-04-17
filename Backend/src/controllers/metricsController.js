@@ -1,23 +1,19 @@
 import Metrics from "../models/metricsModel.js";
-import PortalWindow from "../models/portalWindowModel.js";
-import { processWeeklyMetrics } from "../services/metricsService.js";
-import { getQualifiedWorkers, getDisqualifiedWorkersByCloseness, getLateMetricsSummary, getWorkersWithNoSubmission } from "../services/qualificationService.js";
+import {
+  ensureWeeklyMetricsFresh,
+  processWeeklyMetrics,
+} from "../services/metricsService.js";
+import {
+  getAllWorkersQualificationStatus,
+  getQualifiedWorkers,
+  getDisqualifiedWorkersByCloseness,
+  getLateMetricsSummary,
+  getWorkersWithNoSubmission,
+} from "../services/qualificationService.js";
+import { getPortalWeekReferenceForNow } from "../utils/portalWeek.js";
 
 const getCurrentWeekReference = async () => {
-  // Read weekReference from PortalWindow — the single source of truth
-  // The scheduler sets this when portal opens (Friday midnight)
-  try {
-    const portal = await PortalWindow.findOne().sort({ opensAt: -1 });
-    if (portal?.weekReference) return new Date(portal.weekReference);
-  } catch (e) {}
-  // Fallback: this calendar Monday
-  const now = new Date();
-  const day = now.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + diff);
-  monday.setHours(0, 0, 0, 0);
-  return monday;
+  return getPortalWeekReferenceForNow();
 };
 
 export const getMyMetrics = async (req, res, next) => {
@@ -39,7 +35,10 @@ export const getMyMetrics = async (req, res, next) => {
 
 export const getMyMetricsHistory = async (req, res, next) => {
   try {
-    const metrics = await Metrics.find({ worker: req.user._id, isLateSubmission: false })
+    const metrics = await Metrics.find({
+      worker: req.user._id,
+      isLateSubmission: false,
+    })
       .sort({ weekReference: -1 })
       .limit(12);
 
@@ -58,6 +57,7 @@ export const getAllMetrics = async (req, res, next) => {
     if (isLateSubmission !== undefined && isLateSubmission !== "") {
       filter.isLateSubmission = isLateSubmission === "true";
     }
+
     if (dateFrom || dateTo) {
       filter.weekReference = {};
       if (dateFrom) filter.weekReference.$gte = new Date(dateFrom);
@@ -78,7 +78,6 @@ export const getQualifiedList = async (req, res, next) => {
   try {
     const { weekReference } = req.query;
     const week = weekReference ? new Date(weekReference) : await getCurrentWeekReference();
-
     const qualified = await getQualifiedWorkers(week);
     res.status(200).json({ qualified });
   } catch (error) {
@@ -90,7 +89,6 @@ export const getDisqualifiedList = async (req, res, next) => {
   try {
     const { weekReference } = req.query;
     const week = weekReference ? new Date(weekReference) : await getCurrentWeekReference();
-
     const disqualified = await getDisqualifiedWorkersByCloseness(week);
     res.status(200).json({ disqualified });
   } catch (error) {
@@ -126,32 +124,33 @@ export const triggerManualProcessing = async (req, res, next) => {
   }
 };
 
-// Returns ALL workers: qualified + disqualified + no submission
-// This is the master endpoint for the qualification dashboard
 export const getAllWorkersStatus = async (req, res, next) => {
   try {
     const { weekReference } = req.query;
     const week = weekReference ? new Date(weekReference) : await getCurrentWeekReference();
 
-    const [qualified, disqualified, noSubmission] = await Promise.all([
-      getQualifiedWorkers(week),
-      getDisqualifiedWorkersByCloseness(week),
-      getWorkersWithNoSubmission(week),
-    ]);
+    await ensureWeeklyMetricsFresh(week, {
+      maxAgeMinutes: 60,
+    });
+
+    const { qualified, disqualified, noSubmission, ranking } =
+      await getAllWorkersQualificationStatus(week);
+
+    const summary = {
+      totalWorkers: qualified.length + disqualified.length + noSubmission.length,
+      qualifiedCount: qualified.length,
+      disqualifiedCount: disqualified.length,
+      noSubmissionCount: noSubmission.length,
+    };
 
     res.status(200).json({
+      weekReference: week,
       qualified,
+      almostQualified: disqualified,
       disqualified,
       noSubmission,
-      summary: {
-        totalWorkers: qualified.length + disqualified.length + noSubmission.length,
-        qualifiedCount: qualified.length,
-        disqualifiedCount: disqualified.length,
-        noSubmissionCount: noSubmission.length,
-        passRate: qualified.length + disqualified.length > 0
-          ? Math.round((qualified.length / (qualified.length + disqualified.length + noSubmission.length)) * 100)
-          : 0,
-      },
+      ranking,
+      summary,
     });
   } catch (error) {
     next(error);
