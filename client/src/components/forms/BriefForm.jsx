@@ -9,7 +9,13 @@ import {
   WifiOff,
 } from "lucide-react";
 import { useReports } from "../../hooks/useReports";
+import { useDraftInteraction } from "../../hooks/useDraftInteraction";
 import { useToast, ToastContainer } from "../../components/common/Toast";
+import {
+  getFriendlyReportError,
+  getNoDraftYetMessage,
+  getReportSuccessMessage,
+} from "../../utils/reportFeedback";
 import { cn } from "../../utils/scoreHelpers";
 
 const BriefForm = ({
@@ -24,6 +30,7 @@ const BriefForm = ({
 }) => {
   const { handleSaveDraft, handleSubmit, handleEdit, fetchMyDraft, loading } = useReports();
   const { toasts, toast, removeToast } = useToast();
+  const { hasInteracted, interactionProps, markInteracted } = useDraftInteraction();
 
   const [submitted, setSubmitted] = useState(false);
   const [draftLoaded, setDraftLoaded] = useState(false);
@@ -31,7 +38,8 @@ const BriefForm = ({
 
   const [autoSaveState, setAutoSaveState] = useState("idle");
   const [lastSavedAt, setLastSavedAt] = useState(null);
-  const lastSaveRef = useRef(Date.now());
+  const lastSaveRef = useRef(0);
+  const autoSaveRef = useRef(() => {});
 
   const [form, setForm] = useState({
     meeting: "",
@@ -52,12 +60,20 @@ const BriefForm = ({
 
   useEffect(() => {
     let mounted = true;
-    setDraftLoaded(false);
-    setHydrated(false);
 
-    fetchMyDraft({ weekReference,
-    reportType: "brief", weekType, weekDate })
-      .then(({ draft }) => {
+    const loadDraft = async () => {
+      if (!mounted) return;
+      setDraftLoaded(false);
+      setHydrated(false);
+
+      try {
+        const { draft } = await fetchMyDraft({
+          weekReference,
+          reportType: "brief",
+          weekType,
+          weekDate,
+        });
+
         if (!mounted) return;
 
         if (!draft) {
@@ -111,12 +127,14 @@ const BriefForm = ({
 
         setDraftLoaded(true);
         setHydrated(true);
-      })
-      .catch(() => {
+      } catch {
         if (!mounted) return;
         setDraftLoaded(true);
         setHydrated(true);
-      });
+      }
+    };
+
+    loadDraft();
 
     return () => {
       mounted = false;
@@ -129,6 +147,7 @@ const BriefForm = ({
     weekDate,
     weekReference,
     isEdit: isEditMode,
+    draftStarted: hasInteracted,
     briefData: {
       ...form,
       workerHourBefore: form.workerHourBefore.filter((v) => v.trim()),
@@ -149,6 +168,23 @@ const BriefForm = ({
 
   const saveDraftInternal = async ({ silent = false, source = "manual" } = {}) => {
     try {
+      if (isEditMode) {
+        if (!silent) {
+          toast.info(
+            "Already submitted",
+            "This report is already submitted. Use Update Report to save changes."
+          );
+        }
+        return;
+      }
+
+      if (!hasInteracted) {
+        if (!silent) {
+          toast.info("Nothing to save yet", getNoDraftYetMessage());
+        }
+        return;
+      }
+
       if (!navigator.onLine) {
         setAutoSaveState("offline");
         if (!silent) {
@@ -158,7 +194,16 @@ const BriefForm = ({
       }
 
       setAutoSaveState("saving");
-      await handleSaveDraft(buildPayload());
+      const result = await handleSaveDraft(buildPayload());
+
+      if (result?.skipped) {
+        setAutoSaveState("idle");
+        if (!silent) {
+          toast.info("Draft not saved", getReportSuccessMessage(result, getNoDraftYetMessage()));
+        }
+        return;
+      }
+
       setAutoSaveState("saved");
       setLastSavedAt(new Date());
       lastSaveRef.current = Date.now();
@@ -166,36 +211,45 @@ const BriefForm = ({
       if (!silent || source === "auto") {
         toast.success(
           "Draft saved",
-          source === "manual"
-            ? "Progress saved as draft."
-            : "Autosaved as draft. Drafts do not count until submitted."
+          getReportSuccessMessage(
+            result,
+            source === "manual"
+              ? "Draft saved."
+              : "Draft autosaved. It will count only after submission."
+          )
         );
       }
     } catch (err) {
       setAutoSaveState("error");
       if (!silent) {
         toast.error(
-          "Draft save failed",
-          err.response?.data?.message || "Could not save draft."
+          "Draft not saved",
+          getFriendlyReportError(err, { action: "draft" })
         );
       }
     }
   };
+
+  useEffect(() => {
+    autoSaveRef.current = () => {
+      saveDraftInternal({ silent: true, source: "auto" });
+    };
+  });
 
   const handleDraft = async () => {
     await saveDraftInternal({ silent: false, source: "manual" });
   };
 
   useEffect(() => {
-    if (!draftLoaded || !hydrated || submitted) return;
+    if (!draftLoaded || !hydrated || submitted || isEditMode || !hasInteracted) return;
 
     const interval = setInterval(() => {
-      saveDraftInternal({ silent: true, source: "auto" });
+      autoSaveRef.current();
     }, 60000);
 
     const onBlur = () => {
       if (Date.now() - lastSaveRef.current > 10000) {
-        saveDraftInternal({ silent: true, source: "auto" });
+        autoSaveRef.current();
       }
     };
 
@@ -205,7 +259,7 @@ const BriefForm = ({
       clearInterval(interval);
       window.removeEventListener("blur", onBlur);
     };
-  }, [draftLoaded, hydrated, submitted, form]);
+  }, [draftLoaded, hydrated, submitted, isEditMode, hasInteracted]);
 
   useEffect(() => {
     if (!draftLoaded) return;
@@ -227,15 +281,26 @@ const BriefForm = ({
     }
 
     try {
-      if (isEditMode && existingReportId) {
-        await handleEdit(existingReportId, buildPayload());
-      } else {
-        await handleSubmit(buildPayload());
-      }
+      const result =
+        isEditMode && existingReportId
+          ? await handleEdit(existingReportId, buildPayload())
+          : await handleSubmit(buildPayload());
+
       setSubmitted(true);
-      toast.success("Submitted", "Your brief report has been submitted.");
+      toast.success(
+        isEditMode ? "Report updated" : "Report submitted",
+        getReportSuccessMessage(
+          result,
+          isEditMode ? "Brief report updated." : "Brief report submitted."
+        )
+      );
     } catch (err) {
-      toast.error("Error", err.response?.data?.message || "Could not submit.");
+      toast.error(
+        isEditMode ? "Update not saved" : "Report not submitted",
+        getFriendlyReportError(err, {
+          action: isEditMode ? "update" : "submit",
+        })
+      );
     }
   };
 
@@ -247,11 +312,13 @@ const BriefForm = ({
     return "Autosave active";
   }, [autoSaveState, lastSavedAt]);
 
-  const addToList = (field) =>
+  const addToList = (field) => {
+    markInteracted();
     setForm((prev) => ({
       ...prev,
       [field]: [...prev[field], ""],
     }));
+  };
 
   const updateList = (field, i, val) =>
     setForm((prev) => ({
@@ -259,13 +326,16 @@ const BriefForm = ({
       [field]: prev[field].map((v, idx) => (idx === i ? val : v)),
     }));
 
-  const removeFromList = (field, i) =>
+  const removeFromList = (field, i) => {
+    markInteracted();
     setForm((prev) => ({
       ...prev,
       [field]: prev[field].filter((_, idx) => idx !== i),
     }));
+  };
 
-  const addToPreService = (sub) =>
+  const addToPreService = (sub) => {
+    markInteracted();
     setForm((prev) => ({
       ...prev,
       preServicePrayers: {
@@ -273,6 +343,7 @@ const BriefForm = ({
         [sub]: [...prev.preServicePrayers[sub], ""],
       },
     }));
+  };
 
   const updatePreService = (sub, i, val) =>
     setForm((prev) => ({
@@ -285,7 +356,8 @@ const BriefForm = ({
       },
     }));
 
-  const removePreService = (sub, i) =>
+  const removePreService = (sub, i) => {
+    markInteracted();
     setForm((prev) => ({
       ...prev,
       preServicePrayers: {
@@ -293,6 +365,7 @@ const BriefForm = ({
         [sub]: prev.preServicePrayers[sub].filter((_, idx) => idx !== i),
       },
     }));
+  };
 
   const renderListSection = (field, label, placeholder) => (
     <div>
@@ -388,7 +461,7 @@ const BriefForm = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" {...interactionProps}>
       <ToastContainer toasts={toasts} onClose={removeToast} />
 
       <div className="card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -520,16 +593,22 @@ const BriefForm = ({
       </p>
 
       <div className="flex flex-col sm:flex-row gap-3 justify-end pb-6">
-        <button
-          onClick={handleDraft}
-          disabled={loading}
-          className="btn-outline flex items-center justify-center gap-2"
-        >
-          <Save className="w-4 h-4" />
-          {loading ? "Saving..." : "Save Draft"}
-        </button>
+        {!isEditMode && (
+          <button
+            type="button"
+            data-draft-ignore="true"
+            onClick={handleDraft}
+            disabled={loading}
+            className="btn-outline flex items-center justify-center gap-2"
+          >
+            <Save className="w-4 h-4" />
+            {loading ? "Saving..." : "Save Draft"}
+          </button>
+        )}
 
         <button
+          type="button"
+          data-draft-ignore="true"
           onClick={handleFinalSubmit}
           disabled={loading || !portalOpen}
           className={cn(

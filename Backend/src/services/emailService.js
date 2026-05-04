@@ -4,6 +4,21 @@ import { env } from "../config/env.js";
 const FROM = env.resendFrom || "noreply@yachalhousegh.com";
 const APP_URL = env.clientUrl || "https://yachalhousegh.com";
 
+const escapeHtml = (value = "") =>
+  value
+    .toString()
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const resolveAppLink = (link = "") => {
+  if (!link) return APP_URL;
+  if (/^https?:\/\//i.test(link)) return link;
+  return `${APP_URL}${link.startsWith("/") ? link : `/${link}`}`;
+};
+
 const send = async ({ to, subject, html }) => {
   try {
     await resend.emails.send({ from: `Yachal House <${FROM}>`, to, subject, html });
@@ -211,12 +226,81 @@ export const sendQualificationResultsEmail = async (recipients, qualifiedList, d
       ${disqualifiedList.length > 0 ? formatList(disqualifiedList, false) : '<tr><td colspan="4" style="padding:12px;text-align:center;color:#6b7280;font-size:14px;">All workers qualified this week.</td></tr>'}
     </table>
     <div style="text-align:center;margin:28px 0 0;">
-      <a href="${APP_URL}/admin/qualification" style="background:#4c1d95;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">View Full Results</a>
+      <a href="${APP_URL}/admin/qualification" style="background:#4c1d95;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block;margin:0 6px 12px;">View Qualification List</a>
+      <a href="${APP_URL}/admin/roster" style="background:#111827;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block;margin:0 6px 12px;">Prepare Roster</a>
     </div>
   `);
 
   for (const r of recipients) {
     await send({ to: r.email, subject: "Weekly Qualification Results", html });
+  }
+};
+
+export const sendNoFrontDeskLoggingAlertEmail = async (recipients, weekReference) => {
+  const weekLabel = new Date(weekReference).toLocaleDateString("en-GH", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  const html = base(`
+    <h2 style="margin:0 0 12px;color:#1f2937;font-size:22px;">No Front Desk Logging Recorded</h2>
+    <p style="color:#374151;font-size:15px;line-height:1.6;">No front desk worker logging was recorded for the reporting week that closed on <strong>${weekLabel}</strong>.</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;">This means workers had to enter their own service reporting time inside the evangelism and follow-up report. Attendance for that week should be treated as incomplete and not fully accurate.</p>
+    <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:16px;margin:24px 0;">
+      <p style="margin:0;color:#9a3412;font-size:14px;font-weight:600;">Follow-up note</p>
+      <p style="margin:8px 0 0;color:#7c2d12;font-size:14px;line-height:1.6;">If no worker was assigned to front desk, or the front desk team did not use the login system throughout the week, qualification review and roster preparation should be checked with that limitation in mind.</p>
+    </div>
+    <div style="text-align:center;margin:24px 0 0;">
+      <a href="${APP_URL}/admin/qualification" style="background:#4c1d95;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block;margin:0 6px 12px;">View Qualification List</a>
+      <a href="${APP_URL}/admin/roster" style="background:#111827;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block;margin:0 6px 12px;">Prepare Roster</a>
+    </div>
+  `);
+
+  for (const recipient of recipients) {
+    await send({
+      to: recipient.email,
+      subject: "No Front Desk Logging Recorded This Week",
+      html,
+    });
+  }
+};
+
+export const sendGenericNotificationEmail = async (
+  recipients,
+  {
+    subject,
+    title,
+    message,
+    link,
+    linkLabel = "Open System",
+  } = {}
+) => {
+  const recipientList = Array.isArray(recipients) ? recipients : [recipients];
+  const safeSubject = escapeHtml(subject || title || "Yachal House Notification");
+  const safeTitle = escapeHtml(title || subject || "Notification");
+  const safeMessage = escapeHtml(message || "You have a new notification in Yachal House.");
+  const safeLinkLabel = escapeHtml(linkLabel || "Open System");
+  const resolvedLink = resolveAppLink(link);
+
+  for (const recipient of recipientList) {
+    if (!recipient?.email) continue;
+
+    const safeName = escapeHtml(recipient.fullName || "Worker");
+
+    await send({
+      to: recipient.email,
+      subject: safeSubject,
+      html: base(`
+        <h2 style="margin:0 0 16px;color:#1f2937;font-size:22px;">${safeTitle}</h2>
+        <p style="color:#374151;font-size:15px;line-height:1.6;">Dear ${safeName},</p>
+        <p style="color:#374151;font-size:15px;line-height:1.6;">${safeMessage}</p>
+        <div style="text-align:center;margin:24px 0;">
+          <a href="${resolvedLink}" style="background:#4c1d95;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">${safeLinkLabel}</a>
+        </div>
+      `),
+    });
   }
 };
 

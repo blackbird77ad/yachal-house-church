@@ -3,6 +3,7 @@ import connectDB from "./config/db.js";
 import { env } from "./config/env.js";
 import { initScheduler, syncPortalStateOnStartup } from "./services/schedulerService.js";
 import { ensureMetricsIndexes } from "./services/metricsIndexService.js";
+import { ensureReportIndexes } from "./services/reportIndexService.js";
 
 // ── Catch unhandled errors before they crash the process ──────────
 process.on("uncaughtException", (err) => {
@@ -22,6 +23,7 @@ const startServer = async () => {
   try {
     await connectDB();
     await ensureMetricsIndexes();
+    await ensureReportIndexes();
 
     const server = app.listen(env.port, async () => {
       console.log(`✅ Yachal House API running on port ${env.port}`);

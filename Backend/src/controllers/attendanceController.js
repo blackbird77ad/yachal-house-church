@@ -1,7 +1,10 @@
 import Attendance from "../models/attendanceModel.js";
 import FrontDeskSession from "../models/frontDeskSessionModel.js";
 import User from "../models/userModel.js";
-import { sendFrontDeskReportEmail } from "../services/emailService.js";
+import {
+  sendFrontDeskReportEmail,
+  sendGenericNotificationEmail,
+} from "../services/emailService.js";
 import { createBulkNotification } from "../services/notificationService.js";
 import { sendPushToMany } from "../services/pushService.js";
 
@@ -71,6 +74,18 @@ export const createSession = async (req, res, next) => {
           title: "Deputy front desk duty",
           message: `${req.user.fullName} (${req.user.workerId}) is covering front desk duty for ${deputyFor} who could not attend.`,
           link: "/admin/attendance",
+        });
+        await sendPushToMany(admins.map((admin) => admin._id), {
+          title: "Deputy front desk duty",
+          body: `${req.user.fullName} is covering front desk duty for ${deputyFor}.`,
+          url: "/admin/attendance",
+        });
+        await sendGenericNotificationEmail(admins, {
+          subject: "Deputy front desk duty notice",
+          title: "Deputy front desk duty",
+          message: `${req.user.fullName} (${req.user.workerId}) is covering front desk duty for ${deputyFor} who could not attend.`,
+          link: "/admin/attendance",
+          linkLabel: "View Attendance",
         });
       } catch {}
     }

@@ -13,7 +13,9 @@ import {
 import {
   sendPortalOpenEmail,
   sendPortalClosedEmail,
+  sendGenericNotificationEmail,
 } from "../services/emailService.js";
+import { sendPushToMany } from "../services/pushService.js";
 import {
   getPortalWeekReferenceForNow,
   getPortalWindowForWeekReference,
@@ -38,14 +40,14 @@ const getLeaderboardData = async (weekReference, limit = DEFAULT_LEADERBOARD_LIM
 };
 
 const getApprovedPortalRecipients = async () =>
-  User.find({ status: "approved" }).select("_id email fullName role");
+  User.find({ status: "approved" }).select("_id email fullName role notificationPreferences");
 
 const notifyOtherAdminsOfPortalAction = async (actor, action, reason, closesAt = null) => {
   const admins = await User.find({
     status: "approved",
     role: { $in: ADMIN_ROLES },
     _id: { $ne: actor._id },
-  }).select("_id");
+  }).select("_id email fullName");
 
   if (!admins.length) return;
 
@@ -60,6 +62,20 @@ const notifyOtherAdminsOfPortalAction = async (actor, action, reason, closesAt =
       link: "/admin/portal",
     }
   );
+
+  await sendPushToMany(admins.map((admin) => admin._id), {
+    title: "Portal updated manually",
+    body: `${actor.fullName} ${action} the portal outside the automatic schedule.`,
+    url: "/admin/portal",
+  });
+
+  await sendGenericNotificationEmail(admins, {
+    subject: "Portal updated manually",
+    title: "Portal updated manually",
+    message: `${actor.fullName} ${action} the portal outside the automatic schedule. Reason: ${reason}.${whenText}`,
+    link: "/admin/portal",
+    linkLabel: "Open Portal Control",
+  });
 };
 
 export const getDashboardSummary = async (req, res, next) => {
@@ -263,6 +279,11 @@ export const overridePortal = async (req, res, next) => {
             "Report submission has been paused by admin. Your saved drafts are still available.",
           link: "/portal/my-reports",
         });
+        await sendPushToMany(allWorkers.map((worker) => worker._id), {
+          title: "Portal is now closed",
+          body: "Report submission has been paused by admin. Your drafts are still available.",
+          url: "/portal/my-reports",
+        });
 
         const emailWorkers = allWorkers.filter((worker) => worker.email);
         if (emailWorkers.length > 0) {
@@ -315,6 +336,18 @@ export const overridePortal = async (req, res, next) => {
           link: "/portal/submit-report",
         }
       );
+      await sendPushToMany(recipients.map((worker) => worker._id), {
+        title: "Portal deadline extended",
+        body: `The report portal deadline has been extended to ${parsedCustomClose.toLocaleString()}.`,
+        url: "/portal/submit-report",
+      });
+      await sendGenericNotificationEmail(recipients, {
+        subject: "Report portal closing time extended",
+        title: "Portal closing time extended",
+        message: `The report portal deadline has been extended. New close time: ${parsedCustomClose.toLocaleString()}.`,
+        link: "/portal/submit-report",
+        linkLabel: "Submit Report",
+      });
       await notifyOtherAdminsOfPortalAction(
         req.user,
         "extended",
@@ -359,6 +392,11 @@ export const overridePortal = async (req, res, next) => {
         link: "/portal/submit-report",
       }
     );
+    await sendPushToMany(workers.map((worker) => worker._id), {
+      title: "Report portal is now open",
+      body: "The admin has opened the portal. You can now submit your report.",
+      url: "/portal/submit-report",
+    });
 
     if (emailWorkers.length > 0) {
       await sendPortalOpenEmail(emailWorkers);
@@ -491,7 +529,7 @@ export const sendBulkNotification = async (req, res, next) => {
       filter.role = targetRole;
     }
 
-    const workers = await User.find(filter).select("_id");
+    const workers = await User.find(filter).select("_id email fullName");
 
     await createBulkNotification(
       workers.map((w) => w._id),
@@ -503,6 +541,18 @@ export const sendBulkNotification = async (req, res, next) => {
         senderId: req.user._id,
       }
     );
+    await sendPushToMany(workers.map((worker) => worker._id), {
+      title: title || "New notification",
+      body: message || "You have a new message from the admin team.",
+      url: link || "/portal/notifications",
+    });
+    await sendGenericNotificationEmail(workers, {
+      subject: title || "New Yachal House notification",
+      title: title || "New notification",
+      message: message || "You have a new message from the admin team.",
+      link: link || "/portal/notifications",
+      linkLabel: "Open Notification",
+    });
 
     res.status(200).json({
       message: `Notification sent to ${workers.length} workers.`,

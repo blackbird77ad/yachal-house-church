@@ -1,7 +1,13 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Save, Send, Clock3, WifiOff } from "lucide-react";
 import { useReports } from "../../hooks/useReports";
+import { useDraftInteraction } from "../../hooks/useDraftInteraction";
 import { useToast, ToastContainer } from "../../components/common/Toast";
+import {
+  getFriendlyReportError,
+  getNoDraftYetMessage,
+  getReportSuccessMessage,
+} from "../../utils/reportFeedback";
 import { cn } from "../../utils/scoreHelpers";
 
 const DynamicForm = ({
@@ -17,6 +23,7 @@ const DynamicForm = ({
 }) => {
   const { handleSaveDraft, handleSubmit, handleEdit, fetchMyDraft, loading } = useReports();
   const { toasts, toast, removeToast } = useToast();
+  const { hasInteracted, interactionProps } = useDraftInteraction();
 
   const [formData, setFormData] = useState({});
   const [draftLoaded, setDraftLoaded] = useState(false);
@@ -26,7 +33,8 @@ const DynamicForm = ({
   const [autoSaveState, setAutoSaveState] = useState("idle"); // idle | saving | saved | error | offline
   const [lastSavedAt, setLastSavedAt] = useState(null);
 
-  const lastSaveRef = useRef(Date.now());
+  const lastSaveRef = useRef(0);
+  const autoSaveRef = useRef(() => {});
 
   const sortedFields = useMemo(
     () => [...fields].sort((a, b) => (a.order || 0) - (b.order || 0)),
@@ -35,23 +43,27 @@ const DynamicForm = ({
 
   useEffect(() => {
     let mounted = true;
-    setDraftLoaded(false);
-    setHydrated(false);
 
-    if (!reportType?._id) {
-      setDraftLoaded(true);
-      setHydrated(true);
-      return;
-    }
+    const loadDraft = async () => {
+      if (!mounted) return;
+      setDraftLoaded(false);
+      setHydrated(false);
 
-    fetchMyDraft({
-      reportType: "custom",
-      weekReference,
-      weekType,
-      weekDate,
-      customReportType: reportType._id,
-    })
-      .then(({ draft }) => {
+      if (!reportType?._id) {
+        setDraftLoaded(true);
+        setHydrated(true);
+        return;
+      }
+
+      try {
+        const { draft } = await fetchMyDraft({
+          reportType: "custom",
+          weekReference,
+          weekType,
+          weekDate,
+          customReportType: reportType._id,
+        });
+
         if (!mounted) return;
 
         if (!draft) {
@@ -70,12 +82,14 @@ const DynamicForm = ({
         setFormData(draft.customData || {});
         setDraftLoaded(true);
         setHydrated(true);
-      })
-      .catch(() => {
+      } catch {
         if (!mounted) return;
         setDraftLoaded(true);
         setHydrated(true);
-      });
+      }
+    };
+
+    loadDraft();
 
     return () => {
       mounted = false;
@@ -91,6 +105,7 @@ const DynamicForm = ({
     weekDate,
     weekReference,
     isEdit: isEditMode,
+    draftStarted: hasInteracted,
     customReportType: reportType?._id,
     customData: formData,
   });
@@ -107,23 +122,46 @@ const DynamicForm = ({
     return value !== undefined && value !== null && String(value).trim() !== "";
   };
 
-  const allRequiredValid = useMemo(
-    () => sortedFields.every((field) => isFieldFilled(field)),
-    [sortedFields, formData]
-  );
+  const allRequiredValid = sortedFields.every((field) => isFieldFilled(field));
 
   const saveDraftInternal = async ({ silent = false, source = "manual" } = {}) => {
     try {
+      if (isEditMode) {
+        if (!silent) {
+          toast.info(
+            "Already submitted",
+            "This report is already submitted. Use Update Report to save changes."
+          );
+        }
+        return;
+      }
+
+      if (!hasInteracted) {
+        if (!silent) {
+          toast.info("Nothing to save yet", getNoDraftYetMessage());
+        }
+        return;
+      }
+
       if (!navigator.onLine) {
         setAutoSaveState("offline");
         if (!silent) {
-          toast.warning("Offline", "You appear to be offline. Draft was not saved.");
+          toast.warning("Offline", "Draft was not saved because this device is offline.");
         }
         return;
       }
 
       setAutoSaveState("saving");
-      await handleSaveDraft(buildPayload());
+      const result = await handleSaveDraft(buildPayload());
+
+      if (result?.skipped) {
+        setAutoSaveState("idle");
+        if (!silent) {
+          toast.info("Draft not saved", getReportSuccessMessage(result, getNoDraftYetMessage()));
+        }
+        return;
+      }
+
       setAutoSaveState("saved");
       setLastSavedAt(new Date());
       lastSaveRef.current = Date.now();
@@ -131,35 +169,44 @@ const DynamicForm = ({
       if (!silent || source === "auto") {
         toast.success(
           "Draft saved",
-          source === "manual"
-            ? "Progress saved as draft."
-            : "Autosaved as draft. Drafts do not count until submitted."
+          getReportSuccessMessage(
+            result,
+            source === "manual"
+              ? "Draft saved."
+              : "Draft autosaved. It will count only after submission."
+          )
         );
       }
     } catch (err) {
-      const msg = err.response?.data?.message || "Could not save draft.";
+      const msg = getFriendlyReportError(err, { action: "draft" });
       console.error("Dynamic draft save failed:", err.response?.data || err);
       setAutoSaveState("error");
       if (!silent) {
-        toast.error("Draft save failed", msg);
+        toast.error("Draft not saved", msg);
       }
     }
   };
+
+  useEffect(() => {
+    autoSaveRef.current = () => {
+      saveDraftInternal({ silent: true, source: "auto" });
+    };
+  });
 
   const handleDraft = async () => {
     await saveDraftInternal({ silent: false, source: "manual" });
   };
 
   useEffect(() => {
-    if (!draftLoaded || !hydrated || submitted) return;
+    if (!draftLoaded || !hydrated || submitted || isEditMode || !hasInteracted) return;
 
     const interval = setInterval(() => {
-      saveDraftInternal({ silent: true, source: "auto" });
+      autoSaveRef.current();
     }, 60000);
 
     const onBlur = () => {
       if (Date.now() - lastSaveRef.current > 10000) {
-        saveDraftInternal({ silent: true, source: "auto" });
+        autoSaveRef.current();
       }
     };
 
@@ -169,7 +216,7 @@ const DynamicForm = ({
       clearInterval(interval);
       window.removeEventListener("blur", onBlur);
     };
-  }, [draftLoaded, hydrated, submitted, formData]);
+  }, [draftLoaded, hydrated, submitted, isEditMode, hasInteracted]);
 
   useEffect(() => {
     if (!draftLoaded) return;
@@ -193,18 +240,24 @@ const DynamicForm = ({
     }
 
     try {
-      if (isEditMode && existingReportId) {
-        await handleEdit(existingReportId, buildPayload());
-      } else {
-        await handleSubmit(buildPayload());
-      }
-
+      const result =
+        isEditMode && existingReportId
+          ? await handleEdit(existingReportId, buildPayload())
+          : await handleSubmit(buildPayload());
       setSubmitted(true);
-      toast.success("Submitted", "Report submitted successfully.");
+      toast.success(
+        isEditMode ? "Report updated" : "Report submitted",
+        getReportSuccessMessage(
+          result,
+          isEditMode ? "Report updated successfully." : "Report submitted successfully."
+        )
+      );
     } catch (err) {
-      const msg = err.response?.data?.message || "Could not submit.";
+      const msg = getFriendlyReportError(err, {
+        action: isEditMode ? "update" : "submit",
+      });
       console.error("Dynamic submit failed:", err.response?.data || err);
-      toast.error("Error", msg);
+      toast.error(isEditMode ? "Update not saved" : "Report not submitted", msg);
     }
   };
 
@@ -326,7 +379,7 @@ const DynamicForm = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" {...interactionProps}>
       <ToastContainer toasts={toasts} onClose={removeToast} />
 
       <div className="card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -398,16 +451,22 @@ const DynamicForm = ({
       )}
 
       <div className="flex flex-col sm:flex-row gap-3 justify-end pb-6">
-        <button
-          onClick={handleDraft}
-          disabled={loading}
-          className="btn-outline flex items-center justify-center gap-2"
-        >
-          <Save className="w-4 h-4" />
-          {loading ? "Saving..." : "Save Draft"}
-        </button>
+        {!isEditMode && (
+          <button
+            type="button"
+            data-draft-ignore="true"
+            onClick={handleDraft}
+            disabled={loading}
+            className="btn-outline flex items-center justify-center gap-2"
+          >
+            <Save className="w-4 h-4" />
+            {loading ? "Saving..." : "Save Draft"}
+          </button>
+        )}
 
         <button
+          type="button"
+          data-draft-ignore="true"
           onClick={handleFinalSubmit}
           disabled={loading || !portalOpen || !allRequiredValid}
           className={cn(

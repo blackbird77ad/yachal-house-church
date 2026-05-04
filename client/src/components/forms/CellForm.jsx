@@ -10,7 +10,13 @@ import {
   WifiOff,
 } from "lucide-react";
 import { useReports } from "../../hooks/useReports";
+import { useDraftInteraction } from "../../hooks/useDraftInteraction";
 import { useToast, ToastContainer } from "../../components/common/Toast";
+import {
+  getFriendlyReportError,
+  getNoDraftYetMessage,
+  getReportSuccessMessage,
+} from "../../utils/reportFeedback";
 import { cn } from "../../utils/scoreHelpers";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -38,6 +44,7 @@ const CellForm = ({
 }) => {
   const { handleSaveDraft, handleSubmit, handleEdit, fetchMyDraft, loading } = useReports();
   const { toasts, toast, removeToast } = useToast();
+  const { hasInteracted, interactionProps, markInteracted } = useDraftInteraction();
 
   const [submitted, setSubmitted] = useState(false);
   const [draftLoaded, setDraftLoaded] = useState(false);
@@ -45,7 +52,8 @@ const CellForm = ({
 
   const [autoSaveState, setAutoSaveState] = useState("idle");
   const [lastSavedAt, setLastSavedAt] = useState(null);
-  const lastSaveRef = useRef(Date.now());
+  const lastSaveRef = useRef(0);
+  const autoSaveRef = useRef(() => {});
 
   const [cellName, setCellName] = useState("");
   const [location, setLocation] = useState("");
@@ -73,12 +81,20 @@ const CellForm = ({
 
   useEffect(() => {
     let mounted = true;
-    setDraftLoaded(false);
-    setHydrated(false);
 
-    fetchMyDraft({ weekReference,
-    reportType: "cell", weekType, weekDate })
-      .then(({ draft }) => {
+    const loadDraft = async () => {
+      if (!mounted) return;
+      setDraftLoaded(false);
+      setHydrated(false);
+
+      try {
+        const { draft } = await fetchMyDraft({
+          weekReference,
+          reportType: "cell",
+          weekType,
+          weekDate,
+        });
+
         if (!mounted) return;
 
         if (!draft) {
@@ -122,12 +138,14 @@ const CellForm = ({
 
         setDraftLoaded(true);
         setHydrated(true);
-      })
-      .catch(() => {
+      } catch {
         if (!mounted) return;
         setDraftLoaded(true);
         setHydrated(true);
-      });
+      }
+    };
+
+    loadDraft();
 
     return () => {
       mounted = false;
@@ -158,6 +176,7 @@ const CellForm = ({
     weekDate,
     weekReference,
     isEdit: isEditMode,
+    draftStarted: hasInteracted,
     cellReportData: {
       cellName,
       location,
@@ -190,16 +209,42 @@ const CellForm = ({
 
   const saveDraftInternal = async ({ silent = false, source = "manual" } = {}) => {
     try {
+      if (isEditMode) {
+        if (!silent) {
+          toast.info(
+            "Already submitted",
+            "This report is already submitted. Use Update Report to save changes."
+          );
+        }
+        return;
+      }
+
+      if (!hasInteracted) {
+        if (!silent) {
+          toast.info("Nothing to save yet", getNoDraftYetMessage());
+        }
+        return;
+      }
+
       if (!navigator.onLine) {
         setAutoSaveState("offline");
         if (!silent) {
-          toast.warning("Offline", "You appear to be offline. Draft was not saved.");
+          toast.warning("Offline", "Draft was not saved because this device is offline.");
         }
         return;
       }
 
       setAutoSaveState("saving");
-      await handleSaveDraft(buildPayload());
+      const result = await handleSaveDraft(buildPayload());
+
+      if (result?.skipped) {
+        setAutoSaveState("idle");
+        if (!silent) {
+          toast.info("Draft not saved", getReportSuccessMessage(result, getNoDraftYetMessage()));
+        }
+        return;
+      }
+
       setAutoSaveState("saved");
       setLastSavedAt(new Date());
       lastSaveRef.current = Date.now();
@@ -207,36 +252,45 @@ const CellForm = ({
       if (!silent || source === "auto") {
         toast.success(
           "Draft saved",
-          source === "manual"
-            ? "Progress saved as draft."
-            : "Autosaved as draft. Drafts do not count until submitted."
+          getReportSuccessMessage(
+            result,
+            source === "manual"
+              ? "Draft saved."
+              : "Draft autosaved. It will count only after submission."
+          )
         );
       }
     } catch (err) {
       setAutoSaveState("error");
       if (!silent) {
         toast.error(
-          "Draft save failed",
-          err.response?.data?.message || "Could not save draft."
+          "Draft not saved",
+          getFriendlyReportError(err, { action: "draft" })
         );
       }
     }
   };
+
+  useEffect(() => {
+    autoSaveRef.current = () => {
+      saveDraftInternal({ silent: true, source: "auto" });
+    };
+  });
 
   const handleDraft = async () => {
     await saveDraftInternal({ silent: false, source: "manual" });
   };
 
   useEffect(() => {
-    if (!draftLoaded || !hydrated || submitted) return;
+    if (!draftLoaded || !hydrated || submitted || isEditMode || !hasInteracted) return;
 
     const interval = setInterval(() => {
-      saveDraftInternal({ silent: true, source: "auto" });
+      autoSaveRef.current();
     }, 60000);
 
     const onBlur = () => {
       if (Date.now() - lastSaveRef.current > 10000) {
-        saveDraftInternal({ silent: true, source: "auto" });
+        autoSaveRef.current();
       }
     };
 
@@ -268,6 +322,8 @@ const CellForm = ({
     activityDuration,
     activityVerses,
     remarks,
+    isEditMode,
+    hasInteracted,
   ]);
 
   useEffect(() => {
@@ -290,16 +346,25 @@ const CellForm = ({
     }
 
     try {
-      if (isEditMode && existingReportId) {
-        await handleEdit(existingReportId, buildPayload());
-      } else {
-        await handleSubmit(buildPayload());
-      }
-
+      const result =
+        isEditMode && existingReportId
+          ? await handleEdit(existingReportId, buildPayload())
+          : await handleSubmit(buildPayload());
       setSubmitted(true);
-      toast.success("Submitted", "Cell report submitted.");
+      toast.success(
+        isEditMode ? "Report updated" : "Report submitted",
+        getReportSuccessMessage(
+          result,
+          isEditMode ? "Cell report updated." : "Cell report submitted."
+        )
+      );
     } catch (err) {
-      toast.error("Error", err.response?.data?.message || "Could not submit.");
+      toast.error(
+        isEditMode ? "Update not saved" : "Report not submitted",
+        getFriendlyReportError(err, {
+          action: isEditMode ? "update" : "submit",
+        })
+      );
     }
   };
 
@@ -331,7 +396,7 @@ const CellForm = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" {...interactionProps}>
       <ToastContainer toasts={toasts} onClose={removeToast} />
 
       <div className="card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -419,7 +484,10 @@ const CellForm = ({
                 <button
                   key={day}
                   type="button"
-                  onClick={() => setMeetingDay(day)}
+                      onClick={() => {
+                        markInteracted();
+                        setMeetingDay(day);
+                      }}
                   className={cn(
                     "px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
                     meetingDay === day
@@ -529,7 +597,10 @@ const CellForm = ({
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-gray-900 dark:text-slate-100">Members</h3>
           <button
-            onClick={() => setMembers((prev) => [...prev, { ...emptyMember }])}
+            onClick={() => {
+              markInteracted();
+              setMembers((prev) => [...prev, { ...emptyMember }]);
+            }}
             className="btn-outline text-xs py-1.5 flex items-center gap-1"
           >
             <Plus className="w-3 h-3" /> Add
@@ -543,7 +614,10 @@ const CellForm = ({
                 <span className="text-xs font-bold text-gray-400">Member #{i + 1}</span>
                 {members.length > 1 && (
                   <button
-                    onClick={() => setMembers((prev) => prev.filter((_, idx) => idx !== i))}
+                    onClick={() => {
+                      markInteracted();
+                      setMembers((prev) => prev.filter((_, idx) => idx !== i));
+                    }}
                     className="text-red-400 hover:text-red-600"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -582,7 +656,10 @@ const CellForm = ({
             New Converts / Visitors
           </h3>
           <button
-            onClick={() => setAttendees((prev) => [...prev, { ...emptyAttendee }])}
+            onClick={() => {
+              markInteracted();
+              setAttendees((prev) => [...prev, { ...emptyAttendee }]);
+            }}
             className="btn-outline text-xs py-1.5 flex items-center gap-1"
           >
             <Plus className="w-3 h-3" /> Add
@@ -596,7 +673,10 @@ const CellForm = ({
                 <span className="text-xs font-bold text-gray-400">Attendee #{i + 1}</span>
                 {attendees.length > 1 && (
                   <button
-                    onClick={() => setAttendees((prev) => prev.filter((_, idx) => idx !== i))}
+                    onClick={() => {
+                      markInteracted();
+                      setAttendees((prev) => prev.filter((_, idx) => idx !== i));
+                    }}
                     className="text-red-400 hover:text-red-600"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -639,7 +719,10 @@ const CellForm = ({
             <button
               key={activity.value}
               type="button"
-              onClick={() => setActivityType(activity.value)}
+              onClick={() => {
+                markInteracted();
+                setActivityType(activity.value);
+              }}
               className={cn(
                 "px-4 py-2 rounded-xl border-2 text-sm font-medium transition-all",
                 activityType === activity.value
@@ -670,7 +753,10 @@ const CellForm = ({
             <div className="flex items-center justify-between">
               <h4 className="font-semibold text-gray-900 dark:text-slate-100">Teaching Topics</h4>
               <button
-                onClick={() => setTopics((prev) => [...prev, { ...emptyTopic }])}
+                onClick={() => {
+                  markInteracted();
+                  setTopics((prev) => [...prev, { ...emptyTopic }]);
+                }}
                 className="btn-outline text-xs py-1.5 flex items-center gap-1"
               >
                 <Plus className="w-3 h-3" /> Add topic
@@ -683,7 +769,10 @@ const CellForm = ({
                   <span className="text-xs font-bold text-gray-400">Topic #{i + 1}</span>
                   {topics.length > 1 && (
                     <button
-                      onClick={() => setTopics((prev) => prev.filter((_, idx) => idx !== i))}
+                      onClick={() => {
+                        markInteracted();
+                        setTopics((prev) => prev.filter((_, idx) => idx !== i));
+                      }}
                       className="text-red-400 hover:text-red-600"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -757,16 +846,22 @@ const CellForm = ({
       </p>
 
       <div className="flex flex-col sm:flex-row gap-3 justify-end pb-6">
-        <button
-          onClick={handleDraft}
-          disabled={loading}
-          className="btn-outline flex items-center justify-center gap-2"
-        >
-          <Save className="w-4 h-4" />
-          {loading ? "Saving..." : "Save Draft"}
-        </button>
+        {!isEditMode && (
+          <button
+            type="button"
+            data-draft-ignore="true"
+            onClick={handleDraft}
+            disabled={loading}
+            className="btn-outline flex items-center justify-center gap-2"
+          >
+            <Save className="w-4 h-4" />
+            {loading ? "Saving..." : "Save Draft"}
+          </button>
+        )}
 
         <button
+          type="button"
+          data-draft-ignore="true"
           onClick={handleFinalSubmit}
           disabled={loading || !portalOpen}
           className={cn(

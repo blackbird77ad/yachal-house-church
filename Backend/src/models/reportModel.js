@@ -111,6 +111,11 @@ const reportSchema = new mongoose.Schema(
       default: "draft",
     },
 
+    draftStarted: {
+      type: Boolean,
+      default: false,
+    },
+
     submittedAt: {
       type: Date,
     },

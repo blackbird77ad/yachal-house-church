@@ -6,6 +6,11 @@ import {
 } from "../services/metricsService.js";
 import { getCurrentPortalState } from "../services/portalStateService.js";
 import {
+  dedupeReportsForDisplay,
+  reconcileReportIdentity,
+  reportPayloadHasDraftSignal,
+} from "../services/reportIntegrityService.js";
+import {
   getPortalWeekReferenceForNow,
   getPreviousPortalWeekReference,
   normalizeWeekReference,
@@ -17,6 +22,57 @@ const getPortalWeekReference = async () => getPortalWeekReferenceForNow();
 const getPreviousWeekReference = async () => getPreviousPortalWeekReference();
 
 const getWeekReference = getPortalWeekReference;
+
+const parsePartnerEntry = (value = "") => {
+  const raw = value.toString().trim();
+
+  if (!raw) {
+    return {
+      raw,
+      fullName: "",
+      workerId: "",
+      isNone: false,
+    };
+  }
+
+  if (raw.toLowerCase() === "none") {
+    return {
+      raw,
+      fullName: "",
+      workerId: "",
+      isNone: true,
+    };
+  }
+
+  const pairMatch =
+    raw.match(/^(.*?)\s*\((\d+)\)$/) ||
+    raw.match(/^(.*?)\s*-\s*(\d+)$/);
+
+  if (pairMatch) {
+    return {
+      raw,
+      fullName: pairMatch[1].trim(),
+      workerId: pairMatch[2].trim(),
+      isNone: false,
+    };
+  }
+
+  if (/^\d+$/.test(raw)) {
+    return {
+      raw,
+      fullName: "",
+      workerId: raw,
+      isNone: false,
+    };
+  }
+
+  return {
+    raw,
+    fullName: raw,
+    workerId: "",
+    isNone: false,
+  };
+};
 
 const buildReportIdentityFilter = ({
   userId,
@@ -41,7 +97,15 @@ const buildReportIdentityFilter = ({
 
 export const saveDraft = async (req, res, next) => {
   try {
-    const { reportType, weekType, weekDate, isEdit, customReportType, ...reportData } = req.body;
+    const {
+      reportType,
+      weekType,
+      weekDate,
+      isEdit,
+      customReportType,
+      draftStarted,
+      ...reportData
+    } = req.body;
 
     const isLateSubmission = weekType === "late" || weekType === "past";
     let weekReference;
@@ -58,15 +122,15 @@ export const saveDraft = async (req, res, next) => {
       weekReference = getPortalWeekReferenceForNow();
     }
 
-    let report = await Report.findOne(
-      buildReportIdentityFilter({
-        userId: req.user._id,
-        reportType,
-        weekReference,
-        isLateSubmission,
-        customReportType,
-      })
-    );
+    const identityFilter = buildReportIdentityFilter({
+      userId: req.user._id,
+      reportType,
+      weekReference,
+      isLateSubmission,
+      customReportType,
+    });
+
+    let { canonicalReport: report } = await reconcileReportIdentity(identityFilter);
 
     if (report && report.status === "submitted" && isLateSubmission && !report.isEditable) {
       return res.status(400).json({
@@ -74,20 +138,63 @@ export const saveDraft = async (req, res, next) => {
       });
     }
 
+    if (report && report.status === "submitted") {
+      return res.status(409).json({
+        message:
+          "This report has already been submitted. Open the submitted report and use Update Report if you need to change it.",
+        existingReportId: report._id,
+        canEdit: !!report.isEditable,
+      });
+    }
+
+    const shouldPersistDraft =
+      draftStarted === true || reportPayloadHasDraftSignal(reportData);
+
+    if (!shouldPersistDraft) {
+      return res.status(200).json({
+        message: "Draft not saved because no field has been started yet.",
+        report: report || null,
+        skipped: true,
+      });
+    }
+
     if (report) {
       Object.assign(report, reportData);
-      if (report.status !== "submitted") report.status = "draft";
+      report.status = "draft";
+      report.draftStarted = true;
       await report.save();
     } else {
-      report = await Report.create({
-        submittedBy: req.user._id,
-        reportType,
-        weekReference,
-        isLateSubmission,
-        customReportType: customReportType || null,
-        status: "draft",
-        ...reportData,
-      });
+      try {
+        report = await Report.create({
+          submittedBy: req.user._id,
+          reportType,
+          weekReference,
+          isLateSubmission,
+          customReportType: customReportType || null,
+          status: "draft",
+          draftStarted: true,
+          ...reportData,
+        });
+      } catch (error) {
+        if (error?.code !== 11000) throw error;
+
+        const retry = await reconcileReportIdentity(identityFilter);
+        report = retry.canonicalReport;
+
+        if (!report || report.status === "submitted") {
+          return res.status(409).json({
+            message:
+              "This report has already been submitted. Open the submitted report and use Update Report if you need to change it.",
+            existingReportId: report?._id,
+            canEdit: !!report?.isEditable,
+          });
+        }
+
+        Object.assign(report, reportData);
+        report.status = "draft";
+        report.draftStarted = true;
+        await report.save();
+      }
     }
 
     res.status(200).json({ message: "Draft saved.", report });
@@ -107,7 +214,14 @@ export const submitReport = async (req, res, next) => {
       });
     }
 
-    const { reportType, weekType, weekDate, isEdit, ...reportData } = req.body;
+    const {
+      reportType,
+      weekType,
+      weekDate,
+      isEdit,
+      customReportType,
+      ...reportData
+    } = req.body;
     const isLateSubmission = weekType === "late" || weekType === "past";
 
     let weekReference;
@@ -139,13 +253,24 @@ export const submitReport = async (req, res, next) => {
       const partnerEntries = reportData.evangelismData?.evangelismPartners || [];
 
       if (partnerEntries.length > 0 && souls.length > 0) {
-        const partnerWorkerIds = partnerEntries
-          .map((p) => p.trim())
-          .filter((p) => p && p.toLowerCase() !== "none" && /^\d+$/.test(p));
+        const parsedPartners = partnerEntries
+          .map(parsePartnerEntry)
+          .filter((partner) => !partner.isNone);
 
-        const partnerNames = partnerEntries
-          .map((p) => p.trim())
-          .filter((p) => p && p.toLowerCase() !== "none" && !/^\d+$/.test(p));
+        const partnerWorkerIds = [
+          ...new Set(
+            parsedPartners.map((partner) => partner.workerId).filter(Boolean)
+          ),
+        ];
+
+        const partnerNames = [
+          ...new Set(
+            parsedPartners
+              .flatMap((partner) => [partner.fullName, partner.raw])
+              .map((name) => name?.trim())
+              .filter(Boolean)
+          ),
+        ];
 
         let partnerUserIds = [];
 
@@ -214,18 +339,18 @@ export const submitReport = async (req, res, next) => {
       }
     }
 
-    let report = await Report.findOne(
-      buildReportIdentityFilter({
-        userId: req.user._id,
-        reportType,
-        weekReference,
-        isLateSubmission,
-        customReportType: req.body.customReportType,
-      })
-    );
+    const identityFilter = buildReportIdentityFilter({
+      userId: req.user._id,
+      reportType,
+      weekReference,
+      isLateSubmission,
+      customReportType,
+    });
+
+    let { canonicalReport: report } = await reconcileReportIdentity(identityFilter);
 
     if (report && report.status === "submitted" && !isLateSubmission && !isEdit) {
-      return res.status(400).json({
+      return res.status(409).json({
         message:
           "You have already submitted this report type for the current week. Please edit your existing submission.",
         existingReportId: report._id,
@@ -244,30 +369,72 @@ export const submitReport = async (req, res, next) => {
       report.status = "submitted";
       report.submittedAt = now;
       report.isEditable = !isLateSubmission;
+      report.customReportType = customReportType || null;
+      report.draftStarted = true;
       await report.save();
     } else {
-      report = await Report.create({
-        submittedBy: req.user._id,
-        reportType,
-        weekReference,
-        isLateSubmission,
-        status: "submitted",
-        submittedAt: now,
-        isEditable: !isLateSubmission,
-        ...reportData,
-      });
+      try {
+        report = await Report.create({
+          submittedBy: req.user._id,
+          reportType,
+          weekReference,
+          isLateSubmission,
+          customReportType: customReportType || null,
+          status: "submitted",
+          draftStarted: true,
+          submittedAt: now,
+          isEditable: !isLateSubmission,
+          ...reportData,
+        });
+      } catch (error) {
+        if (error?.code !== 11000) throw error;
+
+        const retry = await reconcileReportIdentity(identityFilter);
+        report = retry.canonicalReport;
+
+        if (report && report.status === "submitted" && !isLateSubmission && !isEdit) {
+          return res.status(409).json({
+            message:
+              "You have already submitted this report type for the current week. Please edit your existing submission.",
+            existingReportId: report._id,
+            canEdit: report.isEditable,
+          });
+        }
+
+        if (!report) throw error;
+
+        Object.assign(report, reportData);
+        report.status = "submitted";
+        report.submittedAt = now;
+        report.isEditable = !isLateSubmission;
+        report.customReportType = customReportType || null;
+        report.draftStarted = true;
+        await report.save();
+      }
     }
 
-    if (isLateSubmission) {
-      await processLateMetrics(req.user._id, weekReference);
-    } else if (reportType === "evangelism") {
-      await ensureWeeklyMetricsFresh(weekReference, {
-        maxAgeMinutes: 0,
-        force: true,
-      });
+    let warningMessage = null;
+
+    try {
+      if (isLateSubmission) {
+        await processLateMetrics(req.user._id, weekReference);
+      } else if (reportType === "evangelism") {
+        await ensureWeeklyMetricsFresh(weekReference, {
+          maxAgeMinutes: 0,
+          force: true,
+        });
+      }
+    } catch (metricError) {
+      warningMessage =
+        "Your report was submitted successfully. Qualification will finish updating shortly.";
+      console.error("submitReport post-submit refresh error:", metricError.message);
     }
 
-    res.status(200).json({ message: "Report submitted successfully.", report });
+    res.status(200).json({
+      message: warningMessage || "Report submitted successfully.",
+      warningMessage,
+      report,
+    });
   } catch (error) {
     next(error);
   }
@@ -296,14 +463,26 @@ export const editSubmittedReport = async (req, res, next) => {
     }
     await report.save();
 
-    if (!report.isLateSubmission && report.reportType === "evangelism") {
-      await ensureWeeklyMetricsFresh(report.weekReference, {
-        maxAgeMinutes: 0,
-        force: true,
-      });
+    let warningMessage = null;
+
+    try {
+      if (!report.isLateSubmission && report.reportType === "evangelism") {
+        await ensureWeeklyMetricsFresh(report.weekReference, {
+          maxAgeMinutes: 0,
+          force: true,
+        });
+      }
+    } catch (metricError) {
+      warningMessage =
+        "Your report was updated successfully. Qualification will finish updating shortly.";
+      console.error("editSubmittedReport metrics refresh error:", metricError.message);
     }
 
-    res.status(200).json({ message: "Report updated successfully.", report });
+    res.status(200).json({
+      message: warningMessage || "Report updated successfully.",
+      warningMessage,
+      report,
+    });
   } catch (error) {
     next(error);
   }
@@ -316,20 +495,28 @@ export const getMyReports = async (req, res, next) => {
 
     if (weekReference) filter.weekReference = normalizeWeekReference(weekReference);
     if (reportType) filter.reportType = reportType;
-    if (status) filter.status = status;
     if (weekType === "current") filter.isLateSubmission = false;
     if (weekType === "late") filter.isLateSubmission = true;
 
-    const query = Report.find(filter).sort({ createdAt: -1 });
+    let reports = await Report.find(filter).sort({
+      weekReference: -1,
+      submittedAt: -1,
+      updatedAt: -1,
+      createdAt: -1,
+    });
+
+    reports = dedupeReportsForDisplay(reports);
+
+    if (status) {
+      reports = reports.filter((report) => report.status === status);
+    }
+
+    const total = reports.length;
     const skip = (Number(page) - 1) * Number(limit);
-    const total = await Report.countDocuments(filter);
-
-    query.skip(skip).limit(Number(limit));
-
-    const reports = await query;
+    const pagedReports = reports.slice(skip, skip + Number(limit));
 
     res.status(200).json({
-      reports,
+      reports: pagedReports,
       total,
       page: Number(page),
       totalPages: Math.ceil(total / Number(limit)),
@@ -341,9 +528,13 @@ export const getMyReports = async (req, res, next) => {
 
 export const getMyReportSummary = async (req, res, next) => {
   try {
-    const reports = await Report.find({ submittedBy: req.user._id })
-      .select("status reportType")
+    let reports = await Report.find({ submittedBy: req.user._id })
+      .select(
+        "status reportType weekReference isLateSubmission customReportType submittedBy draftStarted submittedAt createdAt updatedAt evangelismData followUpData churchAttendees serviceAttendance cellData cellReportData fellowshipPrayerData productionData briefData departmentalData customData"
+      )
       .lean();
+
+    reports = dedupeReportsForDisplay(reports);
 
     const summary = {
       statusCounts: {
@@ -394,7 +585,7 @@ export const getMyDraft = async (req, res, next) => {
 
     const isLateSubmission = weekType === "late" || weekType === "past";
 
-    const baseFilter = buildReportIdentityFilter({
+    const identityFilter = buildReportIdentityFilter({
       userId: req.user._id,
       reportType,
       weekReference,
@@ -402,17 +593,7 @@ export const getMyDraft = async (req, res, next) => {
       customReportType,
     });
 
-    let report = await Report.findOne({
-      ...baseFilter,
-      status: "draft",
-    });
-
-    if (!report) {
-      report = await Report.findOne({
-        ...baseFilter,
-        status: "submitted",
-      });
-    }
+    const { canonicalReport: report } = await reconcileReportIdentity(identityFilter);
 
     res.status(200).json({ draft: report || null });
   } catch (error) {

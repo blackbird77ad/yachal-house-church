@@ -16,18 +16,28 @@ import {
   sendPortalClosedEmail,
   sendPortalDeadlineReminderEmail,
   sendQualificationResultsEmail,
+  sendNoFrontDeskLoggingAlertEmail,
 } from "./emailService.js";
 import { createBulkNotification } from "./notificationService.js";
 import { autoCloseExpiredSessions } from "../controllers/attendanceController.js";
 import { sendPushToMany } from "./pushService.js";
 import {
   getPortalWeekReferenceForNow,
+  getPreviousPortalWeekReference,
   getPortalWindowForWeekReference,
+  getSystemWeekWindowForWeekReference,
   isWithinSubmissionWindow,
+  normalizeWeekReference,
 } from "../utils/portalWeek.js";
 
 const getApprovedRecipients = async () =>
   User.find({ status: "approved" }).select("_id email fullName notificationPreferences");
+
+const getAdminRecipients = async () =>
+  User.find({
+    status: "approved",
+    role: { $in: ["pastor", "admin", "moderator"] },
+  }).select("_id email fullName notificationPreferences");
 
 const openPortal = async () => {
   try {
@@ -106,66 +116,163 @@ const sendClosingReminder = async () => {
   }
 };
 
-const closePortalAndProcess = async () => {
-  try {
-    const weekReference = getPortalWeekReferenceForNow(new Date());
-    const portal = await PortalWindow.findOne({ weekReference });
+const summarizeFrontDeskUsageForWeek = async (weekReference) => {
+  const { opensAt, closesAt } = getSystemWeekWindowForWeekReference(weekReference);
 
-    if (portal) {
-      portal.isOpen = false;
-      portal.isProcessed = true;
-      portal.processedAt = new Date();
-      await portal.save();
-    }
+  const [sessionCount, workerCheckIns] = await Promise.all([
+    FrontDeskSession.countDocuments({
+      serviceDate: { $gte: opensAt, $lte: closesAt },
+    }),
+    Attendance.countDocuments({
+      serviceDate: { $gte: opensAt, $lte: closesAt },
+      verifiedByFrontDesk: true,
+      isOnDuty: false,
+    }),
+  ]);
 
-    const allRecipients = await getApprovedRecipients();
-    const emailRecipients = allRecipients.filter((recipient) => recipient.email);
+  return {
+    sessionCount,
+    workerCheckIns,
+    hasUsableLogging: sessionCount > 0 && workerCheckIns > 0,
+  };
+};
 
-    await createBulkNotification(allRecipients.map((recipient) => recipient._id), {
-      type: "portal-closed",
-      title: "Portal is now closed",
-      message:
-        "The weekly submission window has closed. Reports not submitted before the deadline count against qualification for the week.",
-      link: "/portal/my-reports",
+const processPortalClosureForWeek = async (weekReference, { source = "cron" } = {}) => {
+  const now = new Date();
+  const normalizedWeek = normalizeWeekReference(weekReference);
+  const { opensAt, closesAt } = getPortalWindowForWeekReference(normalizedWeek);
+
+  let portal = await PortalWindow.findOne({ weekReference: normalizedWeek });
+
+  if (!portal) {
+    portal = await PortalWindow.create({
+      weekReference: normalizedWeek,
+      opensAt,
+      closesAt,
+      isOpen: false,
+      isProcessed: false,
     });
+  } else {
+    portal.opensAt = opensAt;
+    portal.closesAt = closesAt;
+    portal.isOpen = false;
+    await portal.save();
+  }
 
-    if (emailRecipients.length > 0) {
-      await sendPortalClosedEmail(emailRecipients, "Weekly deadline reached.");
-    }
+  if (portal.isProcessed) {
+    return false;
+  }
 
-    await processWeeklyMetrics(weekReference);
+  const allRecipients = await getApprovedRecipients();
+  const emailRecipients = allRecipients.filter((recipient) => recipient.email);
 
-    const metrics = await Metrics.find({
-      weekReference,
-      isLateSubmission: false,
-    })
-      .populate("worker", "fullName workerId department")
-      .sort({ totalScore: -1 });
+  await createBulkNotification(allRecipients.map((recipient) => recipient._id), {
+    type: "portal-closed",
+    title: "Portal is now closed",
+    message:
+      "The weekly submission window has closed. Reports not submitted before the deadline count against qualification for the week.",
+    link: "/portal/my-reports",
+  });
 
-    const qualified = metrics.filter((m) => m.isQualified);
-    const disqualified = metrics.filter((m) => !m.isQualified);
+  if (emailRecipients.length > 0) {
+    await sendPortalClosedEmail(emailRecipients, "Weekly deadline reached.");
+  }
 
-    const recipients = await User.find({
-      status: "approved",
-      role: { $in: ["pastor", "admin", "moderator"] },
-    }).select("_id email fullName notificationPreferences");
+  await processWeeklyMetrics(normalizedWeek);
 
-    const adminEmailRecipients = recipients.filter((r) => r.notificationPreferences?.email);
+  const metrics = await Metrics.find({
+    weekReference: normalizedWeek,
+    isLateSubmission: false,
+  })
+    .populate("worker", "fullName workerId department")
+    .sort({ totalScore: -1 });
 
+  const qualified = metrics.filter((m) => m.isQualified);
+  const disqualified = metrics.filter((m) => !m.isQualified);
+
+  const recipients = await getAdminRecipients();
+  const adminEmailRecipients = recipients.filter(
+    (recipient) => recipient.notificationPreferences?.email !== false && recipient.email
+  );
+
+  if (adminEmailRecipients.length > 0) {
+    await sendQualificationResultsEmail(adminEmailRecipients, qualified, disqualified);
+  }
+
+  await createBulkNotification(recipients.map((recipient) => recipient._id), {
+    type: "qualification-result",
+    title: "Qualification results ready - Action required",
+    message: `Qualification has been processed. ${qualified.length} qualified, ${disqualified.length} not qualified.`,
+    link: "/admin/qualification",
+  });
+
+  await sendPushToMany(recipients.map((recipient) => recipient._id), {
+    title: "Qualification results ready",
+    body: `${qualified.length} qualified, ${disqualified.length} not qualified.`,
+    url: "/admin/qualification",
+  });
+
+  const frontDeskUsage = await summarizeFrontDeskUsageForWeek(normalizedWeek);
+
+  if (!frontDeskUsage.hasUsableLogging && recipients.length > 0) {
     if (adminEmailRecipients.length > 0) {
-      await sendQualificationResultsEmail(adminEmailRecipients, qualified, disqualified);
+      await sendNoFrontDeskLoggingAlertEmail(adminEmailRecipients, normalizedWeek);
     }
 
-    await createBulkNotification(recipients.map((r) => r._id), {
-      type: "qualification-result",
-      title: "Qualification results ready - Action required",
-      message: `Qualification has been processed. ${qualified.length} qualified, ${disqualified.length} not qualified.`,
+    await createBulkNotification(recipients.map((recipient) => recipient._id), {
+      type: "general",
+      title: "No front desk logging recorded this week",
+      message:
+        "No usable front desk worker logging was recorded for the week. Attendance should be treated as incomplete while reviewing qualification and preparing roster.",
       link: "/admin/qualification",
     });
 
-    console.log("Scheduler: Portal closed and metrics processed");
+    await sendPushToMany(recipients.map((recipient) => recipient._id), {
+      title: "No front desk logging recorded",
+      body:
+        "Attendance for the week is incomplete. Review qualification and roster with caution.",
+      url: "/admin/qualification",
+    });
+  }
+
+  portal.isProcessed = true;
+  portal.processedAt = now;
+  await portal.save();
+
+  console.log(
+    `Scheduler: Portal closed and metrics processed for ${normalizedWeek.toDateString()} (${source})`
+  );
+
+  return true;
+};
+
+const closePortalAndProcess = async () => {
+  try {
+    const weekReference = getPortalWeekReferenceForNow(new Date());
+    await processPortalClosureForWeek(weekReference, { source: "cron" });
   } catch (err) {
     console.error("Scheduler closePortalAndProcess error:", err.message);
+  }
+};
+
+const catchUpMissedPortalClosure = async () => {
+  try {
+    const now = new Date();
+
+    if (isWithinSubmissionWindow(now)) {
+      return;
+    }
+
+    const overdueWeekReference = getPreviousPortalWeekReference(now);
+    const { closesAt } = getPortalWindowForWeekReference(overdueWeekReference);
+
+    if (now <= closesAt) {
+      return;
+    }
+
+    await processPortalClosureForWeek(overdueWeekReference, { source: "catch-up" });
+  } catch (err) {
+    console.error("Scheduler catchUpMissedPortalClosure error:", err.message);
   }
 };
 
@@ -252,6 +359,7 @@ export const initScheduler = () => {
   cron.schedule("0 10 * * 1", sendClosingReminder, { timezone: "Africa/Accra" });
   cron.schedule("0 12 * * 1", sendClosingReminder, { timezone: "Africa/Accra" });
   cron.schedule("59 14 * * 1", closePortalAndProcess, { timezone: "Africa/Accra" });
+  cron.schedule("*/15 * * * *", catchUpMissedPortalClosure, { timezone: "Africa/Accra" });
   cron.schedule("*/15 * * * *", autoCloseExpiredSessions, { timezone: "Africa/Accra" });
   cron.schedule("0 3 * * 0", runCleanup, { timezone: "Africa/Accra" });
   console.log("Scheduler: Cron jobs initialized (Africa/Accra timezone)");
@@ -260,6 +368,8 @@ export const initScheduler = () => {
 export const syncPortalStateOnStartup = async () => {
   try {
     const now = new Date();
+
+    await catchUpMissedPortalClosure();
 
     if (!isWithinSubmissionWindow(now)) {
       console.log("Startup sync: Outside portal window");

@@ -12,8 +12,14 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useReports } from "../../hooks/useReports";
+import { useDraftInteraction } from "../../hooks/useDraftInteraction";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import { getAllWorkers } from "../../services/workerService";
+import {
+  getFriendlyReportError,
+  getNoDraftYetMessage,
+  getReportSuccessMessage,
+} from "../../utils/reportFeedback";
 import { cn } from "../../utils/scoreHelpers";
 
 const DEPARTMENTS = [
@@ -182,6 +188,7 @@ const ProductionForm = ({
 }) => {
   const { handleSaveDraft, handleSubmit, handleEdit, fetchMyDraft, loading } = useReports();
   const { toasts, toast, removeToast } = useToast();
+  const { hasInteracted, interactionProps, markInteracted } = useDraftInteraction();
 
   const [submitted, setSubmitted] = useState(false);
   const [draftLoaded, setDraftLoaded] = useState(false);
@@ -189,7 +196,8 @@ const ProductionForm = ({
 
   const [autoSaveState, setAutoSaveState] = useState("idle");
   const [lastSavedAt, setLastSavedAt] = useState(null);
-  const lastSaveRef = useRef(Date.now());
+  const lastSaveRef = useRef(0);
+  const autoSaveRef = useRef(() => {});
 
   const [approvedWorkers, setApprovedWorkers] = useState([]);
 
@@ -324,6 +332,7 @@ const ProductionForm = ({
     }));
 
   const addDepartmentEntry = (departmentKey, entry) => {
+    markInteracted();
     setDepartmentAssignments((prev) => {
       const currentEntries = prev[departmentKey] || [];
 
@@ -353,6 +362,7 @@ const ProductionForm = ({
   };
 
   const removeDepartmentEntry = (departmentKey, entryId) => {
+    markInteracted();
     setDepartmentAssignments((prev) => ({
       ...prev,
       [departmentKey]: (prev[departmentKey] || []).filter((entry) => entry.id !== entryId),
@@ -360,6 +370,7 @@ const ProductionForm = ({
   };
 
   const updateDepartmentEntryField = (departmentKey, entryId, field, value) => {
+    markInteracted();
     setDepartmentAssignments((prev) => ({
       ...prev,
       [departmentKey]: (prev[departmentKey] || []).map((entry) =>
@@ -453,6 +464,8 @@ const ProductionForm = ({
   };
 
   const handleBulkAdd = (departmentKey) => {
+    markInteracted();
+
     const bulk = departmentDrafts[departmentKey].bulk || "";
     const lines = bulk
       .split("\n")
@@ -628,6 +641,7 @@ const ProductionForm = ({
       weekDate,
       weekReference,
       isEdit: isEditMode,
+      draftStarted: hasInteracted,
       productionData: {
         meeting: currentForm.meeting,
         meetingDate: currentForm.meetingDate,
@@ -662,6 +676,23 @@ const ProductionForm = ({
 
   const saveDraftInternal = async ({ silent = false } = {}) => {
     try {
+      if (isEditMode) {
+        if (!silent) {
+          toast.info(
+            "Already submitted",
+            "This report is already submitted. Use Update Report to save changes."
+          );
+        }
+        return;
+      }
+
+      if (!hasInteracted) {
+        if (!silent) {
+          toast.info("Nothing to save yet", getNoDraftYetMessage());
+        }
+        return;
+      }
+
       if (!navigator.onLine) {
         setAutoSaveState("offline");
         if (!silent) {
@@ -673,40 +704,58 @@ const ProductionForm = ({
       const payload = buildPayload(formRef.current, departmentAssignmentsRef.current);
 
       setAutoSaveState("saving");
-      await handleSaveDraft(payload);
+      const result = await handleSaveDraft(payload);
+
+      if (result?.skipped) {
+        setAutoSaveState("idle");
+        if (!silent) {
+          toast.info("Draft not saved", getReportSuccessMessage(result, getNoDraftYetMessage()));
+        }
+        return;
+      }
+
       setAutoSaveState("saved");
       setLastSavedAt(new Date());
       lastSaveRef.current = Date.now();
 
       if (!silent) {
-        toast.success("Draft saved", "Progress saved as draft.");
+        toast.success(
+          "Draft saved",
+          getReportSuccessMessage(result, "Draft saved.")
+        );
       }
     } catch (err) {
       setAutoSaveState("error");
       if (!silent) {
         toast.error(
-          "Draft save failed",
-          err.response?.data?.message || "Could not save draft."
+          "Draft not saved",
+          getFriendlyReportError(err, { action: "draft" })
         );
       }
     }
   };
+
+  useEffect(() => {
+    autoSaveRef.current = () => {
+      saveDraftInternal({ silent: true });
+    };
+  });
 
   const handleDraft = async () => {
     await saveDraftInternal({ silent: false });
   };
 
   useEffect(() => {
-    if (!draftLoaded || !hydrated || submitted) return;
+    if (!draftLoaded || !hydrated || submitted || isEditMode || !hasInteracted) return;
 
     const interval = setInterval(() => {
-      saveDraftInternal({ silent: true });
+      autoSaveRef.current();
     }, 60000);
 
     return () => {
       clearInterval(interval);
     };
-  }, [draftLoaded, hydrated, submitted]);
+  }, [draftLoaded, hydrated, submitted, isEditMode, hasInteracted]);
 
   useEffect(() => {
     if (!draftLoaded) return;
@@ -728,21 +777,30 @@ const ProductionForm = ({
     }
 
     try {
-      if (isEditMode && existingReportId) {
-        await handleEdit(
-          existingReportId,
-          buildPayload(formRef.current, departmentAssignmentsRef.current)
-        );
-      } else {
-        await handleSubmit(
-          buildPayload(formRef.current, departmentAssignmentsRef.current)
-        );
-      }
-
+      const result =
+        isEditMode && existingReportId
+          ? await handleEdit(
+              existingReportId,
+              buildPayload(formRef.current, departmentAssignmentsRef.current)
+            )
+          : await handleSubmit(
+              buildPayload(formRef.current, departmentAssignmentsRef.current)
+            );
       setSubmitted(true);
-      toast.success(isEditMode ? "Updated" : "Submitted", "Production report submitted.");
+      toast.success(
+        isEditMode ? "Report updated" : "Report submitted",
+        getReportSuccessMessage(
+          result,
+          isEditMode ? "Production report updated." : "Production report submitted."
+        )
+      );
     } catch (err) {
-      toast.error("Error", err.response?.data?.message || "Could not submit.");
+      toast.error(
+        isEditMode ? "Update not saved" : "Report not submitted",
+        getFriendlyReportError(err, {
+          action: isEditMode ? "update" : "submit",
+        })
+      );
     }
   };
 
@@ -816,7 +874,7 @@ const ProductionForm = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" {...interactionProps}>
       <ToastContainer toasts={toasts} onClose={removeToast} />
 
       <div className="card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1292,16 +1350,22 @@ Guest drummer - 16:20`}
       </p>
 
       <div className="flex flex-col sm:flex-row gap-3 justify-end pb-6">
-        <button
-          onClick={handleDraft}
-          disabled={loading}
-          className="btn-outline flex items-center justify-center gap-2"
-        >
-          <Save className="w-4 h-4" />
-          {loading ? "Saving..." : "Save Draft"}
-        </button>
+        {!isEditMode && (
+          <button
+            type="button"
+            data-draft-ignore="true"
+            onClick={handleDraft}
+            disabled={loading}
+            className="btn-outline flex items-center justify-center gap-2"
+          >
+            <Save className="w-4 h-4" />
+            {loading ? "Saving..." : "Save Draft"}
+          </button>
+        )}
 
         <button
+          type="button"
+          data-draft-ignore="true"
           onClick={handleFinalSubmit}
           disabled={loading || !portalOpen}
           className={cn(

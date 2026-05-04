@@ -8,8 +8,10 @@ import {
   sendAccountCreatedEmail,
   sendBulkAccountCreatedEmail,
   sendAccountSuspendedEmail,
+  sendGenericNotificationEmail,
   sendPasswordResetRequestEmail,
 } from "../services/emailService.js";
+import { sendPushToMany } from "../services/pushService.js";
 
 const generateToken = (id) =>
   jwt.sign({ id }, env.jwtSecret, { expiresIn: env.jwtExpiresIn });
@@ -55,7 +57,7 @@ export const register = async (req, res, next) => {
       const admins = await User.find({
         status: "approved",
         role: { $in: ["pastor", "admin", "moderator"] },
-      }).select("_id");
+      }).select("_id email fullName");
 
       if (admins.length > 0) {
         const { createBulkNotification } = await import("../services/notificationService.js");
@@ -64,6 +66,20 @@ export const register = async (req, res, next) => {
           title: "New worker registration",
           message: `${fullName} has registered and is awaiting approval.`,
           link: "/admin/workers",
+        });
+
+        await sendPushToMany(admins.map((admin) => admin._id), {
+          title: "New worker registration",
+          body: `${fullName} has registered and is awaiting approval.`,
+          url: "/admin/workers",
+        });
+
+        await sendGenericNotificationEmail(admins, {
+          subject: "New worker registration awaiting approval",
+          title: "New worker registration",
+          message: `${fullName} has registered and is awaiting approval.`,
+          link: "/admin/workers",
+          linkLabel: "Review Workers",
         });
       }
     } catch (notifErr) {
@@ -163,6 +179,11 @@ export const approveWorker = async (req, res, next) => {
       link: "/portal/dashboard",
       senderId: req.user._id,
     });
+    await sendPushToMany([worker._id], {
+      title: "Account approved",
+      body: `Your account is now active. Worker ID: ${worker.workerId}.`,
+      url: "/portal/dashboard",
+    });
 
     res.status(200).json({ message: `${worker.fullName} approved. Worker ID: ${worker.workerId}`, worker });
   } catch (error) { next(error); }
@@ -195,6 +216,11 @@ export const adminCreateWorker = async (req, res, next) => {
       message: `Your Worker ID is ${workerId}. Check your email for login details. Change your password on first login.`,
       link: "/portal/dashboard",
       senderId: req.user._id,
+    });
+    await sendPushToMany([worker._id], {
+      title: "Your account is ready",
+      body: `Worker ID ${workerId}. Check your email for login details.`,
+      url: "/portal/dashboard",
     });
 
     res.status(201).json({
@@ -233,6 +259,18 @@ export const adminBulkCreateWorkers = async (req, res, next) => {
       });
 
       await sendBulkAccountCreatedEmail(worker, w.password);
+      await createNotification(worker._id, {
+        type: "account-approved",
+        title: "Your Yachal House account is ready",
+        message: `Your Worker ID is ${workerId}. Check your email for login details. Change your password on first login.`,
+        link: "/portal/dashboard",
+        senderId: req.user._id,
+      });
+      await sendPushToMany([worker._id], {
+        title: "Your account is ready",
+        body: `Worker ID ${workerId}. Check your email for login details.`,
+        url: "/portal/dashboard",
+      });
       results.created.push({ fullName: worker.fullName, email: worker.email, workerId, role: worker.role, department: worker.department });
     }
 
@@ -257,6 +295,11 @@ export const suspendWorker = async (req, res, next) => {
       message: "Your account has been suspended. Please contact your admin for more information.",
       senderId: req.user._id,
     });
+    await sendPushToMany([worker._id], {
+      title: "Account suspended",
+      body: "Your Yachal House account has been suspended.",
+      url: "/login",
+    });
     res.status(200).json({ message: `${worker.fullName} has been suspended.` });
   } catch (error) { next(error); }
 };
@@ -274,6 +317,18 @@ export const reinstateWorker = async (req, res, next) => {
       message: "Your account access has been restored. You can now log in.",
       link: "/portal/dashboard",
       senderId: req.user._id,
+    });
+    await sendPushToMany([worker._id], {
+      title: "Account reinstated",
+      body: "Your account access has been restored.",
+      url: "/portal/dashboard",
+    });
+    await sendGenericNotificationEmail(worker, {
+      subject: "Your Yachal House account has been reinstated",
+      title: "Account reinstated",
+      message: "Your account access has been restored. You can now log in.",
+      link: "/portal/dashboard",
+      linkLabel: "Open Portal",
     });
     res.status(200).json({ message: `${worker.fullName} has been reinstated.` });
   } catch (error) { next(error); }
@@ -317,6 +372,12 @@ export const forgotPassword = async (req, res, next) => {
       });
     }
 
+    await sendPushToMany(admins.map((admin) => admin._id), {
+      title: "Password reset requested",
+      body: `${worker.fullName} has requested a password reset.`,
+      url: `/admin/workers/${worker._id}`,
+    });
+
     res.status(200).json({ message: "Your request has been sent to the admin team. They will reset your password and contact you." });
   } catch (error) { next(error); }
 };
@@ -344,6 +405,18 @@ export const adminResetPassword = async (req, res, next) => {
       title: "Password reset successful",
       message: `Password for ${worker.fullName} has been reset. Temporary password: ${tempPassword}`,
       link: `/admin/workers/${worker._id}`,
+    });
+    await sendPushToMany([req.user._id], {
+      title: "Password reset successful",
+      body: `Password for ${worker.fullName} has been reset.`,
+      url: `/admin/workers/${worker._id}`,
+    });
+    await sendGenericNotificationEmail(req.user, {
+      subject: "Password reset completed",
+      title: "Password reset successful",
+      message: `Password for ${worker.fullName} has been reset. Open the worker profile to view the result in the system.`,
+      link: `/admin/workers/${worker._id}`,
+      linkLabel: "Open Worker Profile",
     });
 
     res.status(200).json({

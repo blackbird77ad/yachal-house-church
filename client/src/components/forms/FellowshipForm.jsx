@@ -12,8 +12,14 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useReports } from "../../hooks/useReports";
+import { useDraftInteraction } from "../../hooks/useDraftInteraction";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import { getAllWorkers } from "../../services/workerService";
+import {
+  getFriendlyReportError,
+  getNoDraftYetMessage,
+  getReportSuccessMessage,
+} from "../../utils/reportFeedback";
 import { cn } from "../../utils/scoreHelpers";
 
 const createId = () => {
@@ -79,6 +85,7 @@ const FellowshipForm = ({
 }) => {
   const { handleSaveDraft, handleSubmit, handleEdit, fetchMyDraft, loading } = useReports();
   const { toasts, toast, removeToast } = useToast();
+  const { hasInteracted, interactionProps, markInteracted } = useDraftInteraction();
 
   const [submitted, setSubmitted] = useState(false);
   const [draftLoaded, setDraftLoaded] = useState(false);
@@ -86,7 +93,8 @@ const FellowshipForm = ({
 
   const [autoSaveState, setAutoSaveState] = useState("idle");
   const [lastSavedAt, setLastSavedAt] = useState(null);
-  const lastSaveRef = useRef(Date.now());
+  const lastSaveRef = useRef(0);
+  const autoSaveRef = useRef(() => {});
 
   const [approvedWorkers, setApprovedWorkers] = useState([]);
 
@@ -204,6 +212,7 @@ const FellowshipForm = ({
   }, [approvedWorkers, participantDraft.query]);
 
   const addParticipant = (entry) => {
+    markInteracted();
     setForm((prev) => {
       const duplicate = prev.participants.some((existing) => {
         if (entry.type === "worker" && existing.type === "worker") {
@@ -228,6 +237,7 @@ const FellowshipForm = ({
   };
 
   const removeParticipant = (entryId) => {
+    markInteracted();
     setForm((prev) => ({
       ...prev,
       participants: prev.participants.filter((entry) => entry.id !== entryId),
@@ -301,6 +311,8 @@ const FellowshipForm = ({
   };
 
   const handleBulkAdd = () => {
+    markInteracted();
+
     const lines = (participantDraft.bulk || "")
       .split("\n")
       .map(parseBulkLine)
@@ -394,6 +406,7 @@ const FellowshipForm = ({
     weekDate,
     weekReference,
     isEdit: isEditMode,
+    draftStarted: hasInteracted,
     fellowshipPrayerData: {
       ...currentForm,
       duration: Number(currentForm.duration) || 0,
@@ -419,6 +432,23 @@ const FellowshipForm = ({
 
   const saveDraftInternal = async ({ silent = false } = {}) => {
     try {
+      if (isEditMode) {
+        if (!silent) {
+          toast.info(
+            "Already submitted",
+            "This report is already submitted. Use Update Report to save changes."
+          );
+        }
+        return;
+      }
+
+      if (!hasInteracted) {
+        if (!silent) {
+          toast.info("Nothing to save yet", getNoDraftYetMessage());
+        }
+        return;
+      }
+
       if (!navigator.onLine) {
         setAutoSaveState("offline");
         if (!silent) {
@@ -430,40 +460,58 @@ const FellowshipForm = ({
       const payload = buildPayload(formRef.current);
 
       setAutoSaveState("saving");
-      await handleSaveDraft(payload);
+      const result = await handleSaveDraft(payload);
+
+      if (result?.skipped) {
+        setAutoSaveState("idle");
+        if (!silent) {
+          toast.info("Draft not saved", getReportSuccessMessage(result, getNoDraftYetMessage()));
+        }
+        return;
+      }
+
       setAutoSaveState("saved");
       setLastSavedAt(new Date());
       lastSaveRef.current = Date.now();
 
       if (!silent) {
-        toast.success("Draft saved", "Progress saved as draft.");
+        toast.success(
+          "Draft saved",
+          getReportSuccessMessage(result, "Draft saved.")
+        );
       }
     } catch (err) {
       setAutoSaveState("error");
       if (!silent) {
         toast.error(
-          "Draft save failed",
-          err.response?.data?.message || "Could not save draft."
+          "Draft not saved",
+          getFriendlyReportError(err, { action: "draft" })
         );
       }
     }
   };
+
+  useEffect(() => {
+    autoSaveRef.current = () => {
+      saveDraftInternal({ silent: true });
+    };
+  });
 
   const handleDraft = async () => {
     await saveDraftInternal({ silent: false });
   };
 
   useEffect(() => {
-    if (!draftLoaded || !hydrated || submitted) return;
+    if (!draftLoaded || !hydrated || submitted || isEditMode || !hasInteracted) return;
 
     const interval = setInterval(() => {
-      saveDraftInternal({ silent: true });
+      autoSaveRef.current();
     }, 60000);
 
     return () => {
       clearInterval(interval);
     };
-  }, [draftLoaded, hydrated, submitted]);
+  }, [draftLoaded, hydrated, submitted, isEditMode, hasInteracted]);
 
   useEffect(() => {
     if (!draftLoaded) return;
@@ -485,19 +533,27 @@ const FellowshipForm = ({
     }
 
     try {
-      if (isEditMode && existingReportId) {
-        await handleEdit(existingReportId, buildPayload(formRef.current));
-      } else {
-        await handleSubmit(buildPayload(formRef.current));
-      }
-
+      const result =
+        isEditMode && existingReportId
+          ? await handleEdit(existingReportId, buildPayload(formRef.current))
+          : await handleSubmit(buildPayload(formRef.current));
       setSubmitted(true);
       toast.success(
-        isEditMode ? "Updated" : "Submitted",
-        "Fellowship prayer report submitted."
+        isEditMode ? "Report updated" : "Report submitted",
+        getReportSuccessMessage(
+          result,
+          isEditMode
+            ? "Fellowship prayer report updated."
+            : "Fellowship prayer report submitted."
+        )
       );
     } catch (err) {
-      toast.error("Error", err.response?.data?.message || "Could not submit.");
+      toast.error(
+        isEditMode ? "Update not saved" : "Report not submitted",
+        getFriendlyReportError(err, {
+          action: isEditMode ? "update" : "submit",
+        })
+      );
     }
   };
 
@@ -529,7 +585,7 @@ const FellowshipForm = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" {...interactionProps}>
       <ToastContainer toasts={toasts} onClose={removeToast} />
 
       <div className="card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -835,16 +891,22 @@ Visitor Kofi`}
       </p>
 
       <div className="flex flex-col sm:flex-row gap-3 justify-end pb-6">
-        <button
-          onClick={handleDraft}
-          disabled={loading}
-          className="btn-outline flex items-center justify-center gap-2"
-        >
-          <Save className="w-4 h-4" />
-          {loading ? "Saving..." : "Save Draft"}
-        </button>
+        {!isEditMode && (
+          <button
+            type="button"
+            data-draft-ignore="true"
+            onClick={handleDraft}
+            disabled={loading}
+            className="btn-outline flex items-center justify-center gap-2"
+          >
+            <Save className="w-4 h-4" />
+            {loading ? "Saving..." : "Save Draft"}
+          </button>
+        )}
 
         <button
+          type="button"
+          data-draft-ignore="true"
           onClick={handleFinalSubmit}
           disabled={loading || !portalOpen}
           className={cn(

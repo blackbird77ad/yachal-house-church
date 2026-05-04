@@ -13,9 +13,15 @@ import {
   WifiOff,
 } from "lucide-react";
 import { useReports } from "../../hooks/useReports";
+import { useDraftInteraction } from "../../hooks/useDraftInteraction";
 import axiosInstance from "../../utils/axiosInstance";
 import { SOUL_STATUSES } from "../../utils/constants";
 import { useToast, ToastContainer } from "../../components/common/Toast";
+import {
+  getFriendlyReportError,
+  getNoDraftYetMessage,
+  getReportSuccessMessage,
+} from "../../utils/reportFeedback";
 import { cn } from "../../utils/scoreHelpers";
 
 const getMyWeekAttendance = async () => {
@@ -67,6 +73,67 @@ const toTimeInputValue = (value = "") => {
   return `${String(hour).padStart(2, "0")}:${minute}`;
 };
 
+const parsePartnerValue = (value = "") => {
+  const raw = value.toString().trim();
+
+  if (!raw) {
+    return {
+      workerId: "",
+      fullName: "",
+      resolved: false,
+    };
+  }
+
+  if (normalizeText(raw) === "none") {
+    return {
+      workerId: "None",
+      fullName: "",
+      resolved: true,
+    };
+  }
+
+  const pairMatch =
+    raw.match(/^(.*?)\s*\((\d+)\)$/) ||
+    raw.match(/^(.*?)\s*-\s*(\d+)$/);
+
+  if (pairMatch) {
+    return {
+      workerId: pairMatch[2].trim(),
+      fullName: pairMatch[1].trim(),
+      resolved: true,
+    };
+  }
+
+  if (/^\d+$/.test(raw)) {
+    return {
+      workerId: raw,
+      fullName: "",
+      resolved: false,
+    };
+  }
+
+  return {
+    workerId: raw,
+    fullName: "",
+    resolved: false,
+  };
+};
+
+const formatPartnerValue = (partner) => {
+  const workerId = partner?.workerId?.trim?.() || "";
+  const fullName = partner?.fullName?.trim?.() || "";
+
+  if (normalizeText(workerId) === "none" || normalizeText(fullName) === "none") {
+    return "None";
+  }
+
+  if (workerId && fullName && /^\d+$/.test(workerId)) {
+    return `${fullName} (${workerId})`;
+  }
+
+  return workerId || fullName;
+};
+
 const EvangelismForm = ({
   weekType,
   portalOpen,
@@ -79,6 +146,7 @@ const EvangelismForm = ({
 }) => {
   const { handleSaveDraft, handleSubmit, handleEdit, fetchMyDraft, loading } = useReports();
   const { toasts, toast, removeToast } = useToast();
+  const { hasInteracted, interactionProps, markInteracted } = useDraftInteraction();
 
   const [submitted, setSubmitted] = useState(false);
   const [duplicates, setDuplicates] = useState([]);
@@ -122,7 +190,18 @@ const EvangelismForm = ({
   const [lastSavedAt, setLastSavedAt] = useState(null);
 
   const partnerLookupTimers = useRef({});
-  const lastSaveRef = useRef(Date.now());
+  const lastSaveRef = useRef(0);
+  const autoSaveRef = useRef(() => {});
+  const frontDeskCheckInsRef = useRef(frontDeskCheckIns);
+  const partnersRef = useRef(partners);
+
+  useEffect(() => {
+    frontDeskCheckInsRef.current = frontDeskCheckIns;
+  }, [frontDeskCheckIns]);
+
+  useEffect(() => {
+    partnersRef.current = partners;
+  }, [partners]);
 
   useEffect(() => {
     axiosInstance
@@ -157,11 +236,20 @@ const EvangelismForm = ({
 
   useEffect(() => {
     let mounted = true;
-    setDraftLoaded(false);
-    setHydrated(false);
 
-    fetchMyDraft({ reportType: "evangelism", weekReference, weekType, weekDate })
-      .then(({ draft }) => {
+    const loadDraft = async () => {
+      if (!mounted) return;
+      setDraftLoaded(false);
+      setHydrated(false);
+
+      try {
+        const { draft } = await fetchMyDraft({
+          reportType: "evangelism",
+          weekReference,
+          weekType,
+          weekDate,
+        });
+
         if (!mounted) return;
 
         if (!draft) {
@@ -179,12 +267,12 @@ const EvangelismForm = ({
 
         if (draft.evangelismData?.souls?.length) {
           setSouls(
-  draft.evangelismData.souls.map((s) => ({
-    ...emptySoul,
-    ...s,
-    status: s.status || "not_saved",
-  }))
-);
+            draft.evangelismData.souls.map((s) => ({
+              ...emptySoul,
+              ...s,
+              status: s.status || "not_saved",
+            }))
+          );
         }
 
         if (draft.evangelismData?.scriptures?.length) {
@@ -193,13 +281,16 @@ const EvangelismForm = ({
 
         if (draft.evangelismData?.evangelismPartners?.length) {
           setPartners(
-            draft.evangelismData.evangelismPartners.map((p) => ({
-              workerId: p,
-              fullName: "",
-              resolved: normalizeText(p) === "none",
-              notFound: false,
-              isSearching: false,
-            }))
+            draft.evangelismData.evangelismPartners.map((p) => {
+              const parsedPartner = parsePartnerValue(p);
+              return {
+                workerId: parsedPartner.workerId,
+                fullName: parsedPartner.fullName,
+                resolved: parsedPartner.resolved,
+                notFound: false,
+                isSearching: false,
+              };
+            })
           );
         }
 
@@ -224,7 +315,7 @@ const EvangelismForm = ({
               attended: s.attended ?? null,
               reportingTime: toTimeInputValue(s.reportingTime || ""),
               lateReason: s.lateReason || "",
-              fromFrontDesk: !!frontDeskCheckIns?.[s.serviceType],
+              fromFrontDesk: !!frontDeskCheckInsRef.current?.[s.serviceType],
             }))
           );
         }
@@ -232,8 +323,8 @@ const EvangelismForm = ({
         if (draft.cellData) {
           setDidAttendCell(
             draft.cellData.didAttendCell ??
-            draft.cellData.didAttend ??
-            null
+              draft.cellData.didAttend ??
+              null
           );
 
           if (draft.cellData.cells?.length) {
@@ -265,62 +356,64 @@ const EvangelismForm = ({
 
         setDraftLoaded(true);
         setHydrated(true);
-      })
-      .catch(() => {
+      } catch {
         if (!mounted) return;
         setDraftLoaded(true);
         setHydrated(true);
-      });
+      }
+    };
+
+    loadDraft();
 
     return () => {
       mounted = false;
     };
-  }, [weekReference, weekType, weekDate, isEditMode]);
+  }, [weekReference, weekType, weekDate, isEditMode, fetchMyDraft]);
 
   useEffect(() => {
-  if (!draftLoaded) return;
+    if (!draftLoaded) return;
 
-  partners.forEach(async (partner, index) => {
-    if (
-      !partner.workerId ||
-      normalizeText(partner.workerId) === "none" ||
-      partner.resolved
-    ) {
-      return;
-    }
+    partnersRef.current.forEach(async (partner, index) => {
+      if (
+        !partner.workerId ||
+        normalizeText(partner.workerId) === "none" ||
+        partner.resolved
+      ) {
+        return;
+      }
 
-    try {
-      const { data } = await axiosInstance.get(`/workers/by-worker-id/${partner.workerId}`);
+      try {
+        const { data } = await axiosInstance.get(`/workers/by-worker-id/${partner.workerId}`);
 
-      setPartners((prev) =>
-        prev.map((p, i) =>
-          i === index
-            ? {
-                ...p,
-                fullName: data.worker?.fullName || "",
-                resolved: !!data.worker,
-                notFound: !data.worker,
-                isSearching: false,
-              }
-            : p
-        )
-      );
-    } catch {
-      setPartners((prev) =>
-        prev.map((p, i) =>
-          i === index
-            ? {
-                ...p,
-                resolved: false,
-                notFound: true,
-                isSearching: false,
-              }
-            : p
-        )
-      );
-    }
-  });
-}, [draftLoaded]);
+        setPartners((prev) =>
+          prev.map((p, i) =>
+            i === index
+              ? {
+                  ...p,
+                  fullName: data.worker?.fullName || "",
+                  resolved: !!data.worker,
+                  notFound: !data.worker,
+                  isSearching: false,
+                }
+              : p
+          )
+        );
+      } catch {
+        setPartners((prev) =>
+          prev.map((p, i) =>
+            i === index
+              ? {
+                  ...p,
+                  resolved: false,
+                  notFound: true,
+                  isSearching: false,
+                }
+              : p
+          )
+        );
+      }
+    });
+  }, [draftLoaded]);
 
   const updateSoul = (i, k, v) =>
   setSouls((p) =>
@@ -341,13 +434,18 @@ const EvangelismForm = ({
   const updateAttendee = (i, k, v) =>
     setAttendees((p) => p.map((a, idx) => (idx === i ? { ...a, [k]: v } : a)));
 
-  const updateSA = (i, k, v) =>
+  const updateSA = (i, k, v) => {
+    markInteracted();
     setServiceAttendance((p) => p.map((s, idx) => (idx === i ? { ...s, [k]: v } : s)));
+  };
 
-  const updateCell = (i, k, v) =>
+  const updateCell = (i, k, v) => {
+    markInteracted();
     setCells((p) => p.map((c, idx) => (idx === i ? { ...c, [k]: v } : c)));
+  };
 
   const togglePrayerDay = (day) => {
+    markInteracted();
     setCellPrayerDays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
     );
@@ -515,6 +613,7 @@ const EvangelismForm = ({
     weekDate,
     weekReference,   // always send the frontend-computed weekReference
     isEdit: isEditMode,
+    draftStarted: hasInteracted,
     evangelismData: {
       souls: nonEmptySouls.map((s) => ({
         fullName: s.fullName,
@@ -527,7 +626,7 @@ const EvangelismForm = ({
         .map((s) => s.trim())
         .filter(Boolean),
       evangelismPartners: partnerFilled
-        .map((p) => p.workerId || p.fullName)
+        .map((p) => formatPartnerValue(p))
         .filter(Boolean),
     },
     followUpData: {
@@ -624,6 +723,23 @@ const EvangelismForm = ({
 
   const saveDraftInternal = async ({ silent = false, source = "manual" } = {}) => {
     try {
+      if (isEditMode) {
+        if (!silent) {
+          toast.info(
+            "Already submitted",
+            "This report is already submitted. Use Update Report to save changes."
+          );
+        }
+        return;
+      }
+
+      if (!hasInteracted) {
+        if (!silent) {
+          toast.info("Nothing to save yet", getNoDraftYetMessage());
+        }
+        return;
+      }
+
       if (!navigator.onLine) {
         setAutoSaveState("offline");
         if (!silent) {
@@ -634,38 +750,56 @@ const EvangelismForm = ({
 
       setAutoSaveState("saving");
       const payload = buildPayload();
-      await handleSaveDraft(payload);
+      const result = await handleSaveDraft(payload);
+
+      if (result?.skipped) {
+        setAutoSaveState("idle");
+        if (!silent) {
+          toast.info("Draft not saved", getReportSuccessMessage(result, getNoDraftYetMessage()));
+        }
+        return;
+      }
+
       setAutoSaveState("saved");
       setLastSavedAt(new Date());
       lastSaveRef.current = Date.now();
 
       if (!silent && source === "manual") {
-        toast.success("Draft saved", "Progress saved as draft.");
+        toast.success(
+          "Draft saved",
+          getReportSuccessMessage(result, "Draft saved.")
+        );
       }
     } catch (err) {
-      const msg = err.response?.data?.message || "Could not save draft.";
+      const msg = getFriendlyReportError(err, { action: "draft" });
       console.error("Draft save failed:", err.response?.data || err);
       setAutoSaveState("error");
       if (!silent) {
-        toast.error("Draft save failed", msg);
+        toast.error("Draft not saved", msg);
       }
     }
   };
+
+  useEffect(() => {
+    autoSaveRef.current = () => {
+      saveDraftInternal({ silent: true, source: "auto" });
+    };
+  });
 
   const handleDraft = async () => {
     await saveDraftInternal({ silent: false, source: "manual" });
   };
 
   useEffect(() => {
-    if (!draftLoaded || !hydrated || submitted) return;
+    if (!draftLoaded || !hydrated || submitted || isEditMode || !hasInteracted) return;
 
     const interval = setInterval(() => {
-      saveDraftInternal({ silent: true, source: "auto" });
+      autoSaveRef.current();
     }, 60000);
 
     const onBlur = () => {
       if (Date.now() - lastSaveRef.current > 10000) {
-        saveDraftInternal({ silent: true, source: "auto" });
+        autoSaveRef.current();
       }
     };
 
@@ -698,6 +832,8 @@ const EvangelismForm = ({
     prayerStartTime,
     hoursOfPrayer,
     scriptures,
+    isEditMode,
+    hasInteracted,
   ]);
 
   useEffect(() => {
@@ -712,6 +848,7 @@ const EvangelismForm = ({
 
   const handlePartnerLookup = (index, value) => {
     const val = value.trim();
+    markInteracted();
 
     setPartners((prev) => {
       const updated = [...prev];
@@ -781,26 +918,32 @@ const EvangelismForm = ({
     setDuplicates([]);
 
     try {
-      if (isEditMode && existingReportId) {
-        await handleEdit(existingReportId, buildPayload());
-      } else {
-        await handleSubmit(buildPayload());
-      }
-
+      const result =
+        isEditMode && existingReportId
+          ? await handleEdit(existingReportId, buildPayload())
+          : await handleSubmit(buildPayload());
       setSubmitted(true);
-      toast.success("Submitted", "Report submitted successfully.");
+      toast.success(
+        isEditMode ? "Report updated" : "Report submitted",
+        getReportSuccessMessage(
+          result,
+          isEditMode ? "Evangelism report updated." : "Evangelism report submitted."
+        )
+      );
     } catch (err) {
-  const msg = err.response?.data?.message || "Could not submit.";
-  const dups = err.response?.data?.duplicates || [];
-  console.error("Submit failed:", err.response?.data || err);
+      const msg = getFriendlyReportError(err, {
+        action: isEditMode ? "update" : "submit",
+      });
+      const dups = err.response?.data?.duplicates || [];
+      console.error("Submit failed:", err.response?.data || err);
 
-  if (dups.length) {
-    setDuplicates(dups);
-    toast.error("Duplicate souls", msg);
-  } else {
-    toast.error("Error", msg);
-  }
-}
+      if (dups.length) {
+        setDuplicates(dups);
+        toast.error("Duplicate souls found", msg);
+      } else {
+        toast.error(isEditMode ? "Update not saved" : "Report not submitted", msg);
+      }
+    }
   };
 
   const statusText = useMemo(() => {
@@ -833,7 +976,7 @@ const EvangelismForm = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" {...interactionProps}>
       <ToastContainer toasts={toasts} onClose={removeToast} />
 
       <div className="card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -908,7 +1051,7 @@ const EvangelismForm = ({
           </p>
           {duplicates.map((d, i) => (
             <p key={i} className="text-xs text-red-700 dark:text-red-400">
-              • <strong>{d.soul}</strong> — submitted by <strong>{d.claimedBy}</strong>
+              • <strong>{d.soul}</strong> — submitted by <strong>{d.claimedBy}{d.claimedByWorkerId ? ` (${d.claimedByWorkerId})` : ""}</strong>
             </p>
           ))}
           <button
@@ -953,7 +1096,10 @@ const EvangelismForm = ({
                 />
                 {partners.length > 1 && (
                   <button
-                    onClick={() => setPartners((p) => p.filter((_, idx) => idx !== i))}
+                    onClick={() => {
+                      markInteracted();
+                      setPartners((p) => p.filter((_, idx) => idx !== i));
+                    }}
                     className="text-red-400 hover:text-red-600 flex-shrink-0"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -970,7 +1116,7 @@ const EvangelismForm = ({
               {partner.resolved && partner.fullName && normalizeText(partner.workerId) !== "none" && (
                 <p className="text-xs text-green-600 dark:text-green-400 pl-6 flex items-center gap-1">
                   <CheckCircle className="w-3 h-3" />
-                  {partner.fullName} — confirmed
+                  {partner.fullName} ({partner.workerId}) confirmed
                 </p>
               )}
 
@@ -989,12 +1135,13 @@ const EvangelismForm = ({
           ))}
 
           <button
-            onClick={() =>
+            onClick={() => {
+              markInteracted();
               setPartners((p) => [
                 ...p,
                 { workerId: "", fullName: "", resolved: false, notFound: false, isSearching: false },
-              ])
-            }
+              ]);
+            }}
             className="text-xs text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1"
           >
             <Plus className="w-3 h-3" />
@@ -1021,7 +1168,10 @@ const EvangelismForm = ({
                 <span className="text-xs font-bold text-gray-400">Soul #{i + 1}</span>
                 {souls.length > 1 && (
                   <button
-                    onClick={() => setSouls((s) => s.filter((_, idx) => idx !== i))}
+                    onClick={() => {
+                      markInteracted();
+                      setSouls((s) => s.filter((_, idx) => idx !== i));
+                    }}
                     className="text-red-400 hover:text-red-600"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -1081,7 +1231,10 @@ const EvangelismForm = ({
         </div>
 
         <button
-          onClick={() => setSouls((s) => [...s, { ...emptySoul }])}
+          onClick={() => {
+            markInteracted();
+            setSouls((s) => [...s, { ...emptySoul }]);
+          }}
           className="w-full py-2.5 border-2 border-dashed border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 rounded-xl text-sm font-medium hover:bg-purple-50 dark:hover:bg-purple-900/20 flex items-center justify-center gap-2"
         >
           <Plus className="w-4 h-4" />
@@ -1116,7 +1269,10 @@ const EvangelismForm = ({
                 <span className="text-xs font-bold text-gray-400">#{i + 1}</span>
                 {followUps.length > 1 && (
                   <button
-                    onClick={() => setFollowUps((p) => p.filter((_, idx) => idx !== i))}
+                    onClick={() => {
+                      markInteracted();
+                      setFollowUps((p) => p.filter((_, idx) => idx !== i));
+                    }}
                     className="text-red-400 hover:text-red-600"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -1160,7 +1316,10 @@ const EvangelismForm = ({
         </div>
 
         <button
-          onClick={() => setFollowUps((p) => [...p, { ...emptyFollowUp }])}
+          onClick={() => {
+            markInteracted();
+            setFollowUps((p) => [...p, { ...emptyFollowUp }]);
+          }}
           className="w-full py-2.5 border-2 border-dashed border-green-300 dark:border-green-700 text-green-600 dark:text-green-400 rounded-xl text-sm font-medium hover:bg-green-50 dark:hover:bg-green-900/20 flex items-center justify-center gap-2"
         >
           <Plus className="w-4 h-4" />
@@ -1198,7 +1357,10 @@ const EvangelismForm = ({
                 />
                 {attendees.length > 1 && (
                   <button
-                    onClick={() => setAttendees((p) => p.filter((_, idx) => idx !== i))}
+                    onClick={() => {
+                      markInteracted();
+                      setAttendees((p) => p.filter((_, idx) => idx !== i));
+                    }}
                     className="text-red-400 hover:text-red-600 flex-shrink-0"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -1264,7 +1426,10 @@ const EvangelismForm = ({
         </div>
 
         <button
-          onClick={() => setAttendees((p) => [...p, { ...emptyAttendee }])}
+          onClick={() => {
+            markInteracted();
+            setAttendees((p) => [...p, { ...emptyAttendee }]);
+          }}
           className="w-full py-2.5 border-2 border-dashed border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 rounded-xl text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-900/20 flex items-center justify-center gap-2"
         >
           <Plus className="w-4 h-4" />
@@ -1369,7 +1534,10 @@ const EvangelismForm = ({
             <button
               key={String(val)}
               type="button"
-              onClick={() => setDidAttendCell(val)}
+              onClick={() => {
+                markInteracted();
+                setDidAttendCell(val);
+              }}
               className={cn(
                 "py-2.5 rounded-xl border-2 text-sm font-medium transition-all",
                 didAttendCell === val
@@ -1394,7 +1562,10 @@ const EvangelismForm = ({
                   </p>
                   {cells.length > 1 && (
                     <button
-                      onClick={() => setCells((p) => p.filter((_, idx) => idx !== i))}
+                      onClick={() => {
+                        markInteracted();
+                        setCells((p) => p.filter((_, idx) => idx !== i));
+                      }}
                       className="text-red-400 hover:text-red-600"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -1499,7 +1670,10 @@ const EvangelismForm = ({
             ))}
 
             <button
-              onClick={() => setCells((p) => [...p, { ...emptyCell }])}
+              onClick={() => {
+                markInteracted();
+                setCells((p) => [...p, { ...emptyCell }]);
+              }}
               className="w-full py-2.5 border-2 border-dashed border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 rounded-xl text-sm font-medium hover:bg-purple-50 dark:hover:bg-purple-900/20 flex items-center justify-center gap-2"
             >
               <Plus className="w-4 h-4" />
@@ -1530,7 +1704,10 @@ const EvangelismForm = ({
               <button
                 key={String(val)}
                 type="button"
-                onClick={() => setDidPrayWithCell(val)}
+                onClick={() => {
+                  markInteracted();
+                  setDidPrayWithCell(val);
+                }}
                 className={cn(
                   "py-2.5 rounded-xl border-2 text-sm font-medium transition-all",
                   didPrayWithCell === val
@@ -1630,7 +1807,10 @@ const EvangelismForm = ({
               <button
                 key={f}
                 type="button"
-                onClick={() => setFellowshipName(f)}
+                onClick={() => {
+                  markInteracted();
+                  setFellowshipName(f);
+                }}
                 className={cn(
                   "px-4 py-2 rounded-xl border-2 text-sm font-medium transition-all",
                   fellowshipName === f
@@ -1663,7 +1843,10 @@ const EvangelismForm = ({
               <button
                 key={String(val)}
                 type="button"
-                onClick={() => setPrayedThisWeek(val)}
+                onClick={() => {
+                  markInteracted();
+                  setPrayedThisWeek(val);
+                }}
                 className={cn(
                   "py-2.5 rounded-xl border-2 text-sm font-medium transition-all",
                   prayedThisWeek === val
@@ -1688,7 +1871,10 @@ const EvangelismForm = ({
                   <button
                     key={day}
                     type="button"
-                    onClick={() => setPrayerDay(day)}
+                    onClick={() => {
+                      markInteracted();
+                      setPrayerDay(day);
+                    }}
                     className={cn(
                       "px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
                       prayerDay === day
@@ -1734,25 +1920,31 @@ const EvangelismForm = ({
   If Submit Report does not go through, the form will show which required section is missing. Draft can still be saved.
 </p>
       <div className="flex flex-col sm:flex-row gap-3 justify-end pb-6">
-        <button
-          onClick={handleDraft}
-          disabled={loading}
-          className="btn-outline flex items-center justify-center gap-2"
-        >
-          <Save className="w-4 h-4" />
-          {loading ? "Saving..." : "Save Draft"}
-        </button>
+        {!isEditMode && (
+          <button
+            type="button"
+            data-draft-ignore="true"
+            onClick={handleDraft}
+            disabled={loading}
+            className="btn-outline flex items-center justify-center gap-2"
+          >
+            <Save className="w-4 h-4" />
+            {loading ? "Saving..." : "Save Draft"}
+          </button>
+        )}
 
         <button
-  onClick={handleFinalSubmit}
- disabled={loading || !portalOpen || (weekType === "past" && !weekDate)}
-  className={cn(
-    "flex items-center justify-center gap-2 font-medium px-4 py-2 rounded-lg transition-all",
-    portalOpen && (weekType !== "past" || weekDate)
-      ? "btn-primary"
-      : "bg-gray-200 dark:bg-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed"
-  )}
->
+          type="button"
+          data-draft-ignore="true"
+          onClick={handleFinalSubmit}
+          disabled={loading || !portalOpen || (weekType === "past" && !weekDate)}
+          className={cn(
+            "flex items-center justify-center gap-2 font-medium px-4 py-2 rounded-lg transition-all",
+            portalOpen && (weekType !== "past" || weekDate)
+              ? "btn-primary"
+              : "bg-gray-200 dark:bg-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed"
+          )}
+        >
           <Send className="w-4 h-4" />
           {!portalOpen
             ? "Portal Closed"
