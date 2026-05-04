@@ -1,17 +1,23 @@
 import axiosInstance from "../utils/axiosInstance";
 
 export const saveDraft = async (data) => {
-  const response = await axiosInstance.post("/reports/draft", data);
+  const response = await axiosInstance.post("/reports/draft", data, {
+    timeout: 45000,
+  });
   return response.data;
 };
 
 export const submitReport = async (data) => {
-  const response = await axiosInstance.post("/reports/submit", data);
+  const response = await axiosInstance.post("/reports/submit", data, {
+    timeout: 60000,
+  });
   return response.data;
 };
 
 export const editReport = async (reportId, data) => {
-  const response = await axiosInstance.put(`/reports/edit/${reportId}`, data);
+  const response = await axiosInstance.put(`/reports/edit/${reportId}`, data, {
+    timeout: 60000,
+  });
   return response.data;
 };
 
@@ -27,7 +33,10 @@ export const getMyReportSummary = async () => {
 
 export const getMyDraft = async (params = {}) => {
   // Always include weekReference so backend finds the right week's draft
-  const response = await axiosInstance.get("/reports/my-draft", { params });
+  const response = await axiosInstance.get("/reports/my-draft", {
+    params,
+    timeout: 30000,
+  });
   return response.data;
 };
 

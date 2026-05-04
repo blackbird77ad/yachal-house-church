@@ -23,6 +23,14 @@ const getPreviousWeekReference = async () => getPreviousPortalWeekReference();
 
 const getWeekReference = getPortalWeekReference;
 
+const runDeferredMetricsRefresh = (task, label) => {
+  Promise.resolve()
+    .then(task)
+    .catch((metricError) => {
+      console.error(`${label}:`, metricError.message);
+    });
+};
+
 const parsePartnerEntry = (value = "") => {
   const raw = value.toString().trim();
 
@@ -413,26 +421,31 @@ export const submitReport = async (req, res, next) => {
       }
     }
 
-    let warningMessage = null;
+    let responseMessage = "Report submitted successfully.";
 
-    try {
-      if (isLateSubmission) {
-        await processLateMetrics(req.user._id, weekReference);
-      } else if (reportType === "evangelism") {
-        await ensureWeeklyMetricsFresh(weekReference, {
-          maxAgeMinutes: 0,
-          force: true,
-        });
-      }
-    } catch (metricError) {
-      warningMessage =
-        "Your report was submitted successfully. Qualification will finish updating shortly.";
-      console.error("submitReport post-submit refresh error:", metricError.message);
+    if (isLateSubmission) {
+      responseMessage =
+        "Report submitted successfully. Qualification is updating in the background.";
+      runDeferredMetricsRefresh(
+        () => processLateMetrics(req.user._id, weekReference),
+        "submitReport late metrics refresh error"
+      );
+    } else if (reportType === "evangelism") {
+      responseMessage =
+        "Report submitted successfully. Qualification is updating in the background.";
+      runDeferredMetricsRefresh(
+        () =>
+          ensureWeeklyMetricsFresh(weekReference, {
+            maxAgeMinutes: 0,
+            force: true,
+          }),
+        "submitReport post-submit refresh error"
+      );
     }
 
     res.status(200).json({
-      message: warningMessage || "Report submitted successfully.",
-      warningMessage,
+      message: responseMessage,
+      warningMessage: null,
       report,
     });
   } catch (error) {
@@ -463,24 +476,24 @@ export const editSubmittedReport = async (req, res, next) => {
     }
     await report.save();
 
-    let warningMessage = null;
+    let responseMessage = "Report updated successfully.";
 
-    try {
-      if (!report.isLateSubmission && report.reportType === "evangelism") {
-        await ensureWeeklyMetricsFresh(report.weekReference, {
-          maxAgeMinutes: 0,
-          force: true,
-        });
-      }
-    } catch (metricError) {
-      warningMessage =
-        "Your report was updated successfully. Qualification will finish updating shortly.";
-      console.error("editSubmittedReport metrics refresh error:", metricError.message);
+    if (!report.isLateSubmission && report.reportType === "evangelism") {
+      responseMessage =
+        "Report updated successfully. Qualification is updating in the background.";
+      runDeferredMetricsRefresh(
+        () =>
+          ensureWeeklyMetricsFresh(report.weekReference, {
+            maxAgeMinutes: 0,
+            force: true,
+          }),
+        "editSubmittedReport metrics refresh error"
+      );
     }
 
     res.status(200).json({
-      message: warningMessage || "Report updated successfully.",
-      warningMessage,
+      message: responseMessage,
+      warningMessage: null,
       report,
     });
   } catch (error) {

@@ -8,6 +8,11 @@ import {
   getNoDraftYetMessage,
   getReportSuccessMessage,
 } from "../../utils/reportFeedback";
+import {
+  flushDraftAutosaveIfDue,
+  REPORT_AUTOSAVE_DEBOUNCE_MS,
+  REPORT_AUTOSAVE_INTERVAL_MS,
+} from "../../utils/reportAutosave";
 import { cn } from "../../utils/scoreHelpers";
 
 const DynamicForm = ({
@@ -200,23 +205,36 @@ const DynamicForm = ({
   useEffect(() => {
     if (!draftLoaded || !hydrated || submitted || isEditMode || !hasInteracted) return;
 
+    const debounce = setTimeout(() => {
+      autoSaveRef.current();
+    }, REPORT_AUTOSAVE_DEBOUNCE_MS);
+
     const interval = setInterval(() => {
       autoSaveRef.current();
-    }, 60000);
+    }, REPORT_AUTOSAVE_INTERVAL_MS);
 
-    const onBlur = () => {
-      if (Date.now() - lastSaveRef.current > 10000) {
-        autoSaveRef.current();
+    const flushDraft = () => {
+      flushDraftAutosaveIfDue(lastSaveRef, autoSaveRef);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushDraft();
       }
     };
 
-    window.addEventListener("blur", onBlur);
+    window.addEventListener("blur", flushDraft);
+    window.addEventListener("pagehide", flushDraft);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
+      clearTimeout(debounce);
       clearInterval(interval);
-      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("blur", flushDraft);
+      window.removeEventListener("pagehide", flushDraft);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [draftLoaded, hydrated, submitted, isEditMode, hasInteracted]);
+  }, [draftLoaded, hydrated, submitted, formData, isEditMode, hasInteracted]);
 
   useEffect(() => {
     if (!draftLoaded) return;
@@ -393,6 +411,9 @@ const DynamicForm = ({
           <p className="text-xs text-gray-500 dark:text-slate-500 mt-1">
             Autosave is on. If you are not ready, your work stays as a draft. Drafts do not count until you press Submit Report.
           </p>
+          <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+            Before leaving this page, press Save Draft Now below so your work stays stored even if submission is still pending.
+          </p>
         </div>
 
         <div
@@ -440,7 +461,7 @@ const DynamicForm = ({
 
       {!allRequiredValid && (
         <p className="text-xs text-amber-600 dark:text-amber-400 text-right">
-          Complete all required fields before submitting. Draft can still be saved.
+          Complete all required fields before submitting. Press Save Draft Now before leaving so your work stays stored.
         </p>
       )}
 
@@ -460,7 +481,7 @@ const DynamicForm = ({
             className="btn-outline flex items-center justify-center gap-2"
           >
             <Save className="w-4 h-4" />
-            {loading ? "Saving..." : "Save Draft"}
+            {loading ? "Saving..." : "Save Draft Now"}
           </button>
         )}
 

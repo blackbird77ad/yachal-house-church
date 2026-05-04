@@ -1,5 +1,5 @@
 export const getNoDraftYetMessage = () =>
-  "Start filling the form first. Once a field is touched, autosave will keep one draft for this report.";
+  "Start filling the form first. Once a field is touched, autosave starts, and you can press Save Draft Now below at any time.";
 
 export const getReportSuccessMessage = (response, fallbackMessage) => {
   const message = response?.warningMessage || response?.message;
@@ -35,7 +35,15 @@ export const getFriendlyReportError = (error, options = {}) => {
   const rawMessage = `${error?.message || ""}`.toLowerCase();
 
   if (error?.code === "ECONNABORTED" || rawMessage.includes("timeout")) {
-    return `${actionLabel} stopped because the server took too long to respond. Try again.`;
+    if (action === "draft") {
+      return "Draft save stopped because the server took too long to respond. Press Save Draft Now again after the connection settles.";
+    }
+
+    if (action === "update") {
+      return "Report update stopped because the server took too long to respond. Save the draft first if needed, then try Update Report again.";
+    }
+
+    return "Report submission stopped because the server took too long to respond. Save the draft first if needed, wait a moment, and try Submit Report again.";
   }
 
   if (status === 400) {
