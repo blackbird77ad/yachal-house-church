@@ -3,6 +3,7 @@ import { env } from "../config/env.js";
 
 const FROM = env.resendFrom || "noreply@yachalhousegh.com";
 const APP_URL = env.clientUrl || "https://yachalhousegh.com";
+const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const escapeHtml = (value = "") =>
   value
@@ -19,12 +20,126 @@ const resolveAppLink = (link = "") => {
   return `${APP_URL}${link.startsWith("/") ? link : `/${link}`}`;
 };
 
+export const isValidEmailAddress = (value = "") =>
+  EMAIL_ADDRESS_PATTERN.test(value.toString().trim());
+
+const formatFrontDeskSessionLabel = (session = {}) => {
+  if (session?.serviceType === "special") {
+    return session?.specialServiceName
+      ? `Special Service - ${session.specialServiceName}`
+      : "Special Service";
+  }
+
+  const rawType = session?.serviceType || "service";
+  return `${rawType.charAt(0).toUpperCase()}${rawType.slice(1)} Service`;
+};
+
 const send = async ({ to, subject, html }) => {
   try {
-    await resend.emails.send({ from: `Yachal House <${FROM}>`, to, subject, html });
+    const response = await resend.emails.send({
+      from: `Yachal House <${FROM}>`,
+      to,
+      subject,
+      html,
+    });
+
+    const apiError =
+      response?.error?.message ||
+      response?.error ||
+      null;
+
+    if (apiError) {
+      console.error(`Email send error to ${to}:`, apiError);
+      return {
+        ok: false,
+        to,
+        error: String(apiError),
+        response,
+      };
+    }
+
+    return {
+      ok: true,
+      to,
+      id: response?.data?.id || response?.id || null,
+      response,
+    };
   } catch (err) {
-    console.error("Email send error:", err.message);
+    console.error(`Email send error to ${to}:`, err.message);
+    return {
+      ok: false,
+      to,
+      error: err.message,
+    };
   }
+};
+
+const normalizeEmailRecipients = (recipients) => {
+  const list = Array.isArray(recipients) ? recipients : [recipients];
+
+  return list.filter((recipient) => {
+    const email = recipient?.email?.toString?.().trim?.() || "";
+    if (!email) return false;
+
+    if (!isValidEmailAddress(email)) {
+      console.warn(`Skipping invalid email address: ${email}`);
+      return false;
+    }
+
+    return true;
+  });
+};
+
+const isQuotaError = (error = "") => {
+  const normalized = String(error || "").toLowerCase();
+  return (
+    normalized.includes("daily email sending quota") ||
+    normalized.includes("daily_quota_exceeded") ||
+    normalized.includes("monthly_quota_exceeded")
+  );
+};
+
+const summarizeBatchResults = (results = []) => {
+  const failed = results.filter((result) => !result.ok);
+
+  return {
+    ok: failed.length === 0,
+    results,
+    sentCount: results.filter((result) => result.ok).length,
+    failedCount: failed.length,
+    deliveredTo: results
+      .filter((result) => result.ok && result.to)
+      .map((result) => String(result.to).toLowerCase()),
+    errorMessages: failed.map((result) =>
+      result.to ? `${result.to}: ${result.error}` : result.error
+    ),
+  };
+};
+
+const sendEmailBatch = async (recipients, buildMessage) => {
+  const recipientList = normalizeEmailRecipients(recipients);
+  const deliveries = [];
+
+  for (let index = 0; index < recipientList.length; index += 1) {
+    const recipient = recipientList[index];
+    const message = buildMessage(recipient);
+    const result = await send({ to: recipient.email, ...message });
+    deliveries.push(result);
+
+    if (isQuotaError(result?.error)) {
+      const remainingRecipients = recipientList.slice(index + 1);
+      remainingRecipients.forEach((pendingRecipient) => {
+        deliveries.push({
+          ok: false,
+          to: pendingRecipient.email,
+          error: "Email sending paused after quota was reached.",
+        });
+      });
+      break;
+    }
+  }
+
+  return summarizeBatchResults(deliveries);
 };
 
 const LOGO_URL = "https://yachalhousegh.com/yahal.png";
@@ -74,7 +189,7 @@ const base = (content) => `
 </body></html>`;
 
 export const sendAccountApprovedEmail = async (worker) => {
-  await send({
+  return send({
     to: worker.email,
     subject: "Your Yachal House account has been approved",
     html: base(`
@@ -94,7 +209,7 @@ export const sendAccountApprovedEmail = async (worker) => {
 };
 
 export const sendAccountCreatedEmail = async (worker, tempPassword) => {
-  await send({
+  return send({
     to: worker.email,
     subject: "Your Yachal House account is ready",
     html: base(`
@@ -120,7 +235,7 @@ export const sendBulkAccountCreatedEmail = async (worker, tempPassword) => {
 };
 
 export const sendAccountSuspendedEmail = async (worker) => {
-  await send({
+  return send({
     to: worker.email,
     subject: "Your Yachal House account has been suspended",
     html: base(`
@@ -134,11 +249,9 @@ export const sendAccountSuspendedEmail = async (worker) => {
 };
 
 export const sendPortalOpenEmail = async (workers) => {
-  for (const worker of workers) {
-    await send({
-      to: worker.email,
-      subject: "Report portal is now open",
-      html: base(`
+  return sendEmailBatch(workers, (worker) => ({
+    subject: "Report portal is now open",
+    html: base(`
         <h2 style="margin:0 0 16px;color:#1f2937;font-size:22px;">Portal is Open</h2>
         <p style="color:#374151;font-size:15px;line-height:1.6;">Dear ${worker.fullName}, the Yachal House report submission portal is now open.</p>
         <p style="color:#374151;font-size:15px;line-height:1.6;">You can submit your weekly report until <strong>Monday at 2:59pm</strong>. Your drafts are saved automatically.</p>
@@ -146,16 +259,13 @@ export const sendPortalOpenEmail = async (workers) => {
           <a href="${APP_URL}/portal/submit-report" style="background:#4c1d95;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">Submit Report</a>
         </div>
       `),
-    });
-  }
+  }));
 };
 
 export const sendPortalClosingEmail = async (workers) => {
-  for (const worker of workers) {
-    await send({
-      to: worker.email,
-      subject: "Reminder: Portal closes at 2:59pm today",
-      html: base(`
+  return sendEmailBatch(workers, (worker) => ({
+    subject: "Reminder: Portal closes at 2:59pm today",
+    html: base(`
         <h2 style="margin:0 0 16px;color:#1f2937;font-size:22px;">Portal Closing Today</h2>
         <p style="color:#374151;font-size:15px;line-height:1.6;">Dear ${worker.fullName}, this is a reminder that the report submission portal closes today at <strong>2:59pm Ghana time</strong>.</p>
         <p style="color:#374151;font-size:15px;line-height:1.6;">If you have not submitted your report yet, please do so now. The portal will reopen on <strong>Friday at midnight</strong>.</p>
@@ -163,16 +273,27 @@ export const sendPortalClosingEmail = async (workers) => {
           <a href="${APP_URL}/portal/submit-report" style="background:#dc2626;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">Submit Now</a>
         </div>
       `),
-    });
-  }
+  }));
+};
+
+export const sendPortalTwentyFourHourReminderEmail = async (workers) => {
+  return sendEmailBatch(workers, (worker) => ({
+    subject: "Reminder: Portal closes in 24 hours",
+    html: base(`
+        <h2 style="margin:0 0 16px;color:#1f2937;font-size:22px;">Portal Closes In 24 Hours</h2>
+        <p style="color:#374151;font-size:15px;line-height:1.6;">Dear ${worker.fullName}, this is a reminder that the report submission portal will close in <strong>24 hours</strong>.</p>
+        <p style="color:#374151;font-size:15px;line-height:1.6;">The deadline is <strong>Monday at 2:59pm Ghana time</strong>. If you have not submitted your report yet, please do so before the deadline.</p>
+        <div style="text-align:center;margin:24px 0;">
+          <a href="${APP_URL}/portal/submit-report" style="background:#b45309;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">Open Portal</a>
+        </div>
+      `),
+  }));
 };
 
 export const sendPortalClosedEmail = async (workers, reason = "") => {
-  for (const worker of workers) {
-    await send({
-      to: worker.email,
-      subject: "Report portal is now closed",
-      html: base(`
+  return sendEmailBatch(workers, (worker) => ({
+    subject: "Report portal is now closed",
+    html: base(`
         <h2 style="margin:0 0 16px;color:#1f2937;font-size:22px;">Portal Closed</h2>
         <p style="color:#374151;font-size:15px;line-height:1.6;">Dear ${worker.fullName}, the Yachal House report submission portal is now closed.</p>
         <p style="color:#374151;font-size:15px;line-height:1.6;">Saved drafts remain available, but reports not submitted before the deadline count against weekly qualification.</p>
@@ -181,16 +302,13 @@ export const sendPortalClosedEmail = async (workers, reason = "") => {
           <a href="${APP_URL}/portal/my-reports" style="background:#111827;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">View My Reports</a>
         </div>
       `),
-    });
-  }
+  }));
 };
 
 export const sendPortalDeadlineReminderEmail = async (workers) => {
-  for (const worker of workers) {
-    await send({
-      to: worker.email,
-      subject: "Reminder: report deadline is Monday 2:59pm",
-      html: base(`
+  return sendEmailBatch(workers, (worker) => ({
+    subject: "Reminder: report deadline is Monday 2:59pm",
+    html: base(`
         <h2 style="margin:0 0 16px;color:#1f2937;font-size:22px;">Submission Deadline Reminder</h2>
         <p style="color:#374151;font-size:15px;line-height:1.6;">Dear ${worker.fullName}, the report portal closes today at <strong>Monday 2:59pm Ghana time</strong>.</p>
         <p style="color:#374151;font-size:15px;line-height:1.6;">If your report is not submitted before the deadline, it will count against your qualification for the week.</p>
@@ -198,8 +316,7 @@ export const sendPortalDeadlineReminderEmail = async (workers) => {
           <a href="${APP_URL}/portal/submit-report" style="background:#dc2626;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">Submit Report</a>
         </div>
       `),
-    });
-  }
+  }));
 };
 
 export const sendQualificationResultsEmail = async (recipients, qualifiedList, disqualifiedList) => {
@@ -231,9 +348,10 @@ export const sendQualificationResultsEmail = async (recipients, qualifiedList, d
     </div>
   `);
 
-  for (const r of recipients) {
-    await send({ to: r.email, subject: "Weekly Qualification Results", html });
-  }
+  return sendEmailBatch(recipients, () => ({
+    subject: "Weekly Qualification Results",
+    html,
+  }));
 };
 
 export const sendNoFrontDeskLoggingAlertEmail = async (recipients, weekReference) => {
@@ -246,8 +364,8 @@ export const sendNoFrontDeskLoggingAlertEmail = async (recipients, weekReference
 
   const html = base(`
     <h2 style="margin:0 0 12px;color:#1f2937;font-size:22px;">No Front Desk Logging Recorded</h2>
-    <p style="color:#374151;font-size:15px;line-height:1.6;">No front desk worker logging was recorded for the reporting week that closed on <strong>${weekLabel}</strong>.</p>
-    <p style="color:#374151;font-size:15px;line-height:1.6;">This means workers had to enter their own service reporting time inside the evangelism and follow-up report. Attendance for that week should be treated as incomplete and not fully accurate.</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;">No attendance data was received or supervised by the worker on front desk duty for the reporting week that closed on <strong>${weekLabel}</strong>.</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;">Workers had to enter their own service reporting time inside the evangelism and follow-up report. Attendance for that week should be treated as incomplete and not fully accurate.</p>
     <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:16px;margin:24px 0;">
       <p style="margin:0;color:#9a3412;font-size:14px;font-weight:600;">Follow-up note</p>
       <p style="margin:8px 0 0;color:#7c2d12;font-size:14px;line-height:1.6;">If no worker was assigned to front desk, or the front desk team did not use the login system throughout the week, qualification review and roster preparation should be checked with that limitation in mind.</p>
@@ -258,13 +376,160 @@ export const sendNoFrontDeskLoggingAlertEmail = async (recipients, weekReference
     </div>
   `);
 
-  for (const recipient of recipients) {
-    await send({
-      to: recipient.email,
-      subject: "No Front Desk Logging Recorded This Week",
-      html,
-    });
-  }
+  return sendEmailBatch(recipients, () => ({
+    subject: "No Front Desk Logging Recorded This Week",
+    html,
+  }));
+};
+
+export const sendWeeklyFrontDeskSummaryEmail = async (recipients, weeklySummary = {}) => {
+  const sessions = Array.isArray(weeklySummary.sessions) ? weeklySummary.sessions : [];
+  const hasUsableLogging = !!weeklySummary.hasUsableLogging;
+  const opensAtLabel = weeklySummary.opensAt
+    ? new Date(weeklySummary.opensAt).toLocaleString("en-GH", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+  const closesAtLabel = weeklySummary.closesAt
+    ? new Date(weeklySummary.closesAt).toLocaleString("en-GH", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+
+  const sessionRows = sessions
+    .map((session, index) => {
+      const serviceLabel = escapeHtml(formatFrontDeskSessionLabel(session));
+      const dateLabel = session.serviceDate
+        ? new Date(session.serviceDate).toLocaleString("en-GH", {
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "Unknown date";
+
+      let statusLabel = "Closed manually";
+      if (session.isOpen) {
+        statusLabel = "Still open at weekly close";
+      } else if (session.closedBy === "auto") {
+        statusLabel = "Auto-closed after inactivity";
+      } else if (session.closedBy === "force") {
+        statusLabel = "Force closed";
+      }
+
+      const supervisorLabel = session.supervisorWorkerId
+        ? `${session.supervisorName} (${session.supervisorWorkerId})`
+        : session.supervisorName || "Unassigned";
+      const loggingNote =
+        session.workerCheckIns > 0
+          ? `${session.workerCheckIns} worker check-in(s) recorded`
+          : "No worker attendance data captured";
+
+      return `
+        <tr style="background:${index % 2 === 0 ? "#ffffff" : "#f9fafb"};">
+          <td style="padding:8px 10px;font-size:13px;color:#374151;">${index + 1}</td>
+          <td style="padding:8px 10px;font-size:13px;color:#111827;font-weight:600;">${serviceLabel}</td>
+          <td style="padding:8px 10px;font-size:13px;color:#4b5563;">${dateLabel}</td>
+          <td style="padding:8px 10px;font-size:13px;color:#4b5563;">${escapeHtml(supervisorLabel)}</td>
+          <td style="padding:8px 10px;font-size:13px;color:#111827;font-weight:600;">${session.totalCheckedIn || 0}</td>
+          <td style="padding:8px 10px;font-size:13px;color:#111827;">${session.late || 0}</td>
+          <td style="padding:8px 10px;font-size:12px;color:${session.workerCheckIns > 0 ? "#065f46" : "#991b1b"};">${loggingNote}</td>
+          <td style="padding:8px 10px;font-size:12px;color:#6b7280;">${statusLabel}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  const intro = hasUsableLogging
+    ? `<p style="color:#374151;font-size:15px;line-height:1.6;">Front desk attendance has been grouped for the completed system week. ${weeklySummary.workerCheckIns || 0} worker check-in(s) were recorded across ${weeklySummary.sessionCount || 0} service session(s).</p>`
+    : `<p style="color:#374151;font-size:15px;line-height:1.6;">No attendance data was received or supervised by the worker on front desk duty during this completed system week.</p>`;
+
+  const noDataPanel = !hasUsableLogging
+    ? `
+      <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:16px;margin:20px 0;">
+        <p style="margin:0;color:#9a3412;font-size:14px;font-weight:700;">Attendance warning</p>
+        <p style="margin:8px 0 0;color:#7c2d12;font-size:14px;line-height:1.6;">${
+          sessions.length > 0
+            ? `Front desk was opened for ${sessions.length} service session(s), but no usable worker attendance records were captured through the login system.`
+            : "No front desk session was opened for this system week."
+        }</p>
+        <p style="margin:8px 0 0;color:#7c2d12;font-size:14px;line-height:1.6;">Qualification review and roster preparation should be checked with that limitation in mind.</p>
+      </div>
+    `
+    : "";
+
+  const html = base(`
+    <h2 style="margin:0 0 8px;color:#1f2937;font-size:22px;">${
+      hasUsableLogging
+        ? "Weekly Front Desk Attendance Summary"
+        : "No Front Desk Attendance Data Received"
+    }</h2>
+    <p style="color:#6b7280;font-size:14px;margin:0 0 20px;">System week: <strong>${opensAtLabel}</strong> to <strong>${closesAtLabel}</strong></p>
+    ${intro}
+
+    <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:18px;margin:24px 0;">
+      <table width="100%" cellpadding="6" cellspacing="0">
+        <tr>
+          <td style="font-size:13px;color:#6b7280;width:180px;">Front desk sessions</td>
+          <td style="font-size:16px;font-weight:700;color:#111827;">${weeklySummary.sessionCount || 0}</td>
+        </tr>
+        <tr>
+          <td style="font-size:13px;color:#6b7280;">Worker check-ins recorded</td>
+          <td style="font-size:16px;font-weight:700;color:${hasUsableLogging ? "#065f46" : "#991b1b"};">${weeklySummary.workerCheckIns || 0}</td>
+        </tr>
+        <tr>
+          <td style="font-size:13px;color:#6b7280;">Total attendance rows</td>
+          <td style="font-size:16px;font-weight:700;color:#111827;">${weeklySummary.totalCheckedIn || 0}</td>
+        </tr>
+      </table>
+    </div>
+
+    ${noDataPanel}
+
+    ${
+      sessions.length > 0
+        ? `
+      <h3 style="font-size:16px;color:#1f2937;margin:0 0 12px;">Service-by-service summary</h3>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin-bottom:24px;">
+        <tr style="background:#f3f4f6;">
+          <th style="padding:8px 10px;text-align:left;font-size:12px;color:#6b7280;">#</th>
+          <th style="padding:8px 10px;text-align:left;font-size:12px;color:#6b7280;">Service</th>
+          <th style="padding:8px 10px;text-align:left;font-size:12px;color:#6b7280;">Date</th>
+          <th style="padding:8px 10px;text-align:left;font-size:12px;color:#6b7280;">Supervisor</th>
+          <th style="padding:8px 10px;text-align:left;font-size:12px;color:#6b7280;">Total</th>
+          <th style="padding:8px 10px;text-align:left;font-size:12px;color:#6b7280;">Late</th>
+          <th style="padding:8px 10px;text-align:left;font-size:12px;color:#6b7280;">Logging</th>
+          <th style="padding:8px 10px;text-align:left;font-size:12px;color:#6b7280;">Status</th>
+        </tr>
+        ${sessionRows}
+      </table>
+    `
+        : ""
+    }
+
+    <div style="text-align:center;margin:24px 0 0;">
+      <a href="${APP_URL}/admin/attendance" style="background:#4c1d95;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block;margin:0 6px 12px;">View Attendance</a>
+      <a href="${APP_URL}/admin/qualification" style="background:#111827;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block;margin:0 6px 12px;">View Qualification</a>
+    </div>
+  `);
+
+  return sendEmailBatch(recipients, () => ({
+    subject: hasUsableLogging
+      ? "Weekly Front Desk Attendance Summary"
+      : "No Front Desk Attendance Data Received This Week",
+    html,
+  }));
 };
 
 export const sendGenericNotificationEmail = async (
@@ -277,20 +542,17 @@ export const sendGenericNotificationEmail = async (
     linkLabel = "Open System",
   } = {}
 ) => {
-  const recipientList = Array.isArray(recipients) ? recipients : [recipients];
+  const recipientList = normalizeEmailRecipients(recipients);
   const safeSubject = escapeHtml(subject || title || "Yachal House Notification");
   const safeTitle = escapeHtml(title || subject || "Notification");
   const safeMessage = escapeHtml(message || "You have a new notification in Yachal House.");
   const safeLinkLabel = escapeHtml(linkLabel || "Open System");
   const resolvedLink = resolveAppLink(link);
 
-  for (const recipient of recipientList) {
-    if (!recipient?.email) continue;
-
+  return sendEmailBatch(recipientList, (recipient) => {
     const safeName = escapeHtml(recipient.fullName || "Worker");
 
-    await send({
-      to: recipient.email,
+    return {
       subject: safeSubject,
       html: base(`
         <h2 style="margin:0 0 16px;color:#1f2937;font-size:22px;">${safeTitle}</h2>
@@ -300,8 +562,8 @@ export const sendGenericNotificationEmail = async (
           <a href="${resolvedLink}" style="background:#4c1d95;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">${safeLinkLabel}</a>
         </div>
       `),
-    });
-  }
+    };
+  });
 };
 
 export const sendRosterPublishedEmail = async (
@@ -372,11 +634,9 @@ export const sendRosterPublishedEmail = async (
 };
 
 export const sendPasswordResetRequestEmail = async (admins, worker) => {
-  for (const admin of admins) {
-    await send({
-      to: admin.email,
-      subject: `Password reset request from ${worker.fullName}`,
-      html: base(`
+  return sendEmailBatch(admins, () => ({
+    subject: `Password reset request from ${worker.fullName}`,
+    html: base(`
         <h2 style="margin:0 0 16px;color:#1f2937;font-size:22px;">Password Reset Request</h2>
         <p style="color:#374151;font-size:15px;line-height:1.6;">The following worker has requested a password reset:</p>
         <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:16px;margin:20px 0;">
@@ -389,12 +649,12 @@ export const sendPasswordResetRequestEmail = async (admins, worker) => {
           <a href="${APP_URL}/admin/workers" style="background:#4c1d95;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">Go to Workers</a>
         </div>
       `),
-    });
-  }
+  }));
 };
 
 export const sendFrontDeskReportEmail = async (recipients, session, stats, attendance, isAuto = false) => {
-  const serviceLabel = session.serviceType.charAt(0).toUpperCase() + session.serviceType.slice(1);
+  const serviceLabel = formatFrontDeskSessionLabel(session);
+  const safeServiceLabel = escapeHtml(serviceLabel);
   const dateStr = new Date(session.serviceDate).toLocaleDateString("en-GH", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const startTime = new Date(session.serviceStartTime).toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit" });
   const closedTime = session.closedAt ? new Date(session.closedAt).toLocaleTimeString("en-GH", { hour: "2-digit", minute: "2-digit" }) : "N/A";
@@ -431,7 +691,7 @@ export const sendFrontDeskReportEmail = async (recipients, session, stats, atten
 
   const html = base(`
     <h2 style="margin:0 0 4px;color:#1f2937;font-size:22px;">Front Desk Report</h2>
-    <p style="color:#6b7280;font-size:14px;margin:0 0 24px;">${serviceLabel} Service - ${dateStr}${isAuto ? " (Auto-closed after 4 hours)" : ""}</p>
+    <p style="color:#6b7280;font-size:14px;margin:0 0 24px;">${safeServiceLabel} - ${dateStr}${isAuto ? " (Auto-closed after 4 hours of inactivity)" : ""}</p>
 
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
       <tr>
@@ -482,7 +742,8 @@ export const sendFrontDeskReportEmail = async (recipients, session, stats, atten
     </div>
   `);
 
-  for (const r of recipients) {
-    await send({ to: r.email, subject: `Front Desk Report - ${serviceLabel} Service, ${dateStr}`, html });
-  }
+  return sendEmailBatch(recipients, () => ({
+    subject: `Front Desk Report - ${serviceLabel}, ${dateStr}`,
+    html,
+  }));
 };

@@ -15,7 +15,9 @@ const REPORT_IDENTITY_INDEX = {
 
 export const ensureReportIndexes = async () => {
   try {
-    const reports = await Report.find({}).sort({ updatedAt: -1, createdAt: -1 });
+    const reports = await Report.find({})
+      .lean()
+      .sort({ updatedAt: -1, createdAt: -1 });
     const grouped = new Map();
 
     reports.forEach((report) => {

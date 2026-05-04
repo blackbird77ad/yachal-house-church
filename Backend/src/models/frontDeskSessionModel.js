@@ -5,7 +5,8 @@ const frontDeskSessionSchema = new mongoose.Schema({
   specialServiceName: { type: String, trim: true },
   serviceDate:        { type: Date, required: true },
   serviceStartTime:   { type: Date, required: true },
-  autoCloseTime:      { type: Date, required: true }, // serviceStartTime + 4 hours
+  autoCloseTime:      { type: Date, required: true }, // last activity + 4 hours
+  lastActivityAt:     { type: Date, required: true },
 
   // Supervisors
   primarySupervisor:  { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -30,6 +31,16 @@ const frontDeskSessionSchema = new mongoose.Schema({
     early0to15:       { type: Number, default: 0 }, // 0-15 mins before
     late:             { type: Number, default: 0 }, // after service start
     onDuty:           { type: Number, default: 0 },
+  },
+
+  reportDispatch: {
+    notificationSentAt: { type: Date },
+    emailSentAt: { type: Date },
+    pushSentAt: { type: Date },
+    emailAttempts: { type: Number, default: 0 },
+    lastAttemptAt: { type: Date },
+    lastEmailError: { type: String, trim: true },
+    emailDeliveredTo: [{ type: String, trim: true, lowercase: true }],
   },
 }, { timestamps: true });
 

@@ -17,6 +17,53 @@ const portalWindowSchema = new mongoose.Schema(
     processedAt: { type: Date },
 
     isProcessed: { type: Boolean, default: false },
+
+    processingStartedAt: { type: Date },
+
+    communicationAudit: {
+      portalClosed: {
+        inAppSentAt: { type: Date },
+        emailSentAt: { type: Date },
+        pushSentAt: { type: Date },
+        emailAttempts: { type: Number, default: 0 },
+        lastAttemptAt: { type: Date },
+        lastEmailError: { type: String, trim: true },
+        emailDeliveredTo: [{ type: String, trim: true, lowercase: true }],
+      },
+      qualificationResults: {
+        inAppSentAt: { type: Date },
+        emailSentAt: { type: Date },
+        pushSentAt: { type: Date },
+        emailAttempts: { type: Number, default: 0 },
+        lastAttemptAt: { type: Date },
+        lastEmailError: { type: String, trim: true },
+        emailDeliveredTo: [{ type: String, trim: true, lowercase: true }],
+        qualifiedCount: { type: Number, default: 0 },
+        disqualifiedCount: { type: Number, default: 0 },
+      },
+      frontDeskWeeklySummary: {
+        inAppSentAt: { type: Date },
+        emailSentAt: { type: Date },
+        pushSentAt: { type: Date },
+        emailAttempts: { type: Number, default: 0 },
+        lastAttemptAt: { type: Date },
+        lastEmailError: { type: String, trim: true },
+        emailDeliveredTo: [{ type: String, trim: true, lowercase: true }],
+        sessionCount: { type: Number, default: 0 },
+        workerCheckIns: { type: Number, default: 0 },
+        hasUsableLogging: { type: Boolean, default: false },
+      },
+      noFrontDeskLogging: {
+        required: { type: Boolean, default: false },
+        inAppSentAt: { type: Date },
+        emailSentAt: { type: Date },
+        pushSentAt: { type: Date },
+        emailAttempts: { type: Number, default: 0 },
+        lastAttemptAt: { type: Date },
+        lastEmailError: { type: String, trim: true },
+        emailDeliveredTo: [{ type: String, trim: true, lowercase: true }],
+      },
+    },
   },
   { timestamps: true }
 );
