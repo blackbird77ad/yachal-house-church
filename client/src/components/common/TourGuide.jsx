@@ -81,7 +81,7 @@ const ADMIN_STEPS = [
   },
   {
     title: "Qualification",
-    body: "Click Calculate Now to process metrics from submitted reports. Results update live as reports come in. On Monday 2:59pm results are finalised, emailed and you receive a push notification.",
+    body: "Click Calculate Now to process metrics from submitted reports. Results update live as reports come in. On Monday 2:59pm results are finalised, emailed, and posted in your system notifications.",
     icon: "🏆",
     position: "center",
   },

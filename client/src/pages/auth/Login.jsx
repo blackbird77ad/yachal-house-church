@@ -52,7 +52,9 @@ const Login = () => {
       );
     } catch (err) {
       if (!err.response) {
-        setError("Could not reach the server. Please check that the backend is running.");
+        setError(
+          "Could not reach the server right now. Check your internet connection and try again."
+        );
       } else if (err.response.status >= 500) {
         setError("The server hit an error while signing you in. Please try again.");
       } else {
@@ -75,7 +77,9 @@ const Login = () => {
       setForgotSent(true);
     } catch (err) {
       if (!err.response) {
-        setForgotError("Could not reach the server. Please check that the backend is running.");
+        setForgotError(
+          "Could not reach the server right now. Check your internet connection and try again."
+        );
       } else {
         setForgotError(err.response?.data?.message || "Could not send request.");
       }

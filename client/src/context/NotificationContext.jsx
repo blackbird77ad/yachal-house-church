@@ -53,6 +53,28 @@ export const NotificationProvider = ({ children }) => {
     return "info";
   }, []);
 
+  const buildPopupToastEntries = useCallback(
+    (notificationsToShow, existingToastIds = new Set()) => {
+      const nextToasts = [];
+
+      notificationsToShow.slice(0, 3).forEach((notification) => {
+        const toastId = `notification-${notification._id}`;
+        if (existingToastIds.has(toastId)) return;
+
+        nextToasts.push({
+          id: toastId,
+          type: getToastType(notification.type),
+          title: notification.title,
+          message: notification.message,
+          duration: 6000,
+        });
+      });
+
+      return nextToasts;
+    },
+    [getToastType]
+  );
+
   const fetchNotifications = useCallback(async () => {
     if (!user) return;
 
@@ -77,25 +99,32 @@ export const NotificationProvider = ({ children }) => {
         if (newUnreadNotifications.length > 0) {
           setPopupToasts((prev) => {
             const existingIds = new Set(prev.map((toast) => toast.id));
-            const nextToasts = [...prev];
-
-            newUnreadNotifications.slice(0, 3).forEach((notification) => {
-              const toastId = `notification-${notification._id}`;
-              if (existingIds.has(toastId)) return;
-
-              nextToasts.push({
-                id: toastId,
-                type: getToastType(notification.type),
-                title: notification.title,
-                message: notification.message,
-                duration: 6000,
-              });
-            });
-
-            return nextToasts;
+            return [
+              ...prev,
+              ...buildPopupToastEntries(newUnreadNotifications, existingIds),
+            ];
           });
         }
       } else {
+        const recentUnreadNotifications = nextNotifications.filter((notification) => {
+          if (notification.isRead) return false;
+
+          const createdAtMs = new Date(notification.createdAt).getTime();
+          if (!createdAtMs) return false;
+
+          return Date.now() - createdAtMs <= 72 * 60 * 60 * 1000;
+        });
+
+        if (recentUnreadNotifications.length > 0) {
+          setPopupToasts((prev) => {
+            const existingIds = new Set(prev.map((toast) => toast.id));
+            return [
+              ...prev,
+              ...buildPopupToastEntries(recentUnreadNotifications, existingIds),
+            ];
+          });
+        }
+
         initializedRef.current = true;
       }
 
@@ -110,7 +139,7 @@ export const NotificationProvider = ({ children }) => {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [getToastType, user]);
+  }, [buildPopupToastEntries, user]);
 
   const markAsRead = useCallback(async (notificationId) => {
     try {

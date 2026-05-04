@@ -16,7 +16,6 @@ import { getMyReports } from "../../services/reportService";
 import Loader from "../../components/common/Loader";
 import { formatDateTime, getWeekLabel, getWeekReference } from "../../utils/formatDate";
 import { REPORT_TYPES } from "../../utils/constants";
-import PushPrompt from "../../components/common/PushPrompt";
 import { cn } from "../../utils/scoreHelpers";
 
 const WorkerDashboard = () => {
@@ -164,9 +163,6 @@ const WorkerDashboard = () => {
           </div>
         </Link>
       </div>
-
-      <PushPrompt />
-
       <div
         className={cn(
           "rounded-xl border px-5 py-4 flex items-center gap-3",

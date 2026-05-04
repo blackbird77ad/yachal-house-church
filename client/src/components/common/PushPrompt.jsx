@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Bell, X } from "lucide-react";
 import { usePushNotifications } from "../../hooks/usePushNotifications";
+import { useAuth } from "../../hooks/useAuth";
 
 const PushPrompt = () => {
+  const { user } = useAuth();
   const { permission, subscribed, subscribe } = usePushNotifications();
   const [dismissed, setDismissed] = useState(
     () => localStorage.getItem("push_prompt_dismissed") === "true"
@@ -11,7 +13,7 @@ const PushPrompt = () => {
   const [done, setDone] = useState(false);
 
   // Don't show if already subscribed, denied, or dismissed
-  if (subscribed || permission === "denied" || dismissed || done) return null;
+  if (!user || subscribed || permission === "denied" || dismissed || done) return null;
 
   const handleEnable = async () => {
     setLoading(true);
