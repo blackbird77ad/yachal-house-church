@@ -1,15 +1,73 @@
 import axios from "axios";
 
-const resolveApiBaseUrl = () => {
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
+const isPrivateIpv4Hostname = (hostname = "") => {
+  const match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!match) return false;
+
+  const [first, second] = match.slice(1, 3).map(Number);
+
+  if (first === 10) return true;
+  if (first === 127) return true;
+  if (first === 192 && second === 168) return true;
+  if (first === 172 && second >= 16 && second <= 31) return true;
+
+  return false;
+};
+
+const isLocalHostname = (hostname = "") => {
+  const normalized = hostname.trim().toLowerCase();
+  if (!normalized) return false;
+
+  if (normalized === "localhost" || normalized === "::1") {
+    return true;
+  }
+
+  if (normalized.endsWith(".local")) {
+    return true;
+  }
+
+  if (isPrivateIpv4Hostname(normalized)) {
+    return true;
+  }
+
+  // Hostnames without dots are typically machine names on a local network.
+  if (!normalized.includes(".")) {
+    return true;
+  }
+
+  return false;
+};
+
+const getLocalApiBaseUrl = () => {
+  if (import.meta.env.VITE_LOCAL_API_URL) {
+    return import.meta.env.VITE_LOCAL_API_URL;
   }
 
   if (typeof window !== "undefined") {
     const { hostname } = window.location;
-    if (hostname === "localhost" || hostname === "127.0.0.1") {
-      return "http://localhost:5000/api";
+    const localPort = import.meta.env.VITE_LOCAL_API_PORT || "5000";
+
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
+      return `http://localhost:${localPort}/api`;
     }
+
+    return `http://${hostname}:${localPort}/api`;
+  }
+
+  return "http://localhost:5000/api";
+};
+
+const resolveApiBaseUrl = () => {
+  if (typeof window !== "undefined") {
+    const { hostname } = window.location;
+
+    if (isLocalHostname(hostname)) {
+      return getLocalApiBaseUrl();
+    }
+  }
+
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
   }
 
   return "https://yachal-house-church.onrender.com/api";
