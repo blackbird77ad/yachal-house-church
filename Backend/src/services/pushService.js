@@ -1,5 +1,6 @@
 import webpush from "web-push";
 import PushSubscription from "../models/pushSubscriptionModel.js";
+import User from "../models/userModel.js";
 import { env } from "../config/env.js";
 
 // Only init VAPID if keys are set - prevents crash if not configured yet
@@ -53,7 +54,22 @@ export const sendPushToUser = async (userId, { title, body, icon, url }) => {
 };
 
 export const sendPushToMany = async (userIds, payload) => {
-  await Promise.allSettled(userIds.map((id) => sendPushToUser(id, payload)));
+  const uniqueIds = [...new Set((userIds || []).map((id) => String(id)))];
+  if (!uniqueIds.length) return;
+
+  const pushEnabledUsers = await User.find({
+    _id: { $in: uniqueIds },
+    $or: [
+      { "notificationPreferences.push": { $exists: false } },
+      { "notificationPreferences.push": { $ne: false } },
+    ],
+  })
+    .select("_id")
+    .lean();
+
+  await Promise.allSettled(
+    pushEnabledUsers.map((user) => sendPushToUser(user._id, payload))
+  );
 };
 
 export const saveSubscription = async (userId, subscription, userAgent) => {
@@ -62,6 +78,9 @@ export const saveSubscription = async (userId, subscription, userAgent) => {
     { user: userId, ...subscription, userAgent },
     { upsert: true, new: true }
   );
+  await User.findByIdAndUpdate(userId, {
+    $set: { "notificationPreferences.push": true },
+  }).catch(() => {});
 };
 
 export const removeSubscription = async (endpoint) => {

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useCallback } from "react";
+﻿import { useState, useEffect, useRef } from "react";
 import {
   Maximize2, Minimize2, UserCheck, CheckCircle,
   Search, LogOut, Shield, RefreshCw, Download, Plus,
@@ -15,8 +15,6 @@ const TIMING_LABELS = {
   "early-0to15":  { label: "0-15 min early",  cls: "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200" },
   "late":         { label: "Late",             cls: "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border-red-200" },
 };
-
-const INACTIVITY_MS = 3 * 60 * 60 * 1000;
 
 const FrontDesk = () => {
   const { user } = useAuth();
@@ -57,8 +55,7 @@ const FrontDesk = () => {
   const [checkingIn, setCheckingIn] = useState(false);
   const [lastCheckIn, setLastCheckIn] = useState(null);
   const inputRef = useRef(null);
-  const inactivityRef = useRef(null);
-  const sessionRef = useRef(null); // keep session in ref for inactivity callback
+  const sessionRef = useRef(null);
 
   // ── Clock ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -68,47 +65,6 @@ const FrontDesk = () => {
 
   // ── Keep sessionRef in sync ────────────────────────────────────────────
   useEffect(() => { sessionRef.current = session; }, [session]);
-
-  // ── Auto-close handler (uses ref to avoid stale closure) ──────────────
-  const doAutoClose = useCallback(async () => {
-    const s = sessionRef.current;
-    if (!s) return;
-    try {
-      await axiosInstance.put(`/attendance/close/${s._id}`, {
-        force: false, closeReason: "auto-inactivity",
-      });
-    } catch {}
-    setSession(null);
-    setAttendance([]);
-    setStats(null);
-    setDutyWorkers([]);
-    setLastCheckIn(null);
-    setStep("auth-self");
-    toast.warning("Session closed", "Front desk closed due to 3 hours of inactivity.");
-  }, []);
-
-  // ── Inactivity timer ───────────────────────────────────────────────────
-  const resetInactivity = useCallback(() => {
-    if (inactivityRef.current) clearTimeout(inactivityRef.current);
-    inactivityRef.current = setTimeout(doAutoClose, INACTIVITY_MS);
-  }, [doAutoClose]);
-
-  useEffect(() => {
-    if (step !== "active") {
-      if (inactivityRef.current) clearTimeout(inactivityRef.current);
-      return;
-    }
-    window.addEventListener("mousemove", resetInactivity);
-    window.addEventListener("keydown", resetInactivity);
-    window.addEventListener("touchstart", resetInactivity);
-    resetInactivity(); // start timer immediately
-    return () => {
-      window.removeEventListener("mousemove", resetInactivity);
-      window.removeEventListener("keydown", resetInactivity);
-      window.removeEventListener("touchstart", resetInactivity);
-      if (inactivityRef.current) clearTimeout(inactivityRef.current);
-    };
-  }, [step, resetInactivity]);
 
   // ── On mount: check active session ────────────────────────────────────
   useEffect(() => { checkSession(); }, []);
@@ -409,11 +365,22 @@ const FrontDesk = () => {
         </div>
         <div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-1">Front Desk Duty</h2>
-          <p className="text-sm text-gray-500 dark:text-slate-400">Confirm you are opening the front desk for today's service.</p>
+          <p className="text-sm text-gray-500 dark:text-slate-400">
+            Use this only if you are assigned to front desk duty or officially covering for the assigned worker.
+          </p>
         </div>
         <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-4">
           <p className="font-bold text-purple-700 dark:text-purple-300">{user?.fullName}</p>
           <p className="text-xs text-purple-500 mt-0.5">Worker ID: {user?.workerId}</p>
+        </div>
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 text-left space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">How it works</p>
+          <p className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed">
+            This front desk is for church workers attendance logging during service.
+          </p>
+          <p className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed">
+            Once opened, it stays active as long as workers keep logging in. It closes only after 4 hours with no front desk logging activity, then the attendance result is sent to admins.
+          </p>
         </div>
         {selfWorker?.isDeputy && (
           <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 text-left">
@@ -537,6 +504,18 @@ const FrontDesk = () => {
             {partnerWorker ? ` and ${partnerWorker.fullName}` : ""}
           </p>
         </div>
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Before you open</p>
+          <p className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed">
+            Set the correct service start time, then keep this page available for worker attendance logging throughout the service.
+          </p>
+          <p className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed">
+            Even if the service runs for many hours, the session stays open until there has been 4 full hours with no logging activity.
+          </p>
+          <p className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed">
+            The service start time is used for attendance timing. It does not force the session to close.
+          </p>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="form-label">Service Type</label>
@@ -561,7 +540,7 @@ const FrontDesk = () => {
           <label className="form-label">Service Start Time <span className="text-red-400">*</span></label>
           <input type="time" className="input-field" value={serviceStart} onChange={(e) => setServiceStart(e.target.value)} />
           <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">
-            Session auto-closes after 3 hours of inactivity if not manually closed.
+            The attendance report is sent after the front desk has had 4 hours with no worker check-in activity.
           </p>
         </div>
         <button onClick={handleCreateSession} disabled={creating || !serviceStart} className="btn-primary w-full py-3 flex items-center justify-center gap-2">

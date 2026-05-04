@@ -1,8 +1,14 @@
 // Backend/src/services/notificationService.js
 import Notification from "../models/notificationModel.js";
+import User from "../models/userModel.js";
 
 export const createNotification = async (userId, { type, title, message, link, senderId }) => {
   try {
+    const recipient = await User.findById(userId).select("notificationPreferences").lean();
+    if (!recipient || recipient.notificationPreferences?.inApp === false) {
+      return null;
+    }
+
     return await Notification.create({
       recipient: userId,
       sender: senderId || null,
@@ -23,8 +29,20 @@ export const createBulkNotification = async (
 ) => {
   try {
     if (!userIds || userIds.length === 0) return;
-    const docs = userIds.map((userId) => ({
-      recipient: userId,
+    const recipients = await User.find({
+      _id: { $in: userIds },
+      $or: [
+        { "notificationPreferences.inApp": { $exists: false } },
+        { "notificationPreferences.inApp": { $ne: false } },
+      ],
+    })
+      .select("_id")
+      .lean();
+
+    if (!recipients.length) return;
+
+    const docs = recipients.map(({ _id }) => ({
+      recipient: _id,
       sender: senderId || null,
       type: type || "general",
       title,

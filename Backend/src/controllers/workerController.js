@@ -1,6 +1,14 @@
 import User from "../models/userModel.js";
 import Metrics from "../models/metricsModel.js";
 
+const mergeNotificationPreferences = (existing = {}, incoming = {}) => ({
+  email: existing?.email !== false,
+  inApp: existing?.inApp !== false,
+  push: existing?.push !== false,
+  popup: existing?.popup !== false,
+  ...incoming,
+});
+
 export const getAllWorkers = async (req, res, next) => {
   try {
     const { status, department, role, isQualified, search, page = 1, limit = 15 } = req.query;
@@ -91,7 +99,12 @@ export const updateWorkerProfile = async (req, res, next) => {
     if (isRotating !== undefined) worker.isRotating = isRotating;
     if (additionalDepartments) worker.additionalDepartments = additionalDepartments;
     if (role && ["admin", "moderator", "worker"].includes(role)) worker.role = role;
-    if (notificationPreferences) worker.notificationPreferences = notificationPreferences;
+    if (notificationPreferences) {
+      worker.notificationPreferences = mergeNotificationPreferences(
+        worker.notificationPreferences,
+        notificationPreferences
+      );
+    }
 
     await worker.save();
 
@@ -132,11 +145,16 @@ export const getMyProfile = async (req, res, next) => {
 export const updateMyProfile = async (req, res, next) => {
   try {
     const { fullName, phone, notificationPreferences } = req.body;
-    const worker = await User.findById(req.user._id);
+    const worker = await User.findById(req.user._id).select("-password");
 
     if (fullName) worker.fullName = fullName;
     if (phone) worker.phone = phone;
-    if (notificationPreferences) worker.notificationPreferences = notificationPreferences;
+    if (notificationPreferences) {
+      worker.notificationPreferences = mergeNotificationPreferences(
+        worker.notificationPreferences,
+        notificationPreferences
+      );
+    }
 
     await worker.save();
 

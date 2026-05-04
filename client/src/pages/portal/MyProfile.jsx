@@ -2,13 +2,30 @@
 import { useAuth } from "../../hooks/useAuth";
 import { getMyProfile, updateMyProfile } from "../../services/workerService";
 import { changePassword } from "../../services/authService";
+import { usePushNotifications } from "../../hooks/usePushNotifications";
 import Loader from "../../components/common/Loader";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import { formatDate } from "../../utils/formatDate";
-import { User, Lock, Eye, EyeOff, Edit2, Save, X } from "lucide-react";
+import { User, Lock, Eye, EyeOff, Edit2, Save, X, Bell, Smartphone } from "lucide-react";
+
+const getNotificationPreferences = (preferences = {}) => {
+  const normalized = {
+    inApp: preferences?.inApp !== false,
+    popup: preferences?.popup !== false,
+    push: preferences?.push !== false,
+  };
+
+  if (!normalized.inApp) {
+    normalized.popup = false;
+  }
+
+  return normalized;
+};
 
 const MyProfile = () => {
   const { user, updateUser } = useAuth();
+  const { browserSupported, permission, subscribed, subscribe, unsubscribe } =
+    usePushNotifications();
   const { toasts, toast, removeToast } = useToast();
 
   const [profile, setProfile] = useState(null);
@@ -27,6 +44,7 @@ const MyProfile = () => {
   const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
   const [pwLoading, setPwLoading] = useState(false);
+  const [prefSaving, setPrefSaving] = useState("");
 
   useEffect(() => {
     getMyProfile()
@@ -40,6 +58,20 @@ const MyProfile = () => {
       .catch(() => toast.error("Error", "Could not load profile."))
       .finally(() => setLoading(false));
   }, [toast]);
+
+  const notificationPreferences = getNotificationPreferences(
+    profile?.notificationPreferences
+  );
+
+  const saveNotificationPreferences = async (nextPreferences, successMessage) => {
+    const { worker } = await updateMyProfile({
+      notificationPreferences: nextPreferences,
+    });
+
+    updateUser(worker);
+    setProfile(worker);
+    toast.success("Updated", successMessage);
+  };
 
   const handleCancelEdit = () => {
     setEditMode(false);
@@ -114,6 +146,84 @@ const MyProfile = () => {
     }
   };
 
+  const handlePreferenceToggle = async (key) => {
+    const currentPreferences = getNotificationPreferences(
+      profile?.notificationPreferences
+    );
+    let nextPreferences = {
+      ...currentPreferences,
+      [key]: !currentPreferences[key],
+    };
+
+    if (key === "inApp" && !nextPreferences.inApp) {
+      nextPreferences = { ...nextPreferences, popup: false };
+    }
+
+    if (key === "popup" && !currentPreferences.inApp && !currentPreferences.popup) {
+      toast.error("Turn on in-app first", "Enable in-app notifications before popup alerts.");
+      return;
+    }
+
+    setPrefSaving(key);
+
+    try {
+      if (key === "push") {
+        if (nextPreferences.push) {
+          if (!browserSupported) {
+            toast.error(
+              "Not supported",
+              "This browser does not support push notifications."
+            );
+            return;
+          }
+
+          if (permission === "denied") {
+            toast.error(
+              "Blocked by browser",
+              "Allow notifications in your browser settings, then try again."
+            );
+            return;
+          }
+
+          const enabled = subscribed || (await subscribe());
+          if (!enabled) {
+            toast.error(
+              "Not enabled",
+              "Push notifications were not enabled. Check your browser prompt and try again."
+            );
+            return;
+          }
+
+          localStorage.removeItem("push_prompt_dismissed");
+        } else {
+          await unsubscribe();
+        }
+      }
+
+      await saveNotificationPreferences(
+        nextPreferences,
+        key === "inApp"
+          ? nextPreferences.inApp
+            ? "In-app notifications are on."
+            : "In-app notifications are off."
+          : key === "popup"
+            ? nextPreferences.popup
+              ? "Popup alerts are on."
+              : "Popup alerts are off."
+            : nextPreferences.push
+              ? "Push notifications are on."
+              : "Push notifications are off."
+      );
+    } catch (err) {
+      toast.error(
+        "Error",
+        err.response?.data?.message || "Could not update notification settings."
+      );
+    } finally {
+      setPrefSaving("");
+    }
+  };
+
   if (loading) return <Loader text="Loading profile..." />;
 
   return (
@@ -122,7 +232,7 @@ const MyProfile = () => {
 
       <div>
         <h1 className="section-title">My Profile</h1>
-        <p className="section-subtitle">Manage your account details and password</p>
+        <p className="section-subtitle">Manage your account details, notifications, and password</p>
       </div>
 
       <div className="card p-6">
@@ -250,6 +360,101 @@ const MyProfile = () => {
             <p className="text-sm text-gray-900 dark:text-slate-100 py-2">
               {formatDate(profile?.createdAt)}
             </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="card p-6">
+        <h2 className="font-bold text-gray-900 dark:text-slate-100 flex items-center gap-2 mb-2">
+          <Bell className="w-4 h-4 text-purple-600" /> Notification Settings
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-slate-400 mb-6">
+          Choose how the system should reach you. Push notifications still need browser permission the first time you enable them.
+        </p>
+
+        <div className="space-y-4">
+          <div className="flex items-start justify-between gap-4 rounded-xl border border-gray-100 dark:border-slate-700 p-4">
+            <div className="min-w-0">
+              <p className="font-medium text-gray-900 dark:text-slate-100">
+                In-app notifications
+              </p>
+              <p className="text-sm text-gray-500 dark:text-slate-400">
+                Show new alerts in your notification bell inside the app.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handlePreferenceToggle("inApp")}
+              disabled={prefSaving === "inApp"}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                notificationPreferences.inApp
+                  ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800"
+                  : "bg-gray-50 text-gray-600 border-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+              }`}
+            >
+              {prefSaving === "inApp"
+                ? "Saving..."
+                : notificationPreferences.inApp
+                  ? "On"
+                  : "Off"}
+            </button>
+          </div>
+
+          <div className="flex items-start justify-between gap-4 rounded-xl border border-gray-100 dark:border-slate-700 p-4">
+            <div className="min-w-0">
+              <p className="font-medium text-gray-900 dark:text-slate-100">
+                Popup alerts
+              </p>
+              <p className="text-sm text-gray-500 dark:text-slate-400">
+                Show quick popup alerts on screen when new notifications arrive while you are signed in.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handlePreferenceToggle("popup")}
+              disabled={prefSaving === "popup" || !notificationPreferences.inApp}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                notificationPreferences.popup
+                  ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800"
+                  : "bg-gray-50 text-gray-600 border-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+              } ${!notificationPreferences.inApp ? "opacity-60 cursor-not-allowed" : ""}`}
+            >
+              {prefSaving === "popup"
+                ? "Saving..."
+                : notificationPreferences.popup
+                  ? "On"
+                  : "Off"}
+            </button>
+          </div>
+
+          <div className="flex items-start justify-between gap-4 rounded-xl border border-gray-100 dark:border-slate-700 p-4">
+            <div className="min-w-0">
+              <p className="font-medium text-gray-900 dark:text-slate-100 flex items-center gap-2">
+                <Smartphone className="w-4 h-4 text-purple-500" /> Push notifications
+              </p>
+              <p className="text-sm text-gray-500 dark:text-slate-400">
+                Send alerts to this browser even when the app is closed.
+              </p>
+              <p className="text-xs text-gray-400 dark:text-slate-500 mt-2">
+                Browser support: {browserSupported ? "Available" : "Not supported"} • Permission: {permission} • Subscription: {subscribed ? "Active" : "Inactive"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handlePreferenceToggle("push")}
+              disabled={prefSaving === "push"}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                notificationPreferences.push
+                  ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800"
+                  : "bg-gray-50 text-gray-600 border-gray-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+              }`}
+            >
+              {prefSaving === "push"
+                ? "Saving..."
+                : notificationPreferences.push
+                  ? "On"
+                  : "Off"}
+            </button>
           </div>
         </div>
       </div>

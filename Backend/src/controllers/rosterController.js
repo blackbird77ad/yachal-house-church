@@ -207,6 +207,7 @@ export const publishRoster = async (req, res, next) => {
     const inAppRecipients = recipients
       .filter((worker) => worker.notificationPreferences?.inApp !== false)
       .map((worker) => worker._id);
+    const pushRecipients = recipients.map((worker) => worker._id);
     const emailRecipients = recipients.filter(
       (worker) => worker.email && worker.notificationPreferences?.email !== false
     );
@@ -221,7 +222,7 @@ export const publishRoster = async (req, res, next) => {
       senderId: req.user._id,
     });
 
-    await sendPushToMany(inAppRecipients, {
+    await sendPushToMany(pushRecipients, {
       title: isRepublish ? "Roster updated" : "Roster published",
       body: isRepublish
         ? `${buildRosterHeadline(roster)} has changed. Check the roster page again.`

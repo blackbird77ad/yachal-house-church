@@ -107,6 +107,8 @@ const userSchema = new mongoose.Schema(
     notificationPreferences: {
       email: { type: Boolean, default: true },
       inApp: { type: Boolean, default: true },
+      push: { type: Boolean, default: true },
+      popup: { type: Boolean, default: true },
     },
 
     mustChangePassword: {

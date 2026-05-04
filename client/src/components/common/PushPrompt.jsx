@@ -5,7 +5,8 @@ import { useAuth } from "../../hooks/useAuth";
 
 const PushPrompt = () => {
   const { user } = useAuth();
-  const { permission, subscribed, subscribe } = usePushNotifications();
+  const pushEnabled = user?.notificationPreferences?.push !== false;
+  const { browserSupported, permission, subscribed, subscribe } = usePushNotifications();
   const [dismissed, setDismissed] = useState(
     () => localStorage.getItem("push_prompt_dismissed") === "true"
   );
@@ -13,7 +14,17 @@ const PushPrompt = () => {
   const [done, setDone] = useState(false);
 
   // Don't show if already subscribed, denied, or dismissed
-  if (!user || subscribed || permission === "denied" || dismissed || done) return null;
+  if (
+    !user ||
+    !pushEnabled ||
+    !browserSupported ||
+    subscribed ||
+    permission === "denied" ||
+    dismissed ||
+    done
+  ) {
+    return null;
+  }
 
   const handleEnable = async () => {
     setLoading(true);
@@ -37,7 +48,7 @@ const PushPrompt = () => {
           Enable push notifications
         </p>
         <p className="text-xs text-purple-700 dark:text-purple-400 mt-0.5 leading-relaxed">
-          Get notified when the portal opens, closes, and when your roster is published. Works even when the app is closed.
+          Get notified when the portal opens, closes, and when your roster is published. Works even when the app is closed, and you can turn it off later from My Profile.
         </p>
         <div className="flex gap-2 mt-3">
           <button

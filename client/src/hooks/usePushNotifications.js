@@ -2,6 +2,11 @@ import { useState, useEffect } from "react";
 import axiosInstance from "../utils/axiosInstance";
 
 export const usePushNotifications = () => {
+  const browserSupported =
+    typeof window !== "undefined" &&
+    "serviceWorker" in navigator &&
+    "PushManager" in window &&
+    typeof Notification !== "undefined";
   const [permission, setPermission] = useState(
     typeof Notification !== "undefined" ? Notification.permission : "default"
   );
@@ -16,7 +21,7 @@ export const usePushNotifications = () => {
 
   const subscribe = async () => {
     try {
-      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      if (!browserSupported) {
         return false;
       }
 
@@ -44,6 +49,11 @@ export const usePushNotifications = () => {
 
   const unsubscribe = async () => {
     try {
+      if (!browserSupported) {
+        setSubscribed(false);
+        return true;
+      }
+
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();
       if (subscription) {
@@ -51,19 +61,21 @@ export const usePushNotifications = () => {
         await subscription.unsubscribe();
       }
       setSubscribed(false);
+      return true;
     } catch (err) {
+      return false;
     }
   };
 
   // Check if already subscribed on mount
   useEffect(() => {
-    if (!("serviceWorker" in navigator)) return;
+    if (!browserSupported) return;
     navigator.serviceWorker.ready.then((reg) => {
       reg.pushManager.getSubscription().then((sub) => {
         setSubscribed(!!sub);
       });
     });
-  }, []);
+  }, [browserSupported]);
 
-  return { permission, subscribed, subscribe, unsubscribe };
+  return { browserSupported, permission, subscribed, subscribe, unsubscribe };
 };

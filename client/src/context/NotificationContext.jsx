@@ -7,6 +7,9 @@ const NotificationContext = createContext(null);
 
 export const NotificationProvider = ({ children }) => {
   const { user } = useAuth();
+  const popupEnabled =
+    user?.notificationPreferences?.popup !== false &&
+    user?.notificationPreferences?.inApp !== false;
 
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -24,6 +27,12 @@ export const NotificationProvider = ({ children }) => {
       mountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!popupEnabled && mountedRef.current) {
+      setPopupToasts([]);
+    }
+  }, [popupEnabled]);
 
   const clearNotificationState = useCallback(() => {
     if (!mountedRef.current) return;
@@ -96,7 +105,7 @@ export const NotificationProvider = ({ children }) => {
           (notification) => !notification.isRead && !knownIds.has(notification._id)
         );
 
-        if (newUnreadNotifications.length > 0) {
+        if (popupEnabled && newUnreadNotifications.length > 0) {
           setPopupToasts((prev) => {
             const existingIds = new Set(prev.map((toast) => toast.id));
             return [
@@ -115,7 +124,7 @@ export const NotificationProvider = ({ children }) => {
           return Date.now() - createdAtMs <= 72 * 60 * 60 * 1000;
         });
 
-        if (recentUnreadNotifications.length > 0) {
+        if (popupEnabled && recentUnreadNotifications.length > 0) {
           setPopupToasts((prev) => {
             const existingIds = new Set(prev.map((toast) => toast.id));
             return [
@@ -139,7 +148,7 @@ export const NotificationProvider = ({ children }) => {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [buildPopupToastEntries, user]);
+  }, [buildPopupToastEntries, popupEnabled, user]);
 
   const markAsRead = useCallback(async (notificationId) => {
     try {
