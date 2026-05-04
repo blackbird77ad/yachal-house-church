@@ -41,11 +41,92 @@ const allowedOrigins = [
   ...(env.clientUrl ? [env.clientUrl] : []),
 ];
 
+const isAllowedCloudflarePagesHostname = (hostname = "") => {
+  const normalized = hostname.trim().toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized === "yachal-house-church.pages.dev" ||
+    normalized.endsWith(".yachal-house-church.pages.dev")
+  );
+};
+
+const isPrivateIpv4Hostname = (hostname = "") => {
+  const match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!match) return false;
+
+  const [first, second] = match.slice(1, 3).map(Number);
+
+  if (first === 10) return true;
+  if (first === 127) return true;
+  if (first === 192 && second === 168) return true;
+  if (first === 172 && second >= 16 && second <= 31) return true;
+
+  return false;
+};
+
+const isAllowedLocalHostname = (hostname = "") => {
+  const normalized = hostname.trim().toLowerCase();
+  if (!normalized) return false;
+
+  if (normalized === "localhost" || normalized === "::1") {
+    return true;
+  }
+
+  if (normalized.endsWith(".local")) {
+    return true;
+  }
+
+  if (isPrivateIpv4Hostname(normalized)) {
+    return true;
+  }
+
+  if (!normalized.includes(".")) {
+    return true;
+  }
+
+  return false;
+};
+
+const isAllowedLocalOrigin = (origin = "") => {
+  try {
+    const { protocol, hostname } = new URL(origin);
+
+    if (protocol !== "http:" && protocol !== "https:") {
+      return false;
+    }
+
+    return isAllowedLocalHostname(hostname);
+  } catch {
+    return false;
+  }
+};
+
+const isAllowedCloudflarePagesOrigin = (origin = "") => {
+  try {
+    const { protocol, hostname } = new URL(origin);
+
+    if (protocol !== "https:") {
+      return false;
+    }
+
+    return isAllowedCloudflarePagesHostname(hostname);
+  } catch {
+    return false;
+  }
+};
+
 const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) return callback(null, true);
-    if (origin.startsWith("http://localhost") || origin.startsWith("http://127.0.0.1")) {
+    if (isAllowedCloudflarePagesOrigin(origin)) {
+      return callback(null, true);
+    }
+    if (isAllowedLocalOrigin(origin)) {
       return callback(null, true);
     }
     return callback(new Error(`CORS blocked: ${origin}`));
