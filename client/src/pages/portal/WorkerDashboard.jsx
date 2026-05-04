@@ -8,18 +8,21 @@ import {
   Send,
   ChevronRight,
   FolderOpen,
+  Trash2,
 } from "lucide-react";
 import axiosInstance from "../../utils/axiosInstance";
 import { useAuth } from "../../hooks/useAuth";
 import { getPortalStatus } from "../../services/portalService";
-import { getMyReports } from "../../services/reportService";
+import { deleteMyDraftReport, getMyReports } from "../../services/reportService";
 import Loader from "../../components/common/Loader";
+import { useToast, ToastContainer } from "../../components/common/Toast";
 import { formatDateTime, getWeekLabel, getWeekReference } from "../../utils/formatDate";
 import { REPORT_TYPES } from "../../utils/constants";
 import { cn } from "../../utils/scoreHelpers";
 
 const WorkerDashboard = () => {
   const { user } = useAuth();
+  const { toasts, toast, removeToast } = useToast();
 
   const [portal, setPortal] = useState(null);
   const [reports, setReports] = useState([]);
@@ -27,6 +30,7 @@ const WorkerDashboard = () => {
   const [rosterCount, setRosterCount] = useState(0);
   const [draftsCount, setDraftsCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState("");
 
   const fetchData = async () => {
     try {
@@ -94,6 +98,27 @@ const WorkerDashboard = () => {
     return `/portal/submit-report?${params.toString()}`;
   };
 
+  const handleDeleteDraft = async (reportId) => {
+    const confirmed = window.confirm(
+      "Delete this draft permanently?\n\nThis action cannot be undone or recovered."
+    );
+    if (!confirmed) return;
+
+    setDeletingId(reportId);
+    try {
+      await deleteMyDraftReport(reportId);
+      toast.success("Draft deleted", "This draft was removed completely.");
+      await fetchData();
+    } catch (err) {
+      toast.error(
+        "Draft not deleted",
+        err.response?.data?.message || "Could not delete this draft."
+      );
+    } finally {
+      setDeletingId("");
+    }
+  };
+
   const topCards = [
     {
       to: "/portal/submit-report",
@@ -143,6 +168,8 @@ const WorkerDashboard = () => {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      <ToastContainer toasts={toasts} onClose={removeToast} />
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="section-title">Welcome, {user?.fullName?.split(" ")[0]}</h1>
@@ -298,13 +325,22 @@ const WorkerDashboard = () => {
                     </span>
                   </div>
 
-                  <div className="pt-3">
+                  <div className="pt-3 flex flex-wrap gap-2">
                     <Link
                       to={buildDraftLink(r)}
                       className="btn-outline text-xs py-1.5 px-3"
                     >
                       Continue Draft
                     </Link>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDraft(r._id)}
+                      disabled={deletingId === r._id}
+                      className="btn-ghost text-xs py-1.5 px-3 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      {deletingId === r._id ? "Deleting..." : "Delete Draft"}
+                    </button>
                   </div>
                 </div>
               ))}
