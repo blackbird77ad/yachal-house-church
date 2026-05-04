@@ -1,5 +1,21 @@
 import axios from "axios";
 
+const LIVE_API_BASE_URL = "https://yachal-house-church.onrender.com/api";
+
+const readEnvValue = (value) => {
+  const normalized = String(value || "").trim();
+  return normalized || "";
+};
+
+const readBooleanEnv = (value) => {
+  const normalized = readEnvValue(value).toLowerCase();
+
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
+
+  return null;
+};
+
 const isPrivateIpv4Hostname = (hostname = "") => {
   const match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (!match) return false;
@@ -39,13 +55,15 @@ const isLocalHostname = (hostname = "") => {
 };
 
 const getLocalApiBaseUrl = () => {
-  if (import.meta.env.VITE_LOCAL_API_URL) {
-    return import.meta.env.VITE_LOCAL_API_URL;
+  const configuredLocalApiUrl = readEnvValue(import.meta.env.VITE_LOCAL_API_URL);
+
+  if (configuredLocalApiUrl) {
+    return configuredLocalApiUrl;
   }
 
   if (typeof window !== "undefined") {
     const { hostname } = window.location;
-    const localPort = import.meta.env.VITE_LOCAL_API_PORT || "5000";
+    const localPort = readEnvValue(import.meta.env.VITE_LOCAL_API_PORT) || "5000";
 
     if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
       return `http://localhost:${localPort}/api`;
@@ -57,20 +75,36 @@ const getLocalApiBaseUrl = () => {
   return "http://localhost:5000/api";
 };
 
+const shouldUseLocalApiFallback = () => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const localFallbackOverride = readBooleanEnv(import.meta.env.VITE_ALLOW_LOCAL_API_FALLBACK);
+
+  if (localFallbackOverride === false) {
+    return false;
+  }
+
+  if (localFallbackOverride === true) {
+    return isLocalHostname(window.location.hostname);
+  }
+
+  return import.meta.env.DEV && isLocalHostname(window.location.hostname);
+};
+
 const resolveApiBaseUrl = () => {
-  if (typeof window !== "undefined") {
-    const { hostname } = window.location;
+  const configuredApiBaseUrl = readEnvValue(import.meta.env.VITE_API_URL);
 
-    if (isLocalHostname(hostname)) {
-      return getLocalApiBaseUrl();
-    }
+  if (import.meta.env.PROD) {
+    return configuredApiBaseUrl || LIVE_API_BASE_URL;
   }
 
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
+  if (shouldUseLocalApiFallback()) {
+    return getLocalApiBaseUrl();
   }
 
-  return "https://yachal-house-church.onrender.com/api";
+  return configuredApiBaseUrl || LIVE_API_BASE_URL;
 };
 
 const axiosInstance = axios.create({
