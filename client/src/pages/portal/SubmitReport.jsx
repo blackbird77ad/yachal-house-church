@@ -33,6 +33,16 @@ const FORMS = {
   departmental: DepartmentalForm,
 };
 
+const toWeekReferenceKey = (value) => {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  date.setUTCHours(0, 0, 0, 0);
+  return date.toISOString();
+};
+
 const WeekModal = ({ onSelect, onClose }) => {
   const prevWeek = getPreviousWeekReference();
   const [lateDate, setLateDate] = useState(prevWeek.toISOString().split("T")[0]);
@@ -138,18 +148,25 @@ const SubmitReport = () => {
     try {
       const data = await getPortalStatus();
       setPortal(data);
+      return data;
     } catch {
-      setPortal({ isOpen: false });
+      const fallback = { isOpen: false };
+      setPortal(fallback);
+      return fallback;
     } finally {
       setPortalLoading(false);
     }
   };
 
-  const fetchSubmitted = async () => {
+  const fetchSubmitted = async (weekReference) => {
     try {
+      const resolvedWeekReference =
+        weekReference || portal?.weekReference || getWeekReference().toISOString();
+
       const { reports } = await getMyReports({
         weekType: "current",
         status: "submitted",
+        weekReference: resolvedWeekReference,
         limit: 100,
       });
       setSubmittedThisWeek(reports || []);
@@ -158,11 +175,15 @@ const SubmitReport = () => {
 
   useEffect(() => {
     fetchPortal();
-    fetchSubmitted();
 
     const interval = setInterval(fetchPortal, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (portalLoading) return;
+    fetchSubmitted(portal?.weekReference || getWeekReference().toISOString());
+  }, [portalLoading, portal?.weekReference]);
 
   useEffect(() => {
     const reportType = searchParams.get("reportType");
@@ -183,8 +204,17 @@ const SubmitReport = () => {
     setSelectedReportId(reportId || null);
   }, [searchParams]);
 
+  const currentWeekReferenceKey = toWeekReferenceKey(
+    portal?.weekReference || getWeekReference().toISOString()
+  );
+
   const getSubmittedReport = (typeValue) =>
-    submittedThisWeek.find((r) => r.reportType === typeValue && !r.isLateSubmission);
+    submittedThisWeek.find(
+      (r) =>
+        r.reportType === typeValue &&
+        !r.isLateSubmission &&
+        toWeekReferenceKey(r.weekReference) === currentWeekReferenceKey
+    );
 
   const handleTypeClick = (type) => {
     const existing = getSubmittedReport(type);
@@ -235,7 +265,12 @@ const SubmitReport = () => {
     setFromDraft(false);
     setSelectedReportId(null);
     setSearchParams({});
-    fetchSubmitted();
+    fetchSubmitted(portal?.weekReference || getWeekReference().toISOString());
+  };
+
+  const handleRefresh = async () => {
+    const portalData = await fetchPortal();
+    await fetchSubmitted(portalData?.weekReference || getWeekReference().toISOString());
   };
 
   if (portalLoading) return <Loader text="Checking portal status..." />;
@@ -268,7 +303,7 @@ const SubmitReport = () => {
           </p>
         </div>
 
-        <button onClick={fetchPortal} className="btn-ghost text-xs py-1.5 flex items-center gap-1">
+        <button onClick={handleRefresh} className="btn-ghost text-xs py-1.5 flex items-center gap-1">
           <Clock className="w-3 h-3" />
           Refresh
         </button>
