@@ -103,6 +103,42 @@ const buildReportIdentityFilter = ({
   return filter;
 };
 
+const resolveReportWeekReference = ({
+  weekType,
+  weekDate,
+  weekReference: requestedWeekReference,
+  currentWeekReference = getPortalWeekReferenceForNow(),
+}) => {
+  const normalizedCurrentWeek = normalizeWeekReference(currentWeekReference);
+  const isLateSubmission = weekType === "late" || weekType === "past";
+
+  if (!isLateSubmission) {
+    return {
+      isLateSubmission: false,
+      weekReference: normalizedCurrentWeek,
+    };
+  }
+
+  const lateWeekReference = requestedWeekReference
+    ? normalizeWeekReference(requestedWeekReference)
+    : weekDate
+    ? normalizeWeekReference(weekDate)
+    : getPreviousPortalWeekReference(normalizedCurrentWeek);
+
+  if (lateWeekReference.getTime() >= normalizedCurrentWeek.getTime()) {
+    const error = new Error(
+      "Late submissions must target a previous reporting week."
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    isLateSubmission: true,
+    weekReference: lateWeekReference,
+  };
+};
+
 export const saveDraft = async (req, res, next) => {
   try {
     const {
@@ -115,7 +151,7 @@ export const saveDraft = async (req, res, next) => {
       ...reportData
     } = req.body;
 
-    const isLateSubmission = weekType === "late" || weekType === "past";
+    let isLateSubmission = weekType === "late" || weekType === "past";
     let weekReference;
 
     // Priority: use frontend-sent weekReference (most accurate — client knows the window)
@@ -129,6 +165,13 @@ export const saveDraft = async (req, res, next) => {
     } else {
       weekReference = getPortalWeekReferenceForNow();
     }
+
+    ({ isLateSubmission, weekReference } = resolveReportWeekReference({
+      weekType,
+      weekDate,
+      weekReference: req.body.weekReference,
+      currentWeekReference: getPortalWeekReferenceForNow(),
+    }));
 
     const identityFilter = buildReportIdentityFilter({
       userId: req.user._id,
@@ -230,7 +273,7 @@ export const submitReport = async (req, res, next) => {
       customReportType,
       ...reportData
     } = req.body;
-    const isLateSubmission = weekType === "late" || weekType === "past";
+    let isLateSubmission = weekType === "late" || weekType === "past";
 
     let weekReference;
     // Priority: use frontend-sent weekReference (source of truth — client computed from portal status)
@@ -243,6 +286,13 @@ export const submitReport = async (req, res, next) => {
     } else {
       weekReference = getPortalWeekReferenceForNow();
     }
+
+    ({ isLateSubmission, weekReference } = resolveReportWeekReference({
+      weekType,
+      weekDate,
+      weekReference: req.body.weekReference,
+      currentWeekReference: portalState.weekReference,
+    }));
 
     if (reportData.evangelismData?.souls) {
       const souls = reportData.evangelismData.souls;
@@ -619,7 +669,14 @@ export const getMyDraft = async (req, res, next) => {
       weekReference = getPortalWeekReferenceForNow();
     }
 
-    const isLateSubmission = weekType === "late" || weekType === "past";
+    let isLateSubmission = weekType === "late" || weekType === "past";
+
+    ({ isLateSubmission, weekReference } = resolveReportWeekReference({
+      weekType,
+      weekDate,
+      weekReference: req.query.weekReference,
+      currentWeekReference: getPortalWeekReferenceForNow(),
+    }));
 
     const identityFilter = buildReportIdentityFilter({
       userId: req.user._id,
