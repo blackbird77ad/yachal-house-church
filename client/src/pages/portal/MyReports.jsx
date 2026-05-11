@@ -21,6 +21,16 @@ import { cn } from "../../utils/scoreHelpers";
 
 const PER_PAGE = 15;
 
+const toWeekReferenceKey = (value) => {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  date.setUTCHours(0, 0, 0, 0);
+  return date.toISOString();
+};
+
 const getMyReportSummary = async () => {
   const { data } = await axiosInstance.get("/reports/my-report-summary");
   return data;
@@ -171,6 +181,13 @@ const MyReports = () => {
       return bDate - aDate;
     });
   }, [groupedByWeek]);
+
+  const currentPortalWeekKey = toWeekReferenceKey(portal?.weekReference);
+  const canEditSubmittedReport = (report) =>
+    !!portal?.isOpen &&
+    report?.isEditable !== false &&
+    !report?.isLateSubmission &&
+    toWeekReferenceKey(report?.weekReference) === currentPortalWeekKey;
 
   if (loading) return <Loader text="Loading your reports..." />;
 
@@ -329,7 +346,7 @@ const MyReports = () => {
                         </>
                       ) : (
                         <>
-                          {portal?.isOpen && r.isEditable !== false && !r.isLateSubmission ? (
+                          {canEditSubmittedReport(r) ? (
                             <Link
                               to={`/portal/submit-report?reportType=${r.reportType}&weekType=current&edit=1&reportId=${r._id}`}
                               className="btn-outline text-xs py-1.5 px-3 flex items-center gap-1"

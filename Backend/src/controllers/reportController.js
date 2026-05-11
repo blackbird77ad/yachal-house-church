@@ -455,6 +455,7 @@ export const submitReport = async (req, res, next) => {
 
 export const editSubmittedReport = async (req, res, next) => {
   try {
+    const now = new Date();
     const report = await Report.findById(req.params.reportId);
 
     if (!report) {
@@ -467,6 +468,28 @@ export const editSubmittedReport = async (req, res, next) => {
 
     if (!report.isEditable) {
       return res.status(403).json({ message: "This report is locked and cannot be edited." });
+    }
+
+    if (!report.isLateSubmission) {
+      const portalState = await getCurrentPortalState(now);
+      const currentWeekReference = normalizeWeekReference(portalState.weekReference);
+      const reportWeekReference = normalizeWeekReference(report.weekReference);
+
+      if (!portalState.isOpen) {
+        report.isEditable = false;
+        await report.save();
+        return res.status(403).json({
+          message: "Submitted reports can only be edited while the submission portal is open.",
+        });
+      }
+
+      if (reportWeekReference.getTime() !== currentWeekReference.getTime()) {
+        report.isEditable = false;
+        await report.save();
+        return res.status(403).json({
+          message: "Only the active week's submitted report can be edited.",
+        });
+      }
     }
 
     const { reportType, weekType, weekDate, isEdit, ...reportData } = req.body;

@@ -7,6 +7,7 @@ import Roster from "../models/rosterModel.js";
 import FrontDeskSession from "../models/frontDeskSessionModel.js";
 import Attendance from "../models/attendanceModel.js";
 import PushSubscription from "../models/pushSubscriptionModel.js";
+import Report from "../models/reportModel.js";
 import {
   ensureWeeklyMetricsFresh,
   processWeeklyMetrics,
@@ -671,6 +672,10 @@ const processPortalClosureForWeek = async (weekReference, { source = "cron" } = 
 
   try {
     await processWeeklyMetrics(normalizedWeek);
+    await Report.updateMany(
+      { weekReference: normalizedWeek, status: "submitted" },
+      { $set: { isEditable: false } }
+    );
 
     claimedPortal.isProcessed = true;
     claimedPortal.processedAt = now;

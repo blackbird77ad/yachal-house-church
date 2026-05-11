@@ -185,6 +185,10 @@ const SubmitReport = () => {
     fetchSubmitted(portal?.weekReference || getWeekReference().toISOString());
   }, [portalLoading, portal?.weekReference]);
 
+  const currentWeekReferenceKey = toWeekReferenceKey(
+    portal?.weekReference || getWeekReference().toISOString()
+  );
+
   useEffect(() => {
     const reportType = searchParams.get("reportType");
     const qpWeekType = searchParams.get("weekType");
@@ -196,17 +200,25 @@ const SubmitReport = () => {
     if (!reportType) return;
     if (!FORMS[reportType]) return;
 
+    const currentWeekSubmittedReport = submittedThisWeek.find(
+      (r) =>
+        r.reportType === reportType &&
+        !r.isLateSubmission &&
+        toWeekReferenceKey(r.weekReference) === currentWeekReferenceKey
+    );
+    const allowEdit =
+      edit === "1" &&
+      !!reportId &&
+      !!currentWeekSubmittedReport &&
+      String(currentWeekSubmittedReport._id) === reportId;
+
     setSelectedType(reportType);
     setWeekType(qpWeekType === "late" ? "late" : "current");
     setLateWeekDate(qpWeekDate || null);
-    setEditMode(edit === "1");
+    setEditMode(allowEdit);
     setFromDraft(draft === "1");
-    setSelectedReportId(reportId || null);
-  }, [searchParams]);
-
-  const currentWeekReferenceKey = toWeekReferenceKey(
-    portal?.weekReference || getWeekReference().toISOString()
-  );
+    setSelectedReportId(allowEdit ? reportId : null);
+  }, [searchParams, submittedThisWeek, currentWeekReferenceKey]);
 
   const getSubmittedReport = (typeValue) =>
     submittedThisWeek.find(
