@@ -16,6 +16,19 @@ export const REPORT_TYPES = [
   { value: "departmental", label: "Departmental Report" },
 ];
 
+export const getReportTypeLabel = (reportOrType, customReportType = null) => {
+  const report =
+    reportOrType && typeof reportOrType === "object" ? reportOrType : null;
+  const type = report?.reportType || reportOrType;
+  const resolvedCustomType = report?.customReportType || customReportType;
+
+  if (type === "custom") {
+    return resolvedCustomType?.name || "Custom Report";
+  }
+
+  return REPORT_TYPES.find((item) => item.value === type)?.label || type || "Report";
+};
+
 export const SERVICE_TYPES = [
   { value: "tuesday", label: "Tuesday Service" },
   { value: "sunday", label: "Sunday Service" },

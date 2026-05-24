@@ -31,6 +31,27 @@ const runDeferredMetricsRefresh = (task, label) => {
     });
 };
 
+const ADMIN_LEVEL_ROLES = new Set(["pastor", "admin", "moderator"]);
+
+const MY_REPORT_BASE_FIELDS =
+  "status reportType weekReference isLateSubmission customReportType submittedBy draftStarted submittedAt createdAt updatedAt";
+
+const MY_REPORT_LIST_FIELDS = `${MY_REPORT_BASE_FIELDS} isEditable evangelismData followUpData churchAttendees serviceAttendance cellData cellReportData fellowshipPrayerData productionData briefData departmentalData customData`;
+
+const createTimingCountBucket = () => ({
+  all: 0,
+  onTime: 0,
+  arrears: 0,
+});
+
+const createTypeCountBucket = () => ({ all: 0 });
+
+const createTypeCountBucketsByTiming = () => ({
+  all: createTypeCountBucket(),
+  onTime: createTypeCountBucket(),
+  arrears: createTypeCountBucket(),
+});
+
 const parsePartnerEntry = (value = "") => {
   const raw = value.toString().trim();
 
@@ -584,12 +605,16 @@ export const getMyReports = async (req, res, next) => {
     if (weekType === "current") filter.isLateSubmission = false;
     if (weekType === "late") filter.isLateSubmission = true;
 
-    let reports = await Report.find(filter).sort({
-      weekReference: -1,
-      submittedAt: -1,
-      updatedAt: -1,
-      createdAt: -1,
-    });
+    let reports = await Report.find(filter)
+      .select(MY_REPORT_LIST_FIELDS)
+      .populate("customReportType", "name")
+      .sort({
+        weekReference: -1,
+        submittedAt: -1,
+        updatedAt: -1,
+        createdAt: -1,
+      })
+      .lean();
 
     reports = dedupeReportsForDisplay(reports);
 
@@ -615,9 +640,7 @@ export const getMyReports = async (req, res, next) => {
 export const getMyReportSummary = async (req, res, next) => {
   try {
     let reports = await Report.find({ submittedBy: req.user._id })
-      .select(
-        "status reportType weekReference isLateSubmission customReportType submittedBy draftStarted submittedAt createdAt updatedAt evangelismData followUpData churchAttendees serviceAttendance cellData cellReportData fellowshipPrayerData productionData briefData departmentalData customData"
-      )
+      .select(MY_REPORT_LIST_FIELDS)
       .lean();
 
     reports = dedupeReportsForDisplay(reports);
@@ -633,16 +656,35 @@ export const getMyReportSummary = async (req, res, next) => {
         draft: { all: 0 },
         submitted: { all: 0 },
       },
+      timingCountsByStatus: {
+        draft: createTimingCountBucket(),
+        submitted: createTimingCountBucket(),
+      },
+      typeCountsByStatusAndTiming: {
+        draft: createTypeCountBucketsByTiming(),
+        submitted: createTypeCountBucketsByTiming(),
+      },
     };
 
     for (const report of reports) {
       const statusKey = report.status === "submitted" ? "submitted" : "draft";
       const typeKey = report.reportType || "unknown";
+      const timingKey = report.isLateSubmission ? "arrears" : "onTime";
 
       summary.statusCounts[statusKey] += 1;
       summary.typeCountsByStatus[statusKey].all += 1;
       summary.typeCountsByStatus[statusKey][typeKey] =
         (summary.typeCountsByStatus[statusKey][typeKey] || 0) + 1;
+      summary.timingCountsByStatus[statusKey].all += 1;
+      summary.timingCountsByStatus[statusKey][timingKey] += 1;
+
+      summary.typeCountsByStatusAndTiming[statusKey].all.all += 1;
+      summary.typeCountsByStatusAndTiming[statusKey].all[typeKey] =
+        (summary.typeCountsByStatusAndTiming[statusKey].all[typeKey] || 0) + 1;
+
+      summary.typeCountsByStatusAndTiming[statusKey][timingKey].all += 1;
+      summary.typeCountsByStatusAndTiming[statusKey][timingKey][typeKey] =
+        (summary.typeCountsByStatusAndTiming[statusKey][timingKey][typeKey] || 0) + 1;
 
       summary.typeCountsByStatus.all[typeKey] =
         (summary.typeCountsByStatus.all[typeKey] || 0) + 1;
@@ -757,13 +799,22 @@ export const getAllReports = async (req, res, next) => {
 
 export const getReportById = async (req, res, next) => {
   try {
-    const report = await Report.findById(req.params.reportId).populate(
-      "submittedBy",
-      "fullName workerId department"
-    );
+    const report = await Report.findById(req.params.reportId)
+      .populate("submittedBy", "fullName workerId department")
+      .populate("customReportType", "name description")
+      .lean();
 
     if (!report) {
       return res.status(404).json({ message: "Report not found." });
+    }
+
+    const reportOwnerId =
+      report?.submittedBy?._id?.toString?.() || report?.submittedBy?.toString?.();
+    const isOwner = reportOwnerId === req.user._id.toString();
+    const isAdminLevel = ADMIN_LEVEL_ROLES.has(req.user.role);
+
+    if (!isOwner && !isAdminLevel) {
+      return res.status(403).json({ message: "You can only view your own reports." });
     }
 
     res.status(200).json({ report });

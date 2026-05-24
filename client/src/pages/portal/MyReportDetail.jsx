@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import Loader from "../../components/common/Loader";
 import ReportDocumentView from "../../components/reports/ReportDocumentView";
 import { getReportById } from "../../services/reportService";
-import { REPORT_TYPES } from "../../utils/constants";
+import { getReportTypeLabel } from "../../utils/constants";
 import {
   REPORT_PRINT_AREA_ID,
   buildReportPdfFileName,
@@ -27,7 +27,7 @@ const MyReportDetail = () => {
     if (!report) return;
 
     const previousTitle = document.title;
-    const typeName = REPORT_TYPES.find((item) => item.value === report.reportType)?.label || report.reportType;
+    const typeName = getReportTypeLabel(report);
     const workerName = report.submittedBy?.fullName || "Unknown";
     const nextTitle = `${typeName} - ${workerName}`;
     let restored = false;
@@ -54,7 +54,7 @@ const MyReportDetail = () => {
     const element = document.getElementById(REPORT_PRINT_AREA_ID);
     if (!element) return;
 
-    const typeName = REPORT_TYPES.find((item) => item.value === report.reportType)?.label || report.reportType;
+    const typeName = getReportTypeLabel(report);
     const fileName = buildReportPdfFileName({
       typeLabel: typeName,
       workerName: report.submittedBy?.fullName || "Unknown",

@@ -15,7 +15,7 @@ import { getPortalStatus } from "../../services/portalService";
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
 import { formatDateTime, getWeekLabel } from "../../utils/formatDate";
-import { REPORT_TYPES } from "../../utils/constants";
+import { REPORT_TYPES, getReportTypeLabel } from "../../utils/constants";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import { cn } from "../../utils/scoreHelpers";
 
@@ -41,6 +41,8 @@ const deleteMyDraftReport = async (reportId) => {
   return data;
 };
 
+const EMPTY_TIMING_COUNTS = { all: 0, onTime: 0, arrears: 0 };
+
 const MyReports = () => {
   const { toasts, toast, removeToast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -54,12 +56,35 @@ const MyReports = () => {
       draft: { all: 0 },
       submitted: { all: 0 },
     },
+    timingCountsByStatus: {
+      draft: { ...EMPTY_TIMING_COUNTS },
+      submitted: { ...EMPTY_TIMING_COUNTS },
+    },
+    typeCountsByStatusAndTiming: {
+      draft: {
+        all: { all: 0 },
+        onTime: { all: 0 },
+        arrears: { all: 0 },
+      },
+      submitted: {
+        all: { all: 0 },
+        onTime: { all: 0 },
+        arrears: { all: 0 },
+      },
+    },
   });
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState("");
 
   const initialTab = searchParams.get("tab") === "drafts" ? "drafts" : "submitted";
+  const initialSubmittedFilter =
+    searchParams.get("submittedFilter") === "arrears"
+      ? "arrears"
+      : searchParams.get("submittedFilter") === "on-time"
+        ? "on-time"
+        : "all";
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [submittedFilter, setSubmittedFilter] = useState(initialSubmittedFilter);
   const [selectedType, setSelectedType] = useState("all");
 
   const [page, setPage] = useState(1);
@@ -70,12 +95,22 @@ const MyReports = () => {
     setLoading(true);
 
     try {
+      const resolvedWeekType =
+        activeTab === "submitted"
+          ? submittedFilter === "on-time"
+            ? "current"
+            : submittedFilter === "arrears"
+              ? "late"
+              : null
+          : null;
+
       const [{ data: rData }, pData, summaryData] = await Promise.all([
         axiosInstance.get("/reports/my-reports", {
           params: {
             page,
             limit: PER_PAGE,
             status: activeTab === "drafts" ? "draft" : "submitted",
+            ...(resolvedWeekType ? { weekType: resolvedWeekType } : {}),
             ...(selectedType !== "all" ? { reportType: selectedType } : {}),
           },
         }),
@@ -86,6 +121,22 @@ const MyReports = () => {
             all: { all: 0 },
             draft: { all: 0 },
             submitted: { all: 0 },
+          },
+          timingCountsByStatus: {
+            draft: { ...EMPTY_TIMING_COUNTS },
+            submitted: { ...EMPTY_TIMING_COUNTS },
+          },
+          typeCountsByStatusAndTiming: {
+            draft: {
+              all: { all: 0 },
+              onTime: { all: 0 },
+              arrears: { all: 0 },
+            },
+            submitted: {
+              all: { all: 0 },
+              onTime: { all: 0 },
+              arrears: { all: 0 },
+            },
           },
         })),
       ]);
@@ -103,18 +154,23 @@ const MyReports = () => {
   };
 
   useEffect(() => {
-    setSearchParams(activeTab === "drafts" ? { tab: "drafts" } : { tab: "submitted" });
-  }, [activeTab, setSearchParams]);
+    const nextParams = new URLSearchParams();
+    nextParams.set("tab", activeTab === "drafts" ? "drafts" : "submitted");
+
+    if (activeTab === "submitted" && submittedFilter !== "all") {
+      nextParams.set("submittedFilter", submittedFilter);
+    }
+
+    setSearchParams(nextParams);
+  }, [activeTab, submittedFilter, setSearchParams]);
 
   useEffect(() => {
     setPage(1);
-  }, [activeTab, selectedType]);
+  }, [activeTab, selectedType, submittedFilter]);
 
   useEffect(() => {
     fetchReports();
-  }, [page, activeTab, selectedType]);
-
-  const typeLabel = (type) => REPORT_TYPES.find((t) => t.value === type)?.label || type;
+  }, [page, activeTab, selectedType, submittedFilter]);
 
   const buildDraftLink = (draft) => {
     const params = new URLSearchParams();
@@ -152,18 +208,28 @@ const MyReports = () => {
   };
 
   const activeStatusKey = activeTab === "drafts" ? "draft" : "submitted";
+  const submittedTimingKey =
+    submittedFilter === "on-time"
+      ? "onTime"
+      : submittedFilter === "arrears"
+        ? "arrears"
+        : "all";
 
   const draftsCount = summary?.statusCounts?.draft ?? 0;
   const submittedCount = summary?.statusCounts?.submitted ?? 0;
+  const submittedTimingCounts = summary?.timingCountsByStatus?.submitted || EMPTY_TIMING_COUNTS;
 
   const typeCounts = useMemo(() => {
-    const activeTypeCounts = summary?.typeCountsByStatus?.[activeStatusKey] || {};
+    const activeTypeCounts =
+      activeTab === "submitted"
+        ? summary?.typeCountsByStatusAndTiming?.submitted?.[submittedTimingKey] || {}
+        : summary?.typeCountsByStatus?.[activeStatusKey] || {};
     const counts = { all: activeTypeCounts.all ?? totalItems };
     REPORT_TYPES.forEach((type) => {
       counts[type.value] = activeTypeCounts[type.value] || 0;
     });
     return counts;
-  }, [activeStatusKey, summary, totalItems]);
+  }, [activeStatusKey, activeTab, submittedTimingKey, summary, totalItems]);
 
   const groupedByWeek = useMemo(() => {
     return all.reduce((acc, r) => {
@@ -250,6 +316,29 @@ const MyReports = () => {
           ))}
         </div>
 
+        {activeTab === "submitted" && (
+          <div className="flex flex-wrap gap-2">
+            {[
+              { key: "all", label: "All Submitted", count: submittedTimingCounts.all },
+              { key: "on-time", label: "On Time", count: submittedTimingCounts.onTime },
+              { key: "arrears", label: "Arrears", count: submittedTimingCounts.arrears },
+            ].map((option) => (
+              <button
+                key={option.key}
+                onClick={() => setSubmittedFilter(option.key)}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-xs font-medium border-2 transition-all",
+                  submittedFilter === option.key
+                    ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300"
+                    : "border-gray-200 dark:border-slate-600 text-gray-500 hover:border-emerald-300"
+                )}
+              >
+                {option.label} ({option.count})
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setSelectedType("all")}
@@ -288,7 +377,15 @@ const MyReports = () => {
             <FileText className="w-12 h-12 text-gray-300 dark:text-slate-600 mx-auto mb-4" />
           )}
           <h3 className="font-semibold text-gray-900 dark:text-slate-100 mb-2">
-            No {activeTab === "drafts" ? "drafts" : "submitted reports"} here
+            No{" "}
+            {activeTab === "drafts"
+              ? "drafts"
+              : submittedFilter === "on-time"
+                ? "on-time submitted reports"
+                : submittedFilter === "arrears"
+                  ? "arrears submitted reports"
+                  : "submitted reports"}{" "}
+            here
           </h3>
           <p className="text-sm text-gray-500 dark:text-slate-400">
             Try another report type or create a new report.
@@ -314,7 +411,7 @@ const MyReports = () => {
 
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
-                        {typeLabel(r.reportType)}
+                        {getReportTypeLabel(r)}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
                         {activeTab === "drafts"

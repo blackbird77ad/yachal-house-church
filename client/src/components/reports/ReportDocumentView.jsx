@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { ArrowLeft, Download, Printer } from "lucide-react";
 import { formatDate, formatDateTime, getWeekLabel } from "../../utils/formatDate";
-import { REPORT_TYPES, SOUL_STATUSES } from "../../utils/constants";
+import { getReportTypeLabel, SOUL_STATUSES } from "../../utils/constants";
 import { REPORT_PRINT_AREA_ID } from "../../utils/reportPdf";
 
 const PRINT_STYLE = `
@@ -877,7 +877,7 @@ const ReportDocumentView = ({
   isDownloading = false,
   showWorkerInSubtitle = false,
 }) => {
-  const typeName = REPORT_TYPES.find((item) => item.value === report.reportType)?.label || report.reportType;
+  const typeName = getReportTypeLabel(report);
   const weekLabel = report.weekReference ? getWeekLabel(new Date(report.weekReference)) : "N/A";
   const workerName = report.submittedBy?.fullName || "Unknown";
   const workerId = report.submittedBy?.workerId || "";

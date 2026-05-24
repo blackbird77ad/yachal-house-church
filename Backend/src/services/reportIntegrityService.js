@@ -19,6 +19,30 @@ const IGNORED_CONTENT_KEYS = new Set([
 
 const STRUCTURAL_STRING_KEYS = new Set(["serviceType"]);
 
+const toValidDate = (value) => {
+  if (!value) return null;
+
+  const date = value instanceof Date ? new Date(value) : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getSafeWeekReferenceKey = (report = {}) => {
+  const normalizedWeek = toValidDate(report?.weekReference);
+
+  if (normalizedWeek) {
+    return normalizeWeekReference(normalizedWeek).toISOString();
+  }
+
+  const rawWeekReference =
+    typeof report?.weekReference === "string" ? report.weekReference.trim() : "";
+  if (rawWeekReference) {
+    return `raw:${rawWeekReference}`;
+  }
+
+  const reportId = report?._id?.toString?.() || "";
+  return reportId ? `unkeyed:${reportId}` : "none";
+};
+
 const getReportContent = (report = {}) => ({
   evangelismData: report.evangelismData,
   followUpData: report.followUpData,
@@ -82,9 +106,9 @@ const getReportPriority = (report) => {
 
 const getReportRecency = (report) =>
   Math.max(
-    report?.submittedAt ? new Date(report.submittedAt).getTime() : 0,
-    report?.updatedAt ? new Date(report.updatedAt).getTime() : 0,
-    report?.createdAt ? new Date(report.createdAt).getTime() : 0
+    toValidDate(report?.submittedAt)?.getTime() || 0,
+    toValidDate(report?.updatedAt)?.getTime() || 0,
+    toValidDate(report?.createdAt)?.getTime() || 0
   );
 
 const sortCanonicalFirst = (a, b) => {
@@ -124,9 +148,7 @@ export const buildReportIdentityKey = (report = {}) => {
     report?.customReportType?._id?.toString?.() ||
     report?.customReportType?.toString?.() ||
     "none";
-  const weekReference = report?.weekReference
-    ? normalizeWeekReference(report.weekReference).toISOString()
-    : "none";
+  const weekReference = getSafeWeekReferenceKey(report);
 
   return [
     submittedBy,
@@ -199,8 +221,8 @@ export const dedupeReportsForDisplay = (reports = []) => {
 
   return [...canonicalByKey.values()].sort((a, b) => {
     const weekDiff =
-      new Date(b?.weekReference || 0).getTime() -
-      new Date(a?.weekReference || 0).getTime();
+      (toValidDate(b?.weekReference)?.getTime() || 0) -
+      (toValidDate(a?.weekReference)?.getTime() || 0);
     if (weekDiff !== 0) return weekDiff;
 
     return getReportRecency(b) - getReportRecency(a);

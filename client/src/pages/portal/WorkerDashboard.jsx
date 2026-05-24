@@ -17,7 +17,7 @@ import { deleteMyDraftReport, getMyReports } from "../../services/reportService"
 import Loader from "../../components/common/Loader";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import { formatDateTime, getWeekLabel, getWeekReference } from "../../utils/formatDate";
-import { REPORT_TYPES } from "../../utils/constants";
+import { getReportTypeLabel } from "../../utils/constants";
 import { cn } from "../../utils/scoreHelpers";
 
 const WorkerDashboard = () => {
@@ -80,9 +80,6 @@ const WorkerDashboard = () => {
   );
 
   const currentWeekLabel = getWeekLabel(getWeekReference());
-
-  const typeLabel = (type) =>
-    REPORT_TYPES.find((t) => t.value === type)?.label || type;
 
   const buildDraftLink = (draft) => {
     const params = new URLSearchParams();
@@ -310,7 +307,7 @@ const WorkerDashboard = () => {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 truncate">
-                        {typeLabel(r.reportType)}
+                        {getReportTypeLabel(r)}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
                         Week: {r.weekReference ? getWeekLabel(new Date(r.weekReference)) : "Unknown"}
@@ -388,7 +385,7 @@ const WorkerDashboard = () => {
 
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">
-                      {typeLabel(r.reportType)}
+                      {getReportTypeLabel(r)}
                     </p>
                     <p className="text-xs text-gray-400 dark:text-slate-500">
                       {r.weekReference ? getWeekLabel(new Date(r.weekReference)) : "Unknown week"}
