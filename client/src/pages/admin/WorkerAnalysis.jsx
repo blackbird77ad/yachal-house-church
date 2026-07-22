@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownAZ,
   ArrowUpAZ,
@@ -108,6 +108,7 @@ const WorkerAnalysis = () => {
   const [totals, setTotals] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
   const [reportType, setReportType] = useState("");
@@ -121,12 +122,16 @@ const WorkerAnalysis = () => {
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [selectedWorker, setSelectedWorker] = useState(null);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const hasLoadedRef = useRef(false);
 
   const fetchAnalysis = useCallback(async (silent = false) => {
-    if (silent) {
-      setRefreshing(true);
-    } else {
+    const useFullLoader = !hasLoadedRef.current && !silent;
+
+    if (useFullLoader) {
       setLoading(true);
+    } else {
+      setRefreshing(true);
     }
 
     try {
@@ -160,6 +165,7 @@ const WorkerAnalysis = () => {
     } catch {
       toast.error("Error", "Could not load worker analysis.");
     } finally {
+      hasLoadedRef.current = true;
       setLoading(false);
       setRefreshing(false);
     }
@@ -182,6 +188,14 @@ const WorkerAnalysis = () => {
   }, [fetchAnalysis]);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearch(searchInput.trim());
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
     setPage(1);
   }, [dateFrom, dateTo, department, limit, reportType, search, sortBy, sortDir, timing]);
 
@@ -190,6 +204,7 @@ const WorkerAnalysis = () => {
   }, [totalPages]);
 
   const resetFilters = () => {
+    setSearchInput("");
     setSearch("");
     setDepartment("");
     setReportType("");
@@ -276,12 +291,15 @@ const WorkerAnalysis = () => {
             <input
               className="input-field pl-10 pr-10"
               placeholder="Search by worker, ID, email, department..."
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
             />
-            {search && (
+            {searchInput && (
               <button
-                onClick={() => setSearch("")}
+                onClick={() => {
+                  setSearchInput("");
+                  setSearch("");
+                }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                 title="Clear search"
               >
@@ -406,6 +424,12 @@ const WorkerAnalysis = () => {
                 {total} worker{total === 1 ? "" : "s"} found
               </p>
             </div>
+            {refreshing && (
+              <div className="flex items-center gap-1.5 text-xs text-purple-600 dark:text-purple-300">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                Updating
+              </div>
+            )}
           </div>
 
           {analysis.length === 0 ? (
@@ -419,7 +443,10 @@ const WorkerAnalysis = () => {
                 return (
                   <button
                     key={entry.worker?._id}
-                    onClick={() => setSelectedWorker(entry)}
+                    onClick={() => {
+                      setSelectedWorker(entry);
+                      setMobileDetailOpen(true);
+                    }}
                     className={cn(
                       "w-full p-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-slate-800/50",
                       selected && "bg-purple-50 dark:bg-purple-900/20"
@@ -470,11 +497,19 @@ const WorkerAnalysis = () => {
           </div>
         </div>
 
-        <WorkerAnalysisDetail
-          entry={selectedWorker}
-          onPrint={() => printWorker(selectedWorker)}
-        />
+        <div className="hidden xl:block">
+          <WorkerAnalysisDetail
+            entry={selectedWorker}
+            onPrint={() => printWorker(selectedWorker)}
+          />
+        </div>
       </div>
+
+      <MobileWorkerAnalysisSheet
+        entry={mobileDetailOpen ? selectedWorker : null}
+        onClose={() => setMobileDetailOpen(false)}
+        onPrint={() => printWorker(selectedWorker)}
+      />
 
       <div className="worker-analysis-print-shell">
         <WorkerAnalysisPrint entry={selectedWorker} />
@@ -483,17 +518,17 @@ const WorkerAnalysis = () => {
   );
 };
 
-const WorkerAnalysisDetail = ({ entry, onPrint }) => {
+const WorkerAnalysisDetail = ({ entry, onPrint, className = "" }) => {
   if (!entry) {
     return (
-      <div className="card p-6 text-center text-sm text-gray-400 dark:text-slate-500">
+      <div className={cn("card p-6 text-center text-sm text-gray-400 dark:text-slate-500", className)}>
         Select a worker to view printable analysis.
       </div>
     );
   }
 
   return (
-    <div className="card p-4 space-y-4 h-fit xl:sticky xl:top-20">
+    <div className={cn("card p-4 space-y-4 h-fit xl:sticky xl:top-20", className)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-bold text-gray-900 dark:text-slate-100 truncate">
@@ -541,6 +576,47 @@ const WorkerAnalysisDetail = ({ entry, onPrint }) => {
       <div className="rounded-lg border border-gray-100 dark:border-slate-700 p-3 text-xs text-gray-500 dark:text-slate-400 space-y-1">
         <p>First submitted: {formatDateLabel(entry.firstSubmittedAt)}</p>
         <p>Latest submitted: {formatDateLabel(entry.latestSubmittedAt)}</p>
+      </div>
+    </div>
+  );
+};
+
+const MobileWorkerAnalysisSheet = ({ entry, onClose, onPrint }) => {
+  if (!entry) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 xl:hidden">
+      <button
+        type="button"
+        aria-label="Close worker analysis"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+      />
+
+      <div className="absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto rounded-t-2xl bg-white dark:bg-slate-900 shadow-2xl p-4 animate-slide-up">
+        <div className="flex items-center justify-between gap-3 pb-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-purple-600 dark:text-purple-300">
+              Worker Analysis
+            </p>
+            <p className="text-sm font-bold text-gray-900 dark:text-slate-100 truncate">
+              {entry.worker?.fullName || "Selected worker"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-800"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <WorkerAnalysisDetail
+          entry={entry}
+          onPrint={onPrint}
+          className="p-0 shadow-none border-0 bg-transparent dark:bg-transparent"
+        />
       </div>
     </div>
   );

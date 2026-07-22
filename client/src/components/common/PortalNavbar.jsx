@@ -6,7 +6,7 @@ import {
   LogOut, ChevronDown, Menu, X, Sun, Moon, Lightbulb, Trophy, BarChart3,
 } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
-import { useRestartTour } from "./TourGuide";
+import { useRestartTour } from "../../hooks/useRestartTour";
 import NotificationBell from "./NotificationBell";
 import { cn } from "../../utils/scoreHelpers";
 
