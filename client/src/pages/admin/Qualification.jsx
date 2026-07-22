@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   AlertCircle,
   Calendar,
@@ -25,7 +26,7 @@ import { getPortalStatus } from "../../services/portalService";
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
 import { ToastContainer, useToast } from "../../components/common/Toast";
-import { formatDate, getWeekLabel } from "../../utils/formatDate";
+import { getWeekLabel } from "../../utils/formatDate";
 import { cn, getCriteriaStatus } from "../../utils/scoreHelpers";
 
 const HISTORY_PERIODS = [
@@ -57,6 +58,32 @@ const getHistoryDates = (period) => {
 
 const formatDepartment = (department = "") =>
   department ? department.replace(/-/g, " ") : "Unassigned";
+
+const getWorkerRowKey = (item, view, index) =>
+  item.worker?._id ||
+  item.worker?.workerId ||
+  `${view}-${item.worker?.fullName || "worker"}-${index}`;
+
+const getServiceRoleCategory = (item = {}) =>
+  item.serviceRoleCategory ||
+  item.serviceRoleQualification?.category ||
+  "none";
+
+const getServiceRoleLabel = (category = "none") => {
+  if (category === "leading") return "Leading role";
+  if (category === "supporting") return "Supporting role";
+  return "No role qual.";
+};
+
+const getServiceRoleBadgeClass = (category = "none") => {
+  if (category === "leading") {
+    return "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300";
+  }
+  if (category === "supporting") {
+    return "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300";
+  }
+  return "bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400";
+};
 
 const Qualification = () => {
   const { toasts, toast, removeToast } = useToast();
@@ -263,7 +290,16 @@ const Qualification = () => {
     filename = "qualification"
   ) => {
     const rows = [
-      ["Rank", "Name", "Worker ID", "Department", "Score", "Status"],
+      [
+        "Rank",
+        "Name",
+        "Worker ID",
+        "Department",
+        "Score",
+        "Cell People",
+        "Service Role",
+        "Status",
+      ],
     ];
 
     const pushRows = (list, fallbackStatus, startRank = 0) => {
@@ -274,6 +310,8 @@ const Qualification = () => {
           item.worker?.workerId || "ID pending",
           formatDepartment(item.worker?.department),
           item.totalScore || 0,
+          item.cellMeetingPeopleCount || 0,
+          getServiceRoleLabel(getServiceRoleCategory(item)),
           !item.submittedReport
             ? "No report"
             : item.isQualified
@@ -310,7 +348,9 @@ const Qualification = () => {
   const WorkerRow = ({ item, index, view }) => {
     const worker = item.worker;
     const noSub = view === "no-submission" || item.submittedReport === false;
-    const isExpanded = expandedId === worker?._id;
+    const rowKey = getWorkerRowKey(item, view, index);
+    const isExpanded = expandedId === rowKey;
+    const serviceRoleCategory = getServiceRoleCategory(item);
     const criteria = noSub
       ? []
       : getCriteriaStatus(item.qualificationBreakdown, item.scoreBreakdown);
@@ -324,7 +364,7 @@ const Qualification = () => {
           )}
           onClick={() => {
             if (!noSub) {
-              setExpandedId(isExpanded ? null : worker?._id);
+              setExpandedId(isExpanded ? null : rowKey);
             }
           }}
         >
@@ -377,6 +417,14 @@ const Qualification = () => {
                 >
                   {item.isQualified ? "Qualified" : "Almost qualified"}
                 </span>
+                <span
+                  className={cn(
+                    "block text-xs px-2 py-1 rounded-full font-semibold mt-1",
+                    getServiceRoleBadgeClass(serviceRoleCategory)
+                  )}
+                >
+                  {getServiceRoleLabel(serviceRoleCategory)}
+                </span>
               </div>
             )}
 
@@ -391,7 +439,7 @@ const Qualification = () => {
 
         {isExpanded && !noSub && (
           <div className="border-t border-gray-100 dark:border-slate-700 p-4 bg-gray-50 dark:bg-slate-800/40 space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
               {[
                 {
                   label: "Score",
@@ -410,6 +458,12 @@ const Qualification = () => {
                   value: item.churchAttendeeCount || 0,
                   color:
                     "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400",
+                },
+                {
+                  label: "Cell People",
+                  value: item.cellMeetingPeopleCount || 0,
+                  color:
+                    "bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-400",
                 },
                 {
                   label: "Fellowship",
@@ -449,7 +503,8 @@ const Qualification = () => {
                         {criterion.label}
                       </p>
                       <p className="text-gray-500 dark:text-slate-400 mt-1">
-                        {criterion.score}/{criterion.weight} pts
+                        {criterion.pointsText ||
+                          `${criterion.score}/${criterion.weight} pts`}
                       </p>
                       {!criterion.passed && criterion.reason && (
                         <p className="text-red-500 dark:text-red-400 mt-1">
@@ -536,6 +591,14 @@ const Qualification = () => {
 
         {tab === "current" && (
           <div className="flex flex-wrap gap-2">
+            <Link
+              to="/admin/service-roles"
+              className="btn-outline text-sm flex items-center gap-1.5"
+            >
+              <Trophy className="w-4 h-4" />
+              Service Roles
+            </Link>
+
             <button
               onClick={handleProcessNow}
               disabled={processing}
@@ -724,8 +787,9 @@ const Qualification = () => {
             <AlertCircle className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-blue-800 dark:text-blue-300">
               The live ranking matches the current-week qualification used on the admin dashboard.
-              Ranking order is based on qualification first, then score, then souls, attendees, and
-              fellowship strength. Click any worker to see the full calculation breakdown.
+              Ranking order is based on qualification first, then score, then souls, cell meeting
+              people, attendees, and fellowship strength. Click any worker to see the full
+              calculation breakdown.
             </p>
           </div>
 
@@ -759,7 +823,11 @@ const Qualification = () => {
                   <>
                     {pagedWorkers.map((item, index) => (
                       <WorkerRow
-                        key={item.worker?._id || `${activeTab.key}-${index}`}
+                        key={getWorkerRowKey(
+                          item,
+                          activeTab.key,
+                          (activeTab.page - 1) * PER_PAGE + index
+                        )}
                         item={item}
                         index={(activeTab.page - 1) * PER_PAGE + index}
                         view={activeTab.key}

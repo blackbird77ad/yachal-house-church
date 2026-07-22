@@ -2,6 +2,7 @@ import { createBrowserRouter, RouterProvider, Outlet, Navigate } from "react-rou
 import PortalNavbar from "../components/common/PortalNavbar";
 import Login from "../pages/auth/Login";
 import Register from "../pages/auth/Register";
+import ResetPassword from "../pages/auth/ResetPassword";
 import Pending from "../pages/auth/Pending";
 import WorkerDashboard from "../pages/portal/WorkerDashboard";
 import SubmitReport from "../pages/portal/SubmitReport";
@@ -16,9 +17,11 @@ import Workers from "../pages/admin/Workers";
 import WorkerProfile from "../pages/admin/WorkerProfile";
 import Reports from "../pages/admin/Reports";
 import ReportDetail from "../pages/admin/ReportDetail";
+import WorkerAnalysis from "../pages/admin/WorkerAnalysis";
 import ReportTypes from "../pages/admin/ReportTypes";
 import PortalControl from "../pages/admin/PortalControl";
 import Qualification from "../pages/admin/Qualification";
+import ServiceRoleQualification from "../pages/admin/ServiceRoleQualification";
 import RosterBuilder from "../pages/admin/RosterBuilder";
 import AttendanceHistory from "../pages/admin/AttendanceHistory";
 import NotFound from "../pages/NotFound";
@@ -55,6 +58,7 @@ const router = createBrowserRouter([{
     children: [
       { path: "/login", element: <Login /> },
       { path: "/register", element: <Register /> },
+      { path: "/reset-password/:token", element: <ResetPassword /> },
       { path: "/pending", element: <Pending /> },
     ],
   },
@@ -79,9 +83,11 @@ const router = createBrowserRouter([{
       { path: "/admin/workers/:workerId", element: <WorkerProfile /> },
       { path: "/admin/reports", element: <Reports /> },
       { path: "/admin/reports/:reportId", element: <ReportDetail /> },
+      { path: "/admin/worker-analysis", element: <WorkerAnalysis /> },
       { path: "/admin/report-types", element: <ReportTypes /> },
       { path: "/admin/portal", element: <PortalControl /> },
       { path: "/admin/qualification", element: <Qualification /> },
+      { path: "/admin/service-roles", element: <ServiceRoleQualification /> },
       { path: "/admin/roster", element: <RosterBuilder /> },
       { path: "/admin/attendance", element: <AttendanceHistory /> },
     ],

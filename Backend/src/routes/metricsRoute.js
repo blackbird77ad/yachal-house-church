@@ -8,6 +8,7 @@ import {
   getLateMetrics,
   triggerManualProcessing,
   getAllWorkersStatus,
+  getServiceRoleQualificationHistory,
 } from "../controllers/metricsController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import { isAdminLevel } from "../middleware/roleMiddleware.js";
@@ -22,5 +23,11 @@ router.get("/disqualified", protect, isAdminLevel, getDisqualifiedList);
 router.get("/late", protect, isAdminLevel, getLateMetrics);
 router.post("/process", protect, isAdminLevel, triggerManualProcessing);
 router.get("/all-status", protect, isAdminLevel, getAllWorkersStatus);
+router.get(
+  "/service-role-qualification",
+  protect,
+  isAdminLevel,
+  getServiceRoleQualificationHistory
+);
 
 export default router;

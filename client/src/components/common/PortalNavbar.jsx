@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { createElement, useState } from "react";
 import { NavLink, Link, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, FileText, Clock, Calendar, Bell, User,
   MonitorCheck, Users, Shield, Settings, ClipboardList,
-  LogOut, ChevronDown, Menu, X, Sun, Moon, Lightbulb,
+  LogOut, ChevronDown, Menu, X, Sun, Moon, Lightbulb, Trophy, BarChart3,
 } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 import { useRestartTour } from "./TourGuide";
@@ -22,7 +22,9 @@ const adminLinks = [
   { to: "/admin/dashboard",   label: "Dashboard",    icon: LayoutDashboard },
   { to: "/admin/workers",     label: "Workers",      icon: Users },
   { to: "/admin/reports",     label: "Reports",      icon: FileText },
+  { to: "/admin/worker-analysis", label: "Analysis", icon: BarChart3 },
   { to: "/admin/qualification", label: "Qualify",    icon: Shield },
+  { to: "/admin/service-roles", label: "Service Roles", icon: Trophy },
   { to: "/admin/roster",      label: "Roster",       icon: Calendar },
   { to: "/admin/portal",      label: "Portal",       icon: Settings },
   { to: "/admin/report-types", label: "Report Types", icon: ClipboardList },
@@ -77,7 +79,7 @@ const PortalNavbar = () => {
 
             {/* Desktop nav links */}
             <div className="hidden lg:flex items-center gap-0.5 flex-1 overflow-hidden">
-              {links.map(({ to, label, icon: Icon }) => (
+              {links.map(({ to, label, icon }) => (
                 <NavLink
                   key={to}
                   to={to}
@@ -88,7 +90,7 @@ const PortalNavbar = () => {
                       : "text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-slate-100"
                   )}
                 >
-                  <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                  {createElement(icon, { className: "w-3.5 h-3.5 flex-shrink-0" })}
                   {label}
                 </NavLink>
               ))}
@@ -212,7 +214,7 @@ const PortalNavbar = () => {
           <div className="lg:hidden border-t border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900">
             <div className="max-w-screen-xl mx-auto px-4 py-3">
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
-                {links.map(({ to, label, icon: Icon }) => (
+                {links.map(({ to, label, icon }) => (
                   <NavLink
                     key={to}
                     to={to}
@@ -224,7 +226,7 @@ const PortalNavbar = () => {
                         : "text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800"
                     )}
                   >
-                    <Icon className="w-4 h-4 flex-shrink-0" />
+                    {createElement(icon, { className: "w-4 h-4 flex-shrink-0" })}
                     {label}
                   </NavLink>
                 ))}

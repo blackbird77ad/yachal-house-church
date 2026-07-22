@@ -33,6 +33,21 @@ const churchAttendeeSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const cellMeetingPersonSchema = new mongoose.Schema(
+  {
+    fullName: { type: String, required: true, trim: true },
+    contact: { type: String, trim: true },
+    ageRange: {
+      type: String,
+      enum: ["unknown", "under-12", "above-12", "typed"],
+      default: "unknown",
+    },
+    age: { type: Number },
+    olderThan12: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
 const followUpSchema = new mongoose.Schema(
   {
     fullName: { type: String, trim: true },
@@ -153,6 +168,7 @@ const reportSchema = new mongoose.Schema(
           _id: false,
         },
       ],
+      peopleTakenToCell: [cellMeetingPersonSchema],
     },
 
     cellReportData: {

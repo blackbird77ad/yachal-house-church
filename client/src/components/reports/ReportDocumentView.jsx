@@ -9,10 +9,10 @@ const PRINT_STYLE = `
   #report-print-area {
     max-width: 960px !important;
     margin: 0 auto !important;
-    padding: 28px 32px !important;
+    padding: 24px 28px !important;
     border: 1px solid #e5e7eb !important;
-    border-radius: 18px !important;
-    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.07) !important;
   }
 }
 
@@ -43,9 +43,10 @@ const PRINT_STYLE = `
     box-shadow: none !important;
     background: white !important;
     color: black !important;
-    font-family: Georgia, serif !important;
+    font-family: Arial, Helvetica, sans-serif !important;
     box-sizing: border-box !important;
     overflow: visible !important;
+    color-scheme: light !important;
   }
 
   #report-print-area,
@@ -61,7 +62,7 @@ const PRINT_STYLE = `
 
   @page {
     size: A4 portrait;
-    margin: 16mm 14mm 16mm 14mm;
+    margin: 14mm 12mm 14mm 12mm;
   }
 }
 `;
@@ -77,32 +78,32 @@ const textBlockStyle = {
 
 const cardStyle = {
   fontSize: 11,
-  padding: "10px 12px",
-  border: "1px solid #e5e7eb",
-  borderRadius: 10,
-  backgroundColor: "#f8fafc",
+  padding: "8px 10px",
+  border: "1px solid #dbe3ee",
+  borderRadius: 8,
+  backgroundColor: "#ffffff",
 };
 
 const Section = ({ title, children }) => (
   <div
     style={{
       marginBottom: 20,
-      border: "1px solid #e5e7eb",
-      borderRadius: 14,
-      padding: 16,
+      border: "1px solid #dbe3ee",
+      borderRadius: 10,
+      padding: 12,
       backgroundColor: "#ffffff",
       breakInside: "avoid",
       pageBreakInside: "avoid",
     }}
   >
-    <div style={{ borderBottom: "2px solid #1e1b4b", marginBottom: 12, paddingBottom: 6 }}>
+    <div style={{ borderBottom: "1px solid #cbd5e1", marginBottom: 10, paddingBottom: 6 }}>
       <span
         style={{
-          fontSize: 13,
+          fontSize: 12,
           fontWeight: "bold",
-          color: "#1e1b4b",
+          color: "#111827",
           textTransform: "uppercase",
-          letterSpacing: 1,
+          letterSpacing: 0.5,
         }}
       >
         {title}
@@ -125,10 +126,10 @@ const Field = ({ label, value, full }) => {
         marginBottom: 10,
         verticalAlign: "top",
         maxWidth: "100%",
-        padding: "10px 12px",
-        border: "1px solid #e5e7eb",
-        borderRadius: 10,
-        backgroundColor: full ? "#ffffff" : "#f8fafc",
+        padding: "8px 10px",
+        border: "1px solid #dbe3ee",
+        borderRadius: 8,
+        backgroundColor: "#ffffff",
         boxSizing: "border-box",
       }}
     >
@@ -165,11 +166,12 @@ const TableHead = ({ cols }) => (
     style={{
       display: "flex",
       alignItems: "stretch",
-      backgroundColor: "#1e1b4b",
-      color: "white",
-      padding: "10px 12px",
-      marginBottom: 4,
-      borderRadius: 10,
+      backgroundColor: "#f1f5f9",
+      color: "#111827",
+      padding: "8px 10px",
+      marginBottom: 0,
+      borderRadius: 8,
+      border: "1px solid #cbd5e1",
       width: "100%",
       boxSizing: "border-box",
     }}
@@ -179,7 +181,7 @@ const TableHead = ({ cols }) => (
         key={index}
         style={{
           flex: w || 1,
-          fontSize: 9,
+          fontSize: 8.5,
           fontWeight: 600,
           textTransform: "uppercase",
           letterSpacing: 0.5,
@@ -200,8 +202,10 @@ const TableRow = ({ cols, index }) => (
     style={{
       display: "flex",
       alignItems: "stretch",
-      padding: "10px 12px",
+      padding: "8px 10px",
       backgroundColor: index % 2 === 0 ? "#f9fafb" : "white",
+      borderLeft: "1px solid #e5e7eb",
+      borderRight: "1px solid #e5e7eb",
       borderBottom: "1px solid #e5e7eb",
       width: "100%",
       boxSizing: "border-box",
@@ -241,6 +245,14 @@ const EvangelismContent = ({ report }) => {
     followUpData,
   } = report;
   const soulLabel = (status) => SOUL_STATUSES?.find((item) => item.value === status)?.label || status;
+  const peopleTakenToCell = cellData?.peopleTakenToCell || [];
+  const ageLabel = (person = {}) => {
+    if (person.ageRange === "under-12") return "Under 12";
+    if (person.ageRange === "above-12") return "Above 12";
+    if (person.ageRange === "typed" && person.age != null) return `${person.age} years`;
+    if (person.olderThan12) return "Above 12";
+    return "I don't know yet";
+  };
 
   return (
     <>
@@ -334,14 +346,14 @@ const EvangelismContent = ({ report }) => {
               <div
                 key={index}
                 style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 10,
-                  padding: 12,
+                  border: "1px solid #dbe3ee",
+                  borderRadius: 8,
+                  padding: 10,
                   marginTop: 8,
-                  backgroundColor: "#f8fafc",
+                  backgroundColor: "#ffffff",
                 }}
               >
-                <div style={{ fontSize: 10, fontWeight: 700, marginBottom: 8, color: "#1e1b4b" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, marginBottom: 8, color: "#111827" }}>
                   Cell {index + 1}
                 </div>
                 <Field label="Cell Name" value={item.cellName} />
@@ -350,6 +362,31 @@ const EvangelismContent = ({ report }) => {
                 <Field label="Role Played" value={item.role} />
               </div>
             ))}
+        </Section>
+      )}
+
+      {peopleTakenToCell.length > 0 && (
+        <Section title={`People Taken to Cell Meeting (${peopleTakenToCell.length})`}>
+          <TableHead
+            cols={[
+              { label: "#", w: 0.3 },
+              { label: "Name", w: 2 },
+              { label: "Contact", w: 1.5 },
+              { label: "Age", w: 1.5 },
+            ]}
+          />
+          {peopleTakenToCell.map((item, index) => (
+            <TableRow
+              key={index}
+              index={index}
+              cols={[
+                { w: 0.3, val: index + 1 },
+                { w: 2, val: item.fullName, bold: true },
+                { w: 1.5, val: item.contact || "Not shared" },
+                { w: 1.5, val: ageLabel(item) },
+              ]}
+            />
+          ))}
         </Section>
       )}
 
@@ -570,11 +607,11 @@ const CellReportContent = ({ report }) => {
               <div
                 key={index}
                 style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 10,
-                  padding: 12,
+                  border: "1px solid #dbe3ee",
+                  borderRadius: 8,
+                  padding: 10,
                   marginTop: 8,
-                  backgroundColor: "#f8fafc",
+                  backgroundColor: "#ffffff",
                 }}
               >
                 <div style={{ fontWeight: 700, fontSize: 10, marginBottom: 8 }}>Topic {index + 1}</div>
@@ -941,11 +978,12 @@ const ReportDocumentView = ({
 
       <div
         id={REPORT_PRINT_AREA_ID}
+        className="print-sheet"
         style={{
           backgroundColor: "white",
-          color: "black",
-          fontFamily: "Georgia, serif",
-          padding: 28,
+          color: "#111827",
+          fontFamily: "Arial, Helvetica, sans-serif",
+          padding: 24,
           width: "100%",
           maxWidth: 960,
           margin: "0 auto",
@@ -956,7 +994,7 @@ const ReportDocumentView = ({
       >
         <div
           style={{
-            borderBottom: "3px solid #1e1b4b",
+            borderBottom: "1px solid #cbd5e1",
             paddingBottom: 12,
             marginBottom: 20,
             width: "100%",
@@ -976,9 +1014,9 @@ const ReportDocumentView = ({
               <div
                 style={{
                   fontSize: 9,
-                  color: "#6b7280",
+                  color: "#64748b",
                   textTransform: "uppercase",
-                  letterSpacing: 2,
+                  letterSpacing: 1,
                   marginBottom: 4,
                 }}
               >
@@ -988,7 +1026,7 @@ const ReportDocumentView = ({
                 style={{
                   fontSize: 20,
                   fontWeight: "bold",
-                  color: "#1e1b4b",
+                  color: "#111827",
                   marginBottom: 2,
                   overflowWrap: "break-word",
                 }}
@@ -1024,6 +1062,7 @@ const ReportDocumentView = ({
                     borderRadius: 20,
                     backgroundColor: statusMeta.backgroundColor,
                     color: statusMeta.color,
+                    border: "1px solid rgba(15, 23, 42, 0.08)",
                   }}
                 >
                   {statusMeta.label}

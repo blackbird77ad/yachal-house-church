@@ -8,6 +8,7 @@ import {
   getMyCellNames,
   getMyDraft,
   getAllReports,
+  getWorkerReportAnalysis,
   getReportById,
   deleteMyDraftReport,
 } from "../controllers/reportController.js";
@@ -25,6 +26,7 @@ router.get("/my-reports",    protect, getMyReports);
 router.get("/my-report-summary", protect, getMyReportSummary);
 router.get("/my-cell-names", protect, getMyCellNames);
 router.get("/my-draft", protect, getMyDraft);
+router.get("/worker-analysis", protect, isAdminLevel, getWorkerReportAnalysis);
 router.get("/", protect, isAdminLevel, getAllReports);
 router.get("/:reportId", protect, getReportById);
 router.delete("/my-drafts/:reportId", protect, deleteMyDraftReport);

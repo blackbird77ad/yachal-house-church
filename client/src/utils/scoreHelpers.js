@@ -27,13 +27,23 @@ const getScoreValue = (scoreBreakdown, key, fallbackPassed, fullWeight) => {
   return fallbackPassed ? fullWeight : 0;
 };
 
+const hasCellMeetingPeopleCriterion = (breakdown = {}, scoreBreakdown = null) =>
+  typeof breakdown.cellMeetingPeopleQualified === "boolean" ||
+  (scoreBreakdown &&
+    typeof scoreBreakdown.cellMeetingPeopleScore === "number");
+
 export const getCriteriaStatus = (breakdown, scoreBreakdown = null) => {
   if (!breakdown) return [];
 
   const minSouls = QUALIFICATION_CRITERIA.MIN_SOULS ?? 10;
   const minFellowshipHours = QUALIFICATION_CRITERIA.MIN_FELLOWSHIP_HOURS ?? 2;
+  const minCellMeetingPeople = QUALIFICATION_CRITERIA.MIN_CELL_MEETING_PEOPLE ?? 4;
   const minChurchAttendees = QUALIFICATION_CRITERIA.MIN_CHURCH_ATTENDEES ?? 4;
   const minCellPrayerHours = QUALIFICATION_CRITERIA.MIN_CELL_PRAYER_HOURS ?? 2;
+  const usesCellPeopleCriterion = hasCellMeetingPeopleCriterion(
+    breakdown,
+    scoreBreakdown
+  );
 
   const cellAttendancePassed =
     typeof breakdown.cellAttendanceQualified === "boolean"
@@ -45,10 +55,10 @@ export const getCriteriaStatus = (breakdown, scoreBreakdown = null) => {
       ? breakdown.cellPrayerQualified
       : false;
 
-  return [
+  const criteria = [
     {
       key: "soulsQualified",
-      label: `Souls preached to — min ${minSouls}`,
+      label: `Souls preached to - min ${minSouls}`,
       weight: 30,
       passed: !!breakdown.soulsQualified,
       score: getScoreValue(scoreBreakdown, "soulsScore", !!breakdown.soulsQualified, 30),
@@ -72,7 +82,7 @@ export const getCriteriaStatus = (breakdown, scoreBreakdown = null) => {
     },
     {
       key: "fellowshipQualified",
-      label: `Fellowship prayer — min ${minFellowshipHours} hours`,
+      label: `Fellowship prayer - min ${minFellowshipHours} hours`,
       weight: 10,
       passed: !!breakdown.fellowshipQualified,
       score: getScoreValue(scoreBreakdown, "fellowshipScore", !!breakdown.fellowshipQualified, 10),
@@ -82,15 +92,39 @@ export const getCriteriaStatus = (breakdown, scoreBreakdown = null) => {
     },
     {
       key: "cellAttendanceQualified",
-      label: "Cell meeting — attended at least once",
-      weight: 10,
+      label: "Cell meeting - attended at least once",
+      weight: usesCellPeopleCriterion ? 0 : 10,
       passed: cellAttendancePassed,
-      score: getScoreValue(scoreBreakdown, "cellAttendanceScore", cellAttendancePassed, 10),
+      score: usesCellPeopleCriterion
+        ? 0
+        : getScoreValue(scoreBreakdown, "cellAttendanceScore", cellAttendancePassed, 10),
+      pointsText: usesCellPeopleCriterion ? "Required" : null,
       reason: !cellAttendancePassed ? "Did not attend cell meeting" : null,
     },
+  ];
+
+  if (usesCellPeopleCriterion) {
+    criteria.push({
+      key: "cellMeetingPeopleQualified",
+      label: `People 12+ taken to cell meeting - min ${minCellMeetingPeople}`,
+      weight: 10,
+      passed: !!breakdown.cellMeetingPeopleQualified,
+      score: getScoreValue(
+        scoreBreakdown,
+        "cellMeetingPeopleScore",
+        !!breakdown.cellMeetingPeopleQualified,
+        10
+      ),
+      reason: !breakdown.cellMeetingPeopleQualified
+        ? `Minimum of ${minCellMeetingPeople} people required`
+        : null,
+    });
+  }
+
+  criteria.push(
     {
       key: "cellPrayerQualified",
-      label: `Cell prayer — min ${minCellPrayerHours} hours`,
+      label: `Cell prayer - min ${minCellPrayerHours} hours`,
       weight: 10,
       passed: cellPrayerPassed,
       score: getScoreValue(scoreBreakdown, "cellPrayerScore", cellPrayerPassed, 10),
@@ -100,33 +134,40 @@ export const getCriteriaStatus = (breakdown, scoreBreakdown = null) => {
     },
     {
       key: "attendanceQualified",
-      label: `People 12+ brought to church — min ${minChurchAttendees}`,
+      label: `People 12+ brought to church - min ${minChurchAttendees}`,
       weight: 20,
       passed: !!breakdown.attendanceQualified,
       score: getScoreValue(scoreBreakdown, "attendeesScore", !!breakdown.attendanceQualified, 20),
       reason: !breakdown.attendanceQualified
         ? `Minimum of ${minChurchAttendees} people required`
         : null,
-    },
-  ];
+    }
+  );
+
+  return criteria;
 };
 
 export const calculateClosenessToQualification = (breakdown, scoreBreakdown = null) => {
   if (!breakdown) return 0;
 
   if (scoreBreakdown) {
+    const usesCellPeopleScore =
+      typeof scoreBreakdown.cellMeetingPeopleScore === "number";
     const total =
       (Number(scoreBreakdown.soulsScore) || 0) +
       (Number(scoreBreakdown.tuesdayScore) || 0) +
       (Number(scoreBreakdown.sundayScore) || 0) +
       (Number(scoreBreakdown.fellowshipScore) || 0) +
-      (Number(scoreBreakdown.cellAttendanceScore) || 0) +
+      (usesCellPeopleScore
+        ? Number(scoreBreakdown.cellMeetingPeopleScore) || 0
+        : Number(scoreBreakdown.cellAttendanceScore) || 0) +
       (Number(scoreBreakdown.cellPrayerScore) || 0) +
       (Number(scoreBreakdown.attendeesScore) || 0);
 
     return Math.round(total);
   }
 
+  const usesCellPeopleCriterion = hasCellMeetingPeopleCriterion(breakdown);
   const criteria = [
     !!breakdown.soulsQualified,
     !!breakdown.tuesdayQualified,
@@ -135,6 +176,9 @@ export const calculateClosenessToQualification = (breakdown, scoreBreakdown = nu
     typeof breakdown.cellAttendanceQualified === "boolean"
       ? breakdown.cellAttendanceQualified
       : !!breakdown.cellQualified,
+    ...(usesCellPeopleCriterion
+      ? [!!breakdown.cellMeetingPeopleQualified]
+      : []),
     typeof breakdown.cellPrayerQualified === "boolean"
       ? breakdown.cellPrayerQualified
       : false,
@@ -152,6 +196,11 @@ export const compareQualificationRank = (a, b) => {
   const soulsDiff =
     (Number(b?.qualifyingSouls) || 0) - (Number(a?.qualifyingSouls) || 0);
   if (soulsDiff !== 0) return soulsDiff;
+
+  const cellMeetingPeopleDiff =
+    (Number(b?.cellMeetingPeopleCount) || 0) -
+    (Number(a?.cellMeetingPeopleCount) || 0);
+  if (cellMeetingPeopleDiff !== 0) return cellMeetingPeopleDiff;
 
   const attendeesDiff =
     (Number(b?.churchAttendeeCount) || 0) - (Number(a?.churchAttendeeCount) || 0);

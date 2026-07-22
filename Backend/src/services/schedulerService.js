@@ -12,6 +12,7 @@ import {
   ensureWeeklyMetricsFresh,
   processWeeklyMetrics,
 } from "./metricsService.js";
+import { buildServiceRoleQualificationSummary } from "./serviceRoleQualificationService.js";
 import {
   isValidEmailAddress,
   sendPortalOpenEmail,
@@ -478,6 +479,62 @@ const ensurePortalClosureCommunications = async (
   const dispatchSince = getDispatchSince(portal);
   const now = new Date();
 
+  const metrics = await Metrics.find({
+    weekReference: normalizedWeek,
+    isLateSubmission: false,
+  })
+    .populate("worker", "fullName workerId department")
+    .sort({ totalScore: -1 });
+
+  const qualified = metrics.filter((metric) => metric.isQualified);
+  const disqualified = metrics.filter((metric) => !metric.isQualified);
+  const serviceRoleSummary = buildServiceRoleQualificationSummary([
+    ...qualified,
+    ...disqualified,
+  ]);
+
+  const leaderRecipients = await getAdminRecipients();
+  const leaderRecipientIds = leaderRecipients.map((recipient) => recipient._id);
+  const adminEmailRecipients = leaderRecipients.filter((recipient) =>
+    isValidEmailAddress(recipient.email)
+  );
+
+  const qualificationAudit = getPortalAuditEntry(portal, "qualificationResults");
+  qualificationAudit.qualifiedCount = qualified.length;
+  qualificationAudit.disqualifiedCount = disqualified.length;
+
+  const qualificationNotification = {
+    type: "qualification-result",
+    title: "Qualification results ready - Action required",
+    message: `Qualification has been processed. ${qualified.length} qualified, ${disqualified.length} not qualified. ${serviceRoleSummary.leading.length} leading-role, ${serviceRoleSummary.supporting.length} supporting-role.`,
+    link: "/admin/qualification",
+  };
+
+  await ensureBulkNotificationDelivered({
+    auditEntry: qualificationAudit,
+    recipientIds: leaderRecipientIds,
+    payload: qualificationNotification,
+    since: dispatchSince,
+  });
+
+  await ensureEmailDispatch({
+    auditEntry: qualificationAudit,
+    recipients: adminEmailRecipients,
+    sendFn: (recipients) =>
+      sendQualificationResultsEmail(recipients, qualified, disqualified),
+    label: "Scheduler qualification email delivery issue",
+  });
+
+  await ensurePushDispatch({
+    auditEntry: qualificationAudit,
+    recipientIds: leaderRecipientIds,
+    payload: {
+      title: "Qualification results ready",
+      body: `${qualified.length} qualified, ${disqualified.length} not qualified. ${serviceRoleSummary.leading.length} leading-role, ${serviceRoleSummary.supporting.length} supporting-role.`,
+      url: "/admin/qualification",
+    },
+  });
+
   const allRecipients = await getApprovedRecipients();
   const allRecipientIds = allRecipients.map((recipient) => recipient._id);
   const portalClosedAudit = getPortalAuditEntry(portal, "portalClosed");
@@ -508,58 +565,6 @@ const ensurePortalClosureCommunications = async (
 
   portalClosedAudit.emailSentAt = portalClosedAudit.emailSentAt || now;
   portalClosedAudit.lastEmailError = null;
-
-  const metrics = await Metrics.find({
-    weekReference: normalizedWeek,
-    isLateSubmission: false,
-  })
-    .populate("worker", "fullName workerId department")
-    .sort({ totalScore: -1 });
-
-  const qualified = metrics.filter((metric) => metric.isQualified);
-  const disqualified = metrics.filter((metric) => !metric.isQualified);
-
-  const leaderRecipients = await getAdminRecipients();
-  const leaderRecipientIds = leaderRecipients.map((recipient) => recipient._id);
-  const adminEmailRecipients = leaderRecipients.filter((recipient) =>
-    isValidEmailAddress(recipient.email)
-  );
-
-  const qualificationAudit = getPortalAuditEntry(portal, "qualificationResults");
-  qualificationAudit.qualifiedCount = qualified.length;
-  qualificationAudit.disqualifiedCount = disqualified.length;
-
-  const qualificationNotification = {
-    type: "qualification-result",
-    title: "Qualification results ready - Action required",
-    message: `Qualification has been processed. ${qualified.length} qualified, ${disqualified.length} not qualified.`,
-    link: "/admin/qualification",
-  };
-
-  await ensureBulkNotificationDelivered({
-    auditEntry: qualificationAudit,
-    recipientIds: leaderRecipientIds,
-    payload: qualificationNotification,
-    since: dispatchSince,
-  });
-
-  await ensureEmailDispatch({
-    auditEntry: qualificationAudit,
-    recipients: adminEmailRecipients,
-    sendFn: (recipients) =>
-      sendQualificationResultsEmail(recipients, qualified, disqualified),
-    label: "Scheduler qualification email delivery issue",
-  });
-
-  await ensurePushDispatch({
-    auditEntry: qualificationAudit,
-    recipientIds: leaderRecipientIds,
-    payload: {
-      title: "Qualification results ready",
-      body: `${qualified.length} qualified, ${disqualified.length} not qualified.`,
-      url: "/admin/qualification",
-    },
-  });
 
   const frontDeskWeeklySummary = await buildWeeklyFrontDeskSummary(normalizedWeek);
   const frontDeskSummaryAudit = getPortalAuditEntry(portal, "frontDeskWeeklySummary");

@@ -43,11 +43,25 @@ const emptyAttendee = {
   attendedSunday: false,
   attendedSpecial: false,
 };
+const emptyCellMeetingPerson = {
+  fullName: "",
+  contact: "",
+  ageRange: "unknown",
+  age: "",
+  olderThan12: false,
+};
 const emptyCell = { cellName: "", meetingDays: [], reportTime: "", role: "" };
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const FELLOWSHIPS = ["Fellowship 1", "Fellowship 2", "Fellowship 3", "Other"];
 const PRAYER_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const MIN_CELL_MEETING_PEOPLE = 4;
+const CELL_MEETING_AGE_OPTIONS = [
+  { value: "unknown", label: "I don't know yet" },
+  { value: "under-12", label: "Under 12 years" },
+  { value: "above-12", label: "Above 12 years" },
+  { value: "typed", label: "Type their age" },
+];
 
 const normalizeText = (value = "") =>
   value.toString().trim().replace(/\s+/g, " ").toLowerCase();
@@ -56,6 +70,28 @@ const normalizePhone = (value = "") =>
   value.toString().replace(/[^\d]/g, "");
 
 const hasValue = (value) => normalizeText(value).length > 0;
+
+const getNumericAge = (value) => {
+  if (value === "" || value === null || value === undefined) return null;
+  const age = Number(value);
+  return Number.isFinite(age) ? age : null;
+};
+
+const getCellMeetingAgeRange = (person = {}) => {
+  if (person.ageRange) return person.ageRange;
+  return getNumericAge(person.age) !== null ? "typed" : "unknown";
+};
+
+const isCellMeetingPersonAtLeast12 = (person = {}) => {
+  if (person.olderThan12 === true) return true;
+
+  const ageRange = getCellMeetingAgeRange(person);
+  if (ageRange === "above-12") return true;
+  if (ageRange === "under-12" || ageRange === "unknown") return false;
+
+  const age = getNumericAge(person.age);
+  return age !== null && age >= 12;
+};
 
 const toTimeInputValue = (value = "") => {
   if (!value) return "";
@@ -164,6 +200,9 @@ const EvangelismForm = ({
   const [scriptures, setScriptures] = useState("");
   const [followUps, setFollowUps] = useState([{ ...emptyFollowUp }]);
   const [attendees, setAttendees] = useState([{ ...emptyAttendee }]);
+  const [cellMeetingPeople, setCellMeetingPeople] = useState([
+    { ...emptyCellMeetingPerson },
+  ]);
 
   const [serviceAttendance, setServiceAttendance] = useState([
     { serviceType: "tuesday", attended: null, reportingTime: "", lateReason: "" },
@@ -258,6 +297,7 @@ const EvangelismForm = ({
         if (!mounted) return;
 
         if (!draft) {
+          setCellMeetingPeople([{ ...emptyCellMeetingPerson }]);
           setDraftLoaded(true);
           setHydrated(true);
           return;
@@ -336,6 +376,25 @@ const EvangelismForm = ({
             setCells(draft.cellData.cells.map((c) => ({ ...emptyCell, ...c })));
           }
 
+          if (draft.cellData.peopleTakenToCell?.length) {
+            setCellMeetingPeople(
+              draft.cellData.peopleTakenToCell.map((person) => {
+                const ageRange = getCellMeetingAgeRange(person);
+                return {
+                  ...emptyCellMeetingPerson,
+                  ...person,
+                  ageRange,
+                  age:
+                    ageRange === "typed" && person.age !== undefined && person.age !== null
+                      ? String(person.age)
+                      : "",
+                };
+              })
+            );
+          } else {
+            setCellMeetingPeople([{ ...emptyCellMeetingPerson }]);
+          }
+
           if (draft.cellData.cellPrayer) {
             setDidPrayWithCell(draft.cellData.cellPrayer.didPrayWithCell ?? null);
             setCellPrayerDays(draft.cellData.cellPrayer.days || []);
@@ -343,6 +402,8 @@ const EvangelismForm = ({
             setCellPrayerEndTime(toTimeInputValue(draft.cellData.cellPrayer.endTime || ""));
             setCellPrayerReportTime(toTimeInputValue(draft.cellData.cellPrayer.reportTime || ""));
           }
+        } else {
+          setCellMeetingPeople([{ ...emptyCellMeetingPerson }]);
         }
 
         if (draft.fellowshipPrayerData) {
@@ -439,6 +500,21 @@ const EvangelismForm = ({
   const updateAttendee = (i, k, v) =>
     setAttendees((p) => p.map((a, idx) => (idx === i ? { ...a, [k]: v } : a)));
 
+  const updateCellMeetingPerson = (i, k, v) => {
+    markInteracted();
+    setCellMeetingPeople((p) =>
+      p.map((person, idx) =>
+        idx === i
+          ? {
+              ...person,
+              [k]: v,
+              ...(k === "ageRange" && v !== "typed" ? { age: "" } : {}),
+            }
+          : person
+      )
+    );
+  };
+
   const updateSA = (i, k, v) => {
     markInteracted();
     setServiceAttendance((p) => p.map((s, idx) => (idx === i ? { ...s, [k]: v } : s)));
@@ -494,6 +570,37 @@ const EvangelismForm = ({
         0
       ),
     [qualifyingAttendees]
+  );
+
+  const nonEmptyCellMeetingPeople = useMemo(
+    () =>
+      cellMeetingPeople.filter(
+        (person) =>
+          hasValue(person.fullName) ||
+          hasValue(person.contact) ||
+          getCellMeetingAgeRange(person) !== "unknown" ||
+          getNumericAge(person.age) !== null
+      ),
+    [cellMeetingPeople]
+  );
+
+  const qualifyingCellMeetingPeople = useMemo(
+    () => nonEmptyCellMeetingPeople.filter(isCellMeetingPersonAtLeast12),
+    [nonEmptyCellMeetingPeople]
+  );
+
+  const cellMeetingPeopleCount = qualifyingCellMeetingPeople.length;
+
+  const hasInvalidCellMeetingPeople = useMemo(
+    () =>
+      nonEmptyCellMeetingPeople.some((person) => {
+        if (!hasValue(person.fullName)) return true;
+        if (getCellMeetingAgeRange(person) !== "typed") return false;
+
+        const age = getNumericAge(person.age);
+        return age === null || age < 0 || age > 120;
+      }),
+    [nonEmptyCellMeetingPeople]
   );
 
   const resolvedFellowshipName =
@@ -585,6 +692,7 @@ const EvangelismForm = ({
       partnersValid,
       serviceValid,
       cellAttendanceValid,
+      cellMeetingPeopleValid: !hasInvalidCellMeetingPeople,
       fellowshipValid,
       fellowshipOtherValid,
       fellowshipPrayerValid,
@@ -593,6 +701,7 @@ const EvangelismForm = ({
         partnersValid &&
         serviceValid &&
         cellAttendanceValid &&
+        !hasInvalidCellMeetingPeople &&
         fellowshipValid &&
         fellowshipOtherValid &&
         fellowshipPrayerValid &&
@@ -602,6 +711,7 @@ const EvangelismForm = ({
     partnerFilled,
     serviceAttendance,
     didAttendCell,
+    hasInvalidCellMeetingPeople,
     fellowshipName,
     fellowshipOther,
     prayedThisWeek,
@@ -656,6 +766,23 @@ const EvangelismForm = ({
     cellData: {
       didAttendCell: didAttendCell === true,
       cells: didAttendCell === true ? cells : [],
+      peopleTakenToCell: nonEmptyCellMeetingPeople.map((person) => {
+        const ageRange = getCellMeetingAgeRange(person);
+        const typedAge = ageRange === "typed" ? getNumericAge(person.age) : null;
+        const normalizedPerson = {
+          ...person,
+          ageRange,
+          age: typedAge,
+        };
+
+        return {
+          fullName: (person.fullName || "").trim(),
+          contact: (person.contact || "").trim(),
+          ageRange,
+          age: typedAge,
+          olderThan12: isCellMeetingPersonAtLeast12(normalizedPerson),
+        };
+      }),
       cellPrayer: {
         didPrayWithCell: didPrayWithCell === true,
         days: didPrayWithCell === true ? cellPrayerDays : [],
@@ -695,6 +822,14 @@ const EvangelismForm = ({
       toast.warning(
         "Cell attendance required",
         "Answer whether you attended cell meeting this week."
+      );
+      return false;
+    }
+
+    if (!sectionValidity.cellMeetingPeopleValid) {
+      toast.warning(
+        "Cell meeting people incomplete",
+        "Every person taken to cell meeting needs a name. Typed ages must be between 0 and 120."
       );
       return false;
     }
@@ -835,6 +970,7 @@ const EvangelismForm = ({
     partners,
     followUps,
     attendees,
+    cellMeetingPeople,
     serviceAttendance,
     didAttendCell,
     cells,
@@ -1044,7 +1180,7 @@ const EvangelismForm = ({
             Personal Report Only
           </p>
           <p className="text-xs text-amber-700 dark:text-amber-400 mt-1 leading-relaxed">
-            Submit only your personal evangelism. Do not include souls or attendees belonging to your partner.
+            Submit only your personal evangelism. Do not include souls, church attendees, or cell meeting people belonging to your partner.
             Whoever submits first claims the person — duplicates are blocked automatically.
           </p>
         </div>
@@ -1704,12 +1840,137 @@ const EvangelismForm = ({
         )}
 
         <div className="border-t border-gray-100 dark:border-slate-700 pt-4 space-y-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h4 className="font-semibold text-gray-900 dark:text-slate-100">
+              People Taken to Cell Meeting
+            </h4>
+            <span
+              className={cn(
+                "px-3 py-1 rounded-full text-sm font-semibold",
+                cellMeetingPeopleCount >= MIN_CELL_MEETING_PEOPLE
+                  ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                  : "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300"
+              )}
+            >
+              {cellMeetingPeopleCount} qualifying
+              {cellMeetingPeopleCount >= MIN_CELL_MEETING_PEOPLE
+                ? " complete"
+                : ` / ${MIN_CELL_MEETING_PEOPLE} min`}
+            </span>
+          </div>
+
+          <p className="text-xs text-gray-400 dark:text-slate-500">Optional.</p>
+
+          <div className="space-y-3">
+            {cellMeetingPeople.map((person, i) => {
+              const ageRange = getCellMeetingAgeRange(person);
+              const isTypedAge = ageRange === "typed";
+
+              return (
+                <div key={i} className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-gray-400">
+                      Person #{i + 1}
+                    </span>
+                    {cellMeetingPeople.length > 1 && (
+                      <button
+                        onClick={() => {
+                          markInteracted();
+                          setCellMeetingPeople((p) => p.filter((_, idx) => idx !== i));
+                        }}
+                        className="text-red-400 hover:text-red-600"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="form-label">Name required</label>
+                      <input
+                        className="input-field"
+                        placeholder="Full name"
+                        value={person.fullName}
+                        onChange={(e) =>
+                          updateCellMeetingPerson(i, "fullName", e.target.value)
+                        }
+                      />
+                    </div>
+
+                    <div>
+                      <label className="form-label">Contact optional</label>
+                      <input
+                        className="input-field"
+                        placeholder="Phone or contact"
+                        value={person.contact}
+                        onChange={(e) =>
+                          updateCellMeetingPerson(i, "contact", e.target.value)
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="form-label">Age</label>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {CELL_MEETING_AGE_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() =>
+                            updateCellMeetingPerson(i, "ageRange", option.value)
+                          }
+                          className={cn(
+                            "px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
+                            ageRange === option.value
+                              ? "border-cyan-400 bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-300"
+                              : "border-gray-200 dark:border-slate-600 text-gray-500 hover:border-cyan-300"
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {isTypedAge && (
+                      <input
+                        type="number"
+                        min="0"
+                        max="120"
+                        className="input-field mt-3"
+                        placeholder="Type their age"
+                        value={person.age}
+                        onChange={(e) =>
+                          updateCellMeetingPerson(i, "age", e.target.value)
+                        }
+                      />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <button
+            onClick={() => {
+              markInteracted();
+              setCellMeetingPeople((p) => [...p, { ...emptyCellMeetingPerson }]);
+            }}
+            className="w-full py-2.5 border-2 border-dashed border-cyan-300 dark:border-cyan-700 text-cyan-600 dark:text-cyan-400 rounded-xl text-sm font-medium hover:bg-cyan-50 dark:hover:bg-cyan-900/20 flex items-center justify-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Add another person
+          </button>
+        </div>
+
+        <div className="border-t border-gray-100 dark:border-slate-700 pt-4 space-y-4">
           <div className="flex items-center gap-2">
             <h4 className="font-semibold text-gray-900 dark:text-slate-100">
               Cell Prayer
             </h4>
             <span className="text-xs text-gray-400">
-              Shares qualification with cell attendance
+              Counts in your cell section
             </span>
           </div>
 

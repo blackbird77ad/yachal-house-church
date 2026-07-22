@@ -173,7 +173,7 @@ const MustChangePassword = () => {
         </div>
 
         <p className="text-center text-xs text-gray-400 dark:text-slate-500 mt-6">
-          Forgot the password you were given? Contact your admin or moderator directly.
+          Forgot the password you were given? Sign out and use the forgot password link on the sign-in page.
         </p>
       </div>
     </div>

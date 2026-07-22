@@ -1,20 +1,28 @@
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import User from "../models/userModel.js";
 import { env } from "../config/env.js";
-import { createNotification } from "../services/notificationService.js";
+import { createBulkNotification, createNotification } from "../services/notificationService.js";
 import {
   sendAccountApprovedEmail,
   sendAccountCreatedEmail,
   sendBulkAccountCreatedEmail,
   sendAccountSuspendedEmail,
   sendGenericNotificationEmail,
-  sendPasswordResetRequestEmail,
+  sendPasswordResetLinkEmail,
 } from "../services/emailService.js";
 import { sendPushToMany } from "../services/pushService.js";
 
 const generateToken = (id) =>
   jwt.sign({ id }, env.jwtSecret, { expiresIn: env.jwtExpiresIn });
+
+const PASSWORD_RESET_EXPIRES_MS = 60 * 60 * 1000;
+const PASSWORD_RESET_REQUEST_MESSAGE =
+  "If that email belongs to an account, a secure reset link has been sent. Admins will be notified after the password is reset.";
+
+const hashPasswordResetToken = (token) =>
+  crypto.createHash("sha256").update(token).digest("hex");
 
 export const generateWorkerId = async () => {
   // Worker ID 001 is reserved for the pastor
@@ -352,33 +360,96 @@ export const changePassword = async (req, res, next) => {
 export const forgotPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
-    const worker = await User.findOne({ email: email?.toLowerCase().trim() });
-    if (!worker) return res.status(404).json({ message: "No account found with that email." });
+    const normalizedEmail = email?.toString().toLowerCase().trim();
 
-    const admins = await User.find({
-      status: "approved",
-      role: { $in: ["pastor", "admin", "moderator"] },
-    }).select("_id email fullName");
-
-    await sendPasswordResetRequestEmail(admins, worker);
-
-    for (const admin of admins) {
-      await createNotification(admin._id, {
-        type: "general",
-        title: "Password reset requested",
-        message: `${worker.fullName} (ID: ${worker.workerId || "pending"}) has requested a password reset.`,
-        link: `/admin/workers/${worker._id}`,
-        senderId: null,
-      });
+    if (!normalizedEmail) {
+      return res.status(400).json({ message: "Email is required." });
     }
 
-    await sendPushToMany(admins.map((admin) => admin._id), {
-      title: "Password reset requested",
-      body: `${worker.fullName} has requested a password reset.`,
-      url: `/admin/workers/${worker._id}`,
+    const worker = await User.findOne({ email: normalizedEmail });
+    if (!worker) {
+      return res.status(200).json({ message: PASSWORD_RESET_REQUEST_MESSAGE });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    worker.passwordResetToken = hashPasswordResetToken(resetToken);
+    worker.passwordResetExpires = new Date(Date.now() + PASSWORD_RESET_EXPIRES_MS);
+    await worker.save({ validateBeforeSave: false });
+
+    await sendPasswordResetLinkEmail(worker, resetToken);
+
+    res.status(200).json({ message: PASSWORD_RESET_REQUEST_MESSAGE });
+  } catch (error) { next(error); }
+};
+
+export const resetPasswordWithToken = async (req, res, next) => {
+  try {
+    const { token } = req.params;
+    const { password, newPassword } = req.body;
+    const nextPassword = password || newPassword;
+
+    if (!token) {
+      return res.status(400).json({ message: "Reset token is required." });
+    }
+
+    if (!nextPassword || nextPassword.length < 6) {
+      return res.status(400).json({ message: "Password must be at least 6 characters." });
+    }
+
+    const worker = await User.findOne({
+      passwordResetToken: hashPasswordResetToken(token),
+      passwordResetExpires: { $gt: new Date() },
     });
 
-    res.status(200).json({ message: "Your request has been sent to the admin team. They will reset your password and contact you." });
+    if (!worker) {
+      return res.status(400).json({ message: "Reset link is invalid or expired. Request a new password reset link." });
+    }
+
+    worker.password = await bcrypt.hash(nextPassword, 12);
+    worker.mustChangePassword = false;
+    worker.passwordResetToken = undefined;
+    worker.passwordResetExpires = undefined;
+    await worker.save();
+
+    try {
+      const admins = await User.find({
+        status: "approved",
+        role: { $in: ["pastor", "admin", "moderator"] },
+      }).select("_id email fullName");
+
+      if (admins.length > 0) {
+        const adminIds = admins.map((admin) => admin._id);
+        const workerLabel = `${worker.fullName} (ID: ${worker.workerId || "pending"})`;
+
+        await createBulkNotification(adminIds, {
+          type: "general",
+          title: "Worker password reset completed",
+          message: `${workerLabel} reset their password using the email reset link.`,
+          link: `/admin/workers/${worker._id}`,
+          senderId: null,
+        });
+
+        await sendPushToMany(adminIds, {
+          title: "Worker password reset completed",
+          body: `${worker.fullName} reset their password.`,
+          url: `/admin/workers/${worker._id}`,
+        });
+
+        await sendGenericNotificationEmail(admins, {
+          subject: "Worker password reset completed",
+          title: "Worker password reset completed",
+          message: `${workerLabel} reset their password using the email reset link.`,
+          link: `/admin/workers/${worker._id}`,
+          linkLabel: "Open Worker Profile",
+        });
+      }
+    } catch (notificationError) {
+      console.error("Password reset admin notification error:", notificationError.message);
+    }
+
+    res.status(200).json({
+      message: "Password reset successfully. Admins have been notified.",
+    });
   } catch (error) { next(error); }
 };
 

@@ -39,3 +39,10 @@ export const getAllWorkersStatus = async (params = {}) => {
   const response = await axiosInstance.get("/metrics/all-status", { params });
   return response.data;
 };
+
+export const getServiceRoleQualificationHistory = async (params = {}) => {
+  const response = await axiosInstance.get("/metrics/service-role-qualification", {
+    params,
+  });
+  return response.data;
+};

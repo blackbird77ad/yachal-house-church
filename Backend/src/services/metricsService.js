@@ -10,6 +10,7 @@ import {
 const CRITERIA = {
   MIN_SOULS: 10,
   MIN_FELLOWSHIP_HOURS: 2,
+  MIN_CELL_MEETING_PEOPLE: 4,
   MIN_CHURCH_ATTENDEES: 4,
   MIN_CELL_PRAYER_HOURS: 2,
 };
@@ -19,7 +20,8 @@ const WEIGHTS = {
   tuesday: 10,
   sunday: 10,
   fellowship: 10,
-  cellAttendance: 10,
+  cellAttendance: 0,
+  cellMeetingPeople: 10,
   cellPrayer: 10,
   attendees: 20,
 };
@@ -70,6 +72,37 @@ const countChurchAttendees = (report) => {
   ).length;
 };
 
+const countMainChurchAttendees = (report) => {
+  if (!report.churchAttendees?.length) return 0;
+
+  return report.churchAttendees.filter(
+    (attendee) =>
+      attendee.olderThan12 === true &&
+      (attendee.attendedTuesday || attendee.attendedSunday)
+  ).length;
+};
+
+const getNumericAge = (value) => {
+  const age = Number(value);
+  return Number.isFinite(age) && age >= 0 && age <= 120 ? age : null;
+};
+
+const isPersonAtLeast12 = (person = {}) => {
+  if (person.olderThan12 === true) return true;
+  if (person.ageRange === "above-12") return true;
+  if (person.ageRange === "under-12" || person.ageRange === "unknown") return false;
+
+  const age = getNumericAge(person.age);
+  return age !== null && age >= 12;
+};
+
+const countCellMeetingPeople = (report) => {
+  const peopleTakenToCell = report.cellData?.peopleTakenToCell || [];
+  if (!peopleTakenToCell.length) return 0;
+
+  return peopleTakenToCell.filter(isPersonAtLeast12).length;
+};
+
 const getFellowshipHours = (report) => {
   if (!report.fellowshipPrayerData?.prayedThisWeek) return 0;
   return Number(report.fellowshipPrayerData.hoursOfPrayer || 0);
@@ -118,12 +151,20 @@ const computeAttendeesScore = (churchAttendeeCount) => {
   return roundScore(Math.min(churchAttendeeCount * perPerson, WEIGHTS.attendees));
 };
 
+const computeCellMeetingPeopleScore = (cellMeetingPeopleCount) => {
+  const perPerson = WEIGHTS.cellMeetingPeople / CRITERIA.MIN_CELL_MEETING_PEOPLE;
+  return roundScore(
+    Math.min(cellMeetingPeopleCount * perPerson, WEIGHTS.cellMeetingPeople)
+  );
+};
+
 const buildQualificationBreakdown = ({
   qualifyingSouls,
   attendedTuesday,
   attendedSunday,
   fellowshipHours,
   attendedCellMeeting,
+  cellMeetingPeopleCount,
   prayedWithCellTwoHours,
   churchAttendeeCount,
 }) => ({
@@ -132,6 +173,8 @@ const buildQualificationBreakdown = ({
   sundayQualified: attendedSunday,
   fellowshipQualified: fellowshipHours >= CRITERIA.MIN_FELLOWSHIP_HOURS,
   cellAttendanceQualified: attendedCellMeeting,
+  cellMeetingPeopleQualified:
+    cellMeetingPeopleCount >= CRITERIA.MIN_CELL_MEETING_PEOPLE,
   cellPrayerQualified: prayedWithCellTwoHours,
   attendanceQualified: churchAttendeeCount >= CRITERIA.MIN_CHURCH_ATTENDEES,
 });
@@ -142,6 +185,7 @@ const buildScoreBreakdown = ({
   attendedSunday,
   fellowshipHours,
   attendedCellMeeting,
+  cellMeetingPeopleCount,
   prayedWithCellTwoHours,
   churchAttendeeCount,
 }) => ({
@@ -151,6 +195,7 @@ const buildScoreBreakdown = ({
   fellowshipScore:
     fellowshipHours >= CRITERIA.MIN_FELLOWSHIP_HOURS ? WEIGHTS.fellowship : 0,
   cellAttendanceScore: attendedCellMeeting ? WEIGHTS.cellAttendance : 0,
+  cellMeetingPeopleScore: computeCellMeetingPeopleScore(cellMeetingPeopleCount),
   cellPrayerScore: prayedWithCellTwoHours ? WEIGHTS.cellPrayer : 0,
   attendeesScore: computeAttendeesScore(churchAttendeeCount),
 });
@@ -162,6 +207,7 @@ const computeTotalScore = (scoreBreakdown) =>
       scoreBreakdown.sundayScore +
       scoreBreakdown.fellowshipScore +
       scoreBreakdown.cellAttendanceScore +
+      scoreBreakdown.cellMeetingPeopleScore +
       scoreBreakdown.cellPrayerScore +
       scoreBreakdown.attendeesScore
   );
@@ -173,7 +219,9 @@ const getMetricSnapshotFromReport = (report) => {
       qualifyingSouls: 0,
       fellowshipHours: 0,
       attendedCellMeeting: false,
+      cellMeetingPeopleCount: 0,
       prayedWithCellTwoHours: false,
+      mainChurchAttendeeCount: 0,
       churchAttendeeCount: 0,
       attendedTuesday: false,
       attendedSunday: false,
@@ -188,7 +236,9 @@ const getMetricSnapshotFromReport = (report) => {
     qualifyingSouls: countQualifyingSouls(report.evangelismData),
     fellowshipHours: getFellowshipHours(report),
     attendedCellMeeting: didAttendCellMeeting(report),
+    cellMeetingPeopleCount: countCellMeetingPeople(report),
     prayedWithCellTwoHours: didPrayWithCellForTwoHours(report),
+    mainChurchAttendeeCount: countMainChurchAttendees(report),
     churchAttendeeCount: countChurchAttendees(report),
     attendedTuesday: serviceAttendance.tuesday,
     attendedSunday: serviceAttendance.sunday,
@@ -350,7 +400,9 @@ export const processWeeklyMetrics = async (weekReference) => {
       qualifyingSouls,
       fellowshipHours,
       attendedCellMeeting,
+      cellMeetingPeopleCount,
       prayedWithCellTwoHours,
+      mainChurchAttendeeCount,
       churchAttendeeCount,
       attendedTuesday,
       attendedSunday,
@@ -363,6 +415,7 @@ export const processWeeklyMetrics = async (weekReference) => {
       attendedSunday,
       fellowshipHours,
       attendedCellMeeting,
+      cellMeetingPeopleCount,
       prayedWithCellTwoHours,
       churchAttendeeCount,
     });
@@ -373,12 +426,14 @@ export const processWeeklyMetrics = async (weekReference) => {
       attendedSunday,
       fellowshipHours,
       attendedCellMeeting,
+      cellMeetingPeopleCount,
       prayedWithCellTwoHours,
       churchAttendeeCount,
     });
 
     const totalScore = computeTotalScore(scoreBreakdown);
-    const isQualified = totalScore >= 100;
+    const isQualified =
+      totalScore >= 100 && qualificationBreakdown.cellAttendanceQualified;
 
     await Metrics.findOneAndUpdate(
       { worker: worker._id, weekReference: week, isLateSubmission: false },
@@ -391,11 +446,13 @@ export const processWeeklyMetrics = async (weekReference) => {
         fellowshipHours,
         attendedCell: attendedCellMeeting,
         attendedCellMeeting,
+        cellMeetingPeopleCount,
         cellPrayerHours: prayedWithCellTwoHours ? CRITERIA.MIN_CELL_PRAYER_HOURS : 0,
         cellPrayerVerified: prayedWithCellTwoHours,
         prayedWithCellTwoHours,
         attendedTuesday,
         attendedSunday,
+        mainChurchAttendeeCount,
         churchAttendeeCount,
         reportSubmitted,
         isQualified,
@@ -435,7 +492,9 @@ export const processLateMetrics = async (userId, weekReference) => {
     qualifyingSouls,
     fellowshipHours,
     attendedCellMeeting,
+    cellMeetingPeopleCount,
     prayedWithCellTwoHours,
+    mainChurchAttendeeCount,
     churchAttendeeCount,
     attendedTuesday,
     attendedSunday,
@@ -447,6 +506,7 @@ export const processLateMetrics = async (userId, weekReference) => {
     attendedSunday,
     fellowshipHours,
     attendedCellMeeting,
+    cellMeetingPeopleCount,
     prayedWithCellTwoHours,
     churchAttendeeCount,
   });
@@ -457,12 +517,14 @@ export const processLateMetrics = async (userId, weekReference) => {
     attendedSunday,
     fellowshipHours,
     attendedCellMeeting,
+    cellMeetingPeopleCount,
     prayedWithCellTwoHours,
     churchAttendeeCount,
   });
 
   const totalScore = computeTotalScore(scoreBreakdown);
-  const isQualified = totalScore >= 100;
+  const isQualified =
+    totalScore >= 100 && qualificationBreakdown.cellAttendanceQualified;
 
   await Metrics.findOneAndUpdate(
     { worker: userId, weekReference: week, isLateSubmission: true },
@@ -475,11 +537,13 @@ export const processLateMetrics = async (userId, weekReference) => {
       fellowshipHours,
       attendedCell: attendedCellMeeting,
       attendedCellMeeting,
+      cellMeetingPeopleCount,
       cellPrayerHours: prayedWithCellTwoHours ? CRITERIA.MIN_CELL_PRAYER_HOURS : 0,
       cellPrayerVerified: prayedWithCellTwoHours,
       prayedWithCellTwoHours,
       attendedTuesday,
       attendedSunday,
+      mainChurchAttendeeCount,
       churchAttendeeCount,
       reportSubmitted: true,
       isQualified,

@@ -16,9 +16,10 @@ const metricsSchema = new mongoose.Schema(
     fellowshipHours:     { type: Number, default: 0 },
     fellowshipName:      { type: String },
 
-    // Cell meeting — 20pts (attended = qualifies)
+    // Cell meeting attendance is required; people taken to cell meeting earn 10pts.
     attendedCell:        { type: Boolean, default: false },
     attendedCellMeeting: { type: Boolean, default: false },
+    cellMeetingPeopleCount: { type: Number, default: 0 },
     prayedWithCellTwoHours: { type: Boolean, default: false },
 
     // Worker's own service attendance — 10pts each
@@ -26,6 +27,7 @@ const metricsSchema = new mongoose.Schema(
     attendedSunday:      { type: Boolean, default: false },
 
     // People 12+ brought to church — 20pts (min 4 counts)
+    mainChurchAttendeeCount: { type: Number, default: 0 },
     churchAttendeeCount: { type: Number, default: 0 },
 
     // ── LEGACY fields (kept so old documents still read correctly) ────────────
@@ -93,7 +95,8 @@ const metricsSchema = new mongoose.Schema(
       tuesdayQualified:        { type: Boolean, default: false }, // 10pts
       sundayQualified:         { type: Boolean, default: false }, // 10pts
       fellowshipQualified:     { type: Boolean, default: false }, // 10pts
-      cellAttendanceQualified: { type: Boolean, default: false }, // 10pts
+      cellAttendanceQualified: { type: Boolean, default: false },
+      cellMeetingPeopleQualified: { type: Boolean, default: false }, // 10pts
       cellPrayerQualified:     { type: Boolean, default: false }, // 10pts
       attendanceQualified:     { type: Boolean, default: false }, // 20pts (partial)
       // Legacy kept for backward compat
@@ -107,6 +110,7 @@ const metricsSchema = new mongoose.Schema(
       sundayScore:         { type: Number, default: 0 },
       fellowshipScore:     { type: Number, default: 0 },
       cellAttendanceScore: { type: Number, default: 0 },
+      cellMeetingPeopleScore: { type: Number, default: 0 },
       cellPrayerScore:     { type: Number, default: 0 },
       attendeesScore:      { type: Number, default: 0 },
     },

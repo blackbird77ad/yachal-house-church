@@ -1,9 +1,8 @@
 ﻿import { useState } from "react";
 import { Link, useNavigate, Navigate } from "react-router-dom";
-import { Eye, EyeOff, LogIn, Mail } from "lucide-react";
+import { AlertTriangle, Eye, EyeOff, LogIn, Mail } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
-import { loginUser } from "../../services/authService";
-import axiosInstance from "../../utils/axiosInstance";
+import { loginUser, requestPasswordReset } from "../../services/authService";
 
 const Login = () => {
   const { user, login, isAdminLevel } = useAuth();
@@ -71,9 +70,7 @@ const Login = () => {
     setForgotError("");
 
     try {
-      await axiosInstance.post("/auth/forgot-password", {
-        email: forgotEmail.trim(),
-      });
+      await requestPasswordReset(forgotEmail.trim());
       setForgotSent(true);
     } catch (err) {
       if (!err.response) {
@@ -197,8 +194,15 @@ const Login = () => {
                 Forgot Password
               </h1>
               <p className="text-gray-500 dark:text-slate-400 text-sm mb-8">
-                Enter your email and the admin team will be notified to reset your password.
+                Enter your email and we will send you a secure link to reset your password.
               </p>
+
+              <div className="flex items-start gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 mb-6">
+                <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-800 dark:text-amber-300 leading-5">
+                  Admins will be notified after your password is successfully reset.
+                </p>
+              </div>
 
               {forgotError && (
                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-xl px-4 py-3 text-sm mb-6">
@@ -213,7 +217,7 @@ const Login = () => {
                     Request sent
                   </p>
                   <p className="text-sm text-green-700 dark:text-green-400">
-                    Your password reset request has been sent to the admin team.
+                    If the email belongs to an account, a reset link has been sent. Admins will be notified after the password is reset.
                   </p>
                 </div>
               ) : (
@@ -235,7 +239,7 @@ const Login = () => {
                     disabled={forgotLoading}
                     className="btn-primary w-full py-3"
                   >
-                    {forgotLoading ? "Sending..." : "Send Request"}
+                    {forgotLoading ? "Sending..." : "Send Reset Link"}
                   </button>
                 </form>
               )}

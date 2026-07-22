@@ -5,6 +5,15 @@ const roleAssignmentSchema = new mongoose.Schema(
     worker: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     isCoordinator: { type: Boolean, default: false },
     isQualified: { type: Boolean, default: false },
+    serviceRoleCategory: {
+      type: String,
+      enum: ["leading", "supporting", "none"],
+      default: "none",
+    },
+    serviceRoleQualification: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
     score: { type: Number, default: 0 },
   },
   { _id: false }

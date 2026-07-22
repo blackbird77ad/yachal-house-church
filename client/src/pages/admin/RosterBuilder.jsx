@@ -227,6 +227,27 @@ const RosterBuilder = () => {
   const isAssigned = (deptValue, workerId) =>
     slots[deptValue]?.assignments?.some((a) => a.worker?._id === workerId);
 
+  const getServiceRoleCategory = (item = {}) =>
+    item.serviceRoleCategory ||
+    item.serviceRoleQualification?.category ||
+    "none";
+
+  const getServiceRoleLabel = (category = "none") => {
+    if (category === "leading") return "Leading role";
+    if (category === "supporting") return "Supporting role";
+    return "No role qual.";
+  };
+
+  const getServiceRoleBadgeClass = (category = "none") => {
+    if (category === "leading") {
+      return "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300";
+    }
+    if (category === "supporting") {
+      return "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300";
+    }
+    return "bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400";
+  };
+
   const toggleWorker = (deptValue, item) => {
     setSlots((prev) => {
       const existing = prev[deptValue]?.assignments || [];
@@ -242,6 +263,8 @@ const RosterBuilder = () => {
               worker: item.worker,
               isQualified: item.cat === "qualified",
               isCoordinator: false,
+              serviceRoleCategory: getServiceRoleCategory(item),
+              serviceRoleQualification: item.serviceRoleQualification || {},
               score: item.totalScore || 0,
             },
           ],
@@ -355,6 +378,8 @@ const RosterBuilder = () => {
   const WorkerItem = ({ item, dept }) => {
     if (!item?.worker?._id) return null;
     const assigned = isAssigned(dept, item.worker._id);
+    const serviceRoleCategory = getServiceRoleCategory(item);
+    const role = item.serviceRoleQualification || {};
     const catColor = item.cat === "qualified"
       ? "border-green-200 dark:border-green-800 hover:border-green-400 bg-green-50 dark:bg-green-900/10"
       : item.cat === "disqualified"
@@ -379,24 +404,37 @@ const RosterBuilder = () => {
             {getWorkerIdLabel(item.worker)} · {item.worker?.department?.replace(/-/g, " ")}
             {item.rank ? ` · Rank #${item.rank}` : " · No report"}
             {item.rank ? ` · ${item.totalScore || 0} pts` : ""}
+            {item.rank
+              ? ` · Main ${role.mainChurchCount || 0} · Cell ${role.cellMeetingPeopleCount || 0}`
+              : ""}
           </p>
         </div>
-        <span
-          className={cn(
-            "text-[11px] px-2 py-1 rounded-full font-semibold flex-shrink-0",
-            item.cat === "qualified"
-              ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <span
+            className={cn(
+              "text-[11px] px-2 py-1 rounded-full font-semibold",
+              item.cat === "qualified"
+                ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                : item.cat === "disqualified"
+                ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
+                : "bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400"
+            )}
+          >
+            {item.cat === "qualified"
+              ? "Qualified"
               : item.cat === "disqualified"
-              ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
-              : "bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400"
-          )}
-        >
-          {item.cat === "qualified"
-            ? "Qualified"
-            : item.cat === "disqualified"
-            ? "Not qualified"
-            : "No report"}
-        </span>
+              ? "Not qualified"
+              : "No report"}
+          </span>
+          <span
+            className={cn(
+              "text-[11px] px-2 py-1 rounded-full font-semibold",
+              getServiceRoleBadgeClass(serviceRoleCategory)
+            )}
+          >
+            {getServiceRoleLabel(serviceRoleCategory)}
+          </span>
+        </div>
         {assigned && <CheckCircle className="w-5 h-5 text-purple-500 flex-shrink-0" />}
       </div>
     );
@@ -636,30 +674,42 @@ const RosterBuilder = () => {
 
               {isExpanded && assigned.length > 0 && (
                 <div className="border-t border-gray-100 dark:border-slate-700 p-4 space-y-2">
-                  {assigned.map((a) => (
-                    <div key={a.worker?._id || Math.random()} className={cn("flex items-center gap-3 p-3 rounded-xl border",
-                      a.isQualified ? "border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10" : "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10"
-                    )}>
-                      <div className={cn("w-8 h-8 rounded-full font-bold flex items-center justify-center text-sm flex-shrink-0",
-                        a.isQualified ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400" : "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
+                  {assigned.map((a) => {
+                    const serviceRoleCategory = getServiceRoleCategory(a);
+
+                    return (
+                      <div key={a.worker?._id || Math.random()} className={cn("flex items-center gap-3 p-3 rounded-xl border",
+                        a.isQualified ? "border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10" : "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10"
                       )}>
-                        {a.worker.fullName?.charAt(0)}
+                        <div className={cn("w-8 h-8 rounded-full font-bold flex items-center justify-center text-sm flex-shrink-0",
+                          a.isQualified ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400" : "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
+                        )}>
+                          {a.worker.fullName?.charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">{a.worker.fullName}</p>
+                          <p className="text-xs text-gray-400 dark:text-slate-500">{getWorkerIdLabel(a.worker)} · {a.score ?? a.totalScore ?? 0} pts · {a.isQualified ? "Qualified" : "Not qualified"} · {getServiceRoleLabel(serviceRoleCategory)}</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span
+                            className={cn(
+                              "text-[11px] px-2 py-1 rounded-full font-semibold",
+                              getServiceRoleBadgeClass(serviceRoleCategory)
+                            )}
+                          >
+                            {getServiceRoleLabel(serviceRoleCategory)}
+                          </span>
+                          <button
+                            onClick={() => toggleCoordinator(dept.value, a.worker._id)}
+                            className={cn("text-xs px-2 py-1 rounded-full border font-medium transition-all", a.isCoordinator ? "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-700" : "border-gray-200 dark:border-slate-600 text-gray-400 hover:border-purple-300 hover:text-purple-600")}
+                          >
+                            {a.isCoordinator ? "Coordinator" : "Set Coord."}
+                          </button>
+                          <button onClick={() => removeWorker(dept.value, a.worker._id)} className="text-red-400 hover:text-red-600 p-1"><X className="w-4 h-4" /></button>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">{a.worker.fullName}</p>
-                        <p className="text-xs text-gray-400 dark:text-slate-500">{getWorkerIdLabel(a.worker)} · {a.score ?? a.totalScore ?? 0} pts · {a.isQualified ? "Qualified" : "Not qualified"}</p>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <button
-                          onClick={() => toggleCoordinator(dept.value, a.worker._id)}
-                          className={cn("text-xs px-2 py-1 rounded-full border font-medium transition-all", a.isCoordinator ? "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border-purple-300 dark:border-purple-700" : "border-gray-200 dark:border-slate-600 text-gray-400 hover:border-purple-300 hover:text-purple-600")}
-                        >
-                          {a.isCoordinator ? "Coordinator" : "Set Coord."}
-                        </button>
-                        <button onClick={() => removeWorker(dept.value, a.worker._id)} className="text-red-400 hover:text-red-600 p-1"><X className="w-4 h-4" /></button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -683,7 +733,7 @@ const RosterBuilder = () => {
               </p>
             )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
               {[
                 {
                   label: "All workers",
@@ -694,6 +744,20 @@ const RosterBuilder = () => {
                   label: "Qualified",
                   value: filteredWorkers.filter((item) => item.cat === "qualified").length,
                   color: "text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20",
+                },
+                {
+                  label: "Leading",
+                  value: filteredWorkers.filter(
+                    (item) => getServiceRoleCategory(item) === "leading"
+                  ).length,
+                  color: "text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20",
+                },
+                {
+                  label: "Supporting",
+                  value: filteredWorkers.filter(
+                    (item) => getServiceRoleCategory(item) === "supporting"
+                  ).length,
+                  color: "text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-900/20",
                 },
                 {
                   label: "Not qualified",

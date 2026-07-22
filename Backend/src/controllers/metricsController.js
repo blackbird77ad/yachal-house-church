@@ -10,6 +10,7 @@ import {
   getLateMetricsSummary,
   getWorkersWithNoSubmission,
 } from "../services/qualificationService.js";
+import { getServiceRoleQualificationWeeks } from "../services/serviceRoleQualificationService.js";
 import { getPortalWeekReferenceForNow } from "../utils/portalWeek.js";
 
 const getCurrentWeekReference = async () => {
@@ -152,6 +153,22 @@ export const getAllWorkersStatus = async (req, res, next) => {
       ranking,
       summary,
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getServiceRoleQualificationHistory = async (req, res, next) => {
+  try {
+    const { weekReference, dateFrom, dateTo, isLateSubmission } = req.query;
+    const weeks = await getServiceRoleQualificationWeeks({
+      weekReference,
+      dateFrom,
+      dateTo,
+      isLateSubmission: isLateSubmission === "true",
+    });
+
+    res.status(200).json({ weeks });
   } catch (error) {
     next(error);
   }

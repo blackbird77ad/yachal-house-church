@@ -134,7 +134,8 @@ axiosInstance.interceptors.response.use(
     const isAuthPageRequest =
       requestUrl.includes("/auth/login") ||
       requestUrl.includes("/auth/register") ||
-      requestUrl.includes("/auth/forgot-password");
+      requestUrl.includes("/auth/forgot-password") ||
+      requestUrl.includes("/auth/reset-password");
 
     // 401: token expired/invalid -> logout once
     if (error.response?.status === 401 && !isAuthPageRequest) {

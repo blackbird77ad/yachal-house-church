@@ -42,12 +42,16 @@ const serializeRosterForWorker = (roster, userId) => {
           department: slot.department,
           subRole: slot.subRole || "",
           isCoordinator: !!assignment.isCoordinator,
+          serviceRoleCategory: assignment.serviceRoleCategory || "none",
+          serviceRoleQualification: assignment.serviceRoleQualification || {},
         });
       }
 
       return {
         worker: assignment.worker,
         isCoordinator: !!assignment.isCoordinator,
+        serviceRoleCategory: assignment.serviceRoleCategory || "none",
+        serviceRoleQualification: assignment.serviceRoleQualification || {},
         isMine,
       };
     });
@@ -197,6 +201,8 @@ export const publishRoster = async (req, res, next) => {
           department: slot.department,
           subRole: slot.subRole,
           isCoordinator: assignment.isCoordinator,
+          serviceRoleCategory: assignment.serviceRoleCategory || "none",
+          serviceRoleQualification: assignment.serviceRoleQualification || {},
         });
       });
     });

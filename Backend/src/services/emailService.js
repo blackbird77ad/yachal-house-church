@@ -1,5 +1,6 @@
 import { resendClient as resend } from "../config/resend.js";
 import { env } from "../config/env.js";
+import { buildServiceRoleQualificationSummary } from "./serviceRoleQualificationService.js";
 
 const FROM = env.resendFrom || "noreply@yachalhousegh.com";
 const APP_URL = env.clientUrl || "https://yachalhousegh.com";
@@ -320,14 +321,31 @@ export const sendPortalDeadlineReminderEmail = async (workers) => {
 };
 
 export const sendQualificationResultsEmail = async (recipients, qualifiedList, disqualifiedList) => {
+  const serviceRoleSummary = buildServiceRoleQualificationSummary([
+    ...qualifiedList,
+    ...disqualifiedList,
+  ]);
+
   const formatList = (list, qualified) => list.map((m, i) =>
     `<tr style="background:${i % 2 === 0 ? "#ffffff" : "#f9fafb"};">
       <td style="padding:8px 12px;font-size:14px;color:#374151;">${i + 1}</td>
-      <td style="padding:8px 12px;font-size:14px;color:#1f2937;font-weight:${i < 3 ? "bold" : "normal"};">${m.worker?.fullName || "Unknown"}</td>
-      <td style="padding:8px 12px;font-size:14px;color:#6b7280;">${m.worker?.workerId || ""}</td>
+      <td style="padding:8px 12px;font-size:14px;color:#1f2937;font-weight:${i < 3 ? "bold" : "normal"};">${escapeHtml(m.worker?.fullName || "Unknown")}</td>
+      <td style="padding:8px 12px;font-size:14px;color:#6b7280;">${escapeHtml(m.worker?.workerId || "")}</td>
       <td style="padding:8px 12px;font-size:14px;font-weight:bold;color:${qualified ? "#065f46" : "#991b1b"};">${m.totalScore || 0} pts</td>
     </tr>`
   ).join("");
+
+  const formatRoleList = (list) => list.map((m, i) => {
+    const role = m.serviceRoleQualification || {};
+    return `<tr style="background:${i % 2 === 0 ? "#ffffff" : "#f9fafb"};">
+      <td style="padding:8px 12px;font-size:14px;color:#374151;">${i + 1}</td>
+      <td style="padding:8px 12px;font-size:14px;color:#1f2937;font-weight:${i < 3 ? "bold" : "normal"};">${escapeHtml(m.worker?.fullName || "Unknown")}</td>
+      <td style="padding:8px 12px;font-size:14px;color:#6b7280;">${escapeHtml(m.worker?.workerId || "")}</td>
+      <td style="padding:8px 12px;font-size:14px;color:#374151;">${role.mainChurchCount || 0}</td>
+      <td style="padding:8px 12px;font-size:14px;color:#374151;">${role.cellMeetingPeopleCount || 0}</td>
+      <td style="padding:8px 12px;font-size:13px;color:#4b5563;">${escapeHtml(role.ruleMatched || "")}</td>
+    </tr>`;
+  }).join("");
 
   const html = base(`
     <h2 style="margin:0 0 8px;color:#1f2937;font-size:22px;">Weekly Qualification Results</h2>
@@ -342,8 +360,21 @@ export const sendQualificationResultsEmail = async (recipients, qualifiedList, d
       <tr style="background:#fee2e2;"><th style="padding:8px 12px;text-align:left;font-size:13px;color:#991b1b;">#</th><th style="padding:8px 12px;text-align:left;font-size:13px;color:#991b1b;">Name</th><th style="padding:8px 12px;text-align:left;font-size:13px;color:#991b1b;">ID</th><th style="padding:8px 12px;text-align:left;font-size:13px;color:#991b1b;">Score</th></tr>
       ${disqualifiedList.length > 0 ? formatList(disqualifiedList, false) : '<tr><td colspan="4" style="padding:12px;text-align:center;color:#6b7280;font-size:14px;">All workers qualified this week.</td></tr>'}
     </table>
+    <h3 style="color:#111827;font-size:17px;margin:28px 0 8px;">Qualification for Service Roles</h3>
+    <p style="color:#6b7280;font-size:13px;line-height:1.6;margin:0 0 16px;">Leading roles: 4+ people to main church services, or 2-3 to main services plus 4+ to cell meetings. Supporting roles: 2-3 people to main services, or 2+ people to cell meetings.</p>
+    <h4 style="color:#1d4ed8;font-size:15px;margin:0 0 10px;">Leading Roles (${serviceRoleSummary.leading.length})</h4>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #bfdbfe;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+      <tr style="background:#dbeafe;"><th style="padding:8px 12px;text-align:left;font-size:13px;color:#1d4ed8;">#</th><th style="padding:8px 12px;text-align:left;font-size:13px;color:#1d4ed8;">Name</th><th style="padding:8px 12px;text-align:left;font-size:13px;color:#1d4ed8;">ID</th><th style="padding:8px 12px;text-align:left;font-size:13px;color:#1d4ed8;">Main</th><th style="padding:8px 12px;text-align:left;font-size:13px;color:#1d4ed8;">Cell</th><th style="padding:8px 12px;text-align:left;font-size:13px;color:#1d4ed8;">Rule</th></tr>
+      ${serviceRoleSummary.leading.length > 0 ? formatRoleList(serviceRoleSummary.leading) : '<tr><td colspan="6" style="padding:12px;text-align:center;color:#6b7280;font-size:14px;">No leading-role qualifiers this week.</td></tr>'}
+    </table>
+    <h4 style="color:#047857;font-size:15px;margin:0 0 10px;">Supporting Roles (${serviceRoleSummary.supporting.length})</h4>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #a7f3d0;border-radius:8px;overflow:hidden;">
+      <tr style="background:#d1fae5;"><th style="padding:8px 12px;text-align:left;font-size:13px;color:#047857;">#</th><th style="padding:8px 12px;text-align:left;font-size:13px;color:#047857;">Name</th><th style="padding:8px 12px;text-align:left;font-size:13px;color:#047857;">ID</th><th style="padding:8px 12px;text-align:left;font-size:13px;color:#047857;">Main</th><th style="padding:8px 12px;text-align:left;font-size:13px;color:#047857;">Cell</th><th style="padding:8px 12px;text-align:left;font-size:13px;color:#047857;">Rule</th></tr>
+      ${serviceRoleSummary.supporting.length > 0 ? formatRoleList(serviceRoleSummary.supporting) : '<tr><td colspan="6" style="padding:12px;text-align:center;color:#6b7280;font-size:14px;">No supporting-role qualifiers this week.</td></tr>'}
+    </table>
     <div style="text-align:center;margin:28px 0 0;">
       <a href="${APP_URL}/admin/qualification" style="background:#4c1d95;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block;margin:0 6px 12px;">View Qualification List</a>
+      <a href="${APP_URL}/admin/service-roles" style="background:#1d4ed8;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block;margin:0 6px 12px;">View Service Roles</a>
       <a href="${APP_URL}/admin/roster" style="background:#111827;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block;margin:0 6px 12px;">Prepare Roster</a>
     </div>
   `);
@@ -650,6 +681,28 @@ export const sendPasswordResetRequestEmail = async (admins, worker) => {
         </div>
       `),
   }));
+};
+
+export const sendPasswordResetLinkEmail = async (worker, resetToken) => {
+  const safeName = escapeHtml(worker.fullName || "Worker");
+  const resetLink = resolveAppLink(`/reset-password/${encodeURIComponent(resetToken)}`);
+
+  return send({
+    to: worker.email,
+    subject: "Reset your Yachal House password",
+    html: base(`
+        <h2 style="margin:0 0 16px;color:#1f2937;font-size:22px;">Reset Your Password</h2>
+        <p style="color:#374151;font-size:15px;line-height:1.6;">Dear ${safeName},</p>
+        <p style="color:#374151;font-size:15px;line-height:1.6;">Use the secure link below to set a new password for your Yachal House worker account.</p>
+        <div style="text-align:center;margin:24px 0;">
+          <a href="${resetLink}" style="background:#4c1d95;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;">Reset Password</a>
+        </div>
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px;margin:20px 0;">
+          <p style="margin:0;color:#92400e;font-size:14px;line-height:1.6;">This link expires in 1 hour. After you reset your password, the admin team will be notified that your password was changed.</p>
+        </div>
+        <p style="color:#6b7280;font-size:13px;line-height:1.6;">If you did not request this, ignore this email and contact your admin team.</p>
+      `),
+  });
 };
 
 export const sendFrontDeskReportEmail = async (recipients, session, stats, attendance, isAuto = false) => {

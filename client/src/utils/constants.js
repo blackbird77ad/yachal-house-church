@@ -80,13 +80,15 @@ export const NOTIFICATION_TYPES = {
 export const QUALIFICATION_CRITERIA = {
   MIN_SOULS: 10,
   MIN_FELLOWSHIP_HOURS: 2,
+  MIN_CELL_MEETING_PEOPLE: 4,
   MIN_CHURCH_ATTENDEES: 4,
   MIN_CELL_PRAYER_HOURS: 2,
   // Souls preached to: 30pts max (3pts per soul, capped at 10 souls)
 // Tuesday service: 10pts
 // Sunday service: 10pts
 // Fellowship prayer: 10pts (min 2 hours)
-// Cell meeting: 10pts
+// Cell meeting attendance: required
+// People 12+ taken to cell meeting: 10pts max (2.5pts per person, capped at 4)
 // Cell prayer: 10pts (min 2 hours)
 // People 12+ brought to church: 20pts max (5pts per person, capped at 4)
 // Total: 100pts

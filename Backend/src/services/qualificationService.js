@@ -2,12 +2,19 @@ import Metrics from "../models/metricsModel.js";
 import User from "../models/userModel.js";
 import { normalizeWeekReference } from "../utils/portalWeek.js";
 import { processWeeklyMetrics } from "./metricsService.js";
+import {
+  attachServiceRoleQualification,
+  getServiceRoleQualification,
+} from "./serviceRoleQualificationService.js";
+
+const MIN_CELL_MEETING_PEOPLE = 4;
 
 const toPlainEnglishReasons = (breakdown = {}, metric = {}) => {
   const reasons = [];
 
   const qualifyingSouls =
     Number(metric.qualifyingSouls ?? metric.totalSouls ?? 0) || 0;
+  const cellMeetingPeopleCount = Number(metric.cellMeetingPeopleCount ?? 0) || 0;
   const churchAttendeeCount = Number(metric.churchAttendeeCount ?? 0) || 0;
   const fellowshipHours = Number(metric.fellowshipHours ?? 0) || 0;
 
@@ -20,6 +27,9 @@ const toPlainEnglishReasons = (breakdown = {}, metric = {}) => {
     typeof breakdown.cellPrayerQualified === "boolean"
       ? breakdown.cellPrayerQualified
       : false;
+
+  const hasCellMeetingPeopleCriterion =
+    typeof breakdown.cellMeetingPeopleQualified === "boolean";
 
   if (!breakdown.soulsQualified) {
     reasons.push(
@@ -49,6 +59,17 @@ const toPlainEnglishReasons = (breakdown = {}, metric = {}) => {
     reasons.push("Did not attend cell meeting.");
   }
 
+  if (
+    hasCellMeetingPeopleCriterion &&
+    !breakdown.cellMeetingPeopleQualified
+  ) {
+    reasons.push(
+      cellMeetingPeopleCount > 0
+        ? `Only ${cellMeetingPeopleCount} qualifying person${cellMeetingPeopleCount === 1 ? "" : "s"} aged 12+ taken to cell meeting (minimum is ${MIN_CELL_MEETING_PEOPLE}).`
+        : `No qualifying people aged 12+ were taken to cell meeting (minimum is ${MIN_CELL_MEETING_PEOPLE}).`
+    );
+  }
+
   if (!cellPrayerPassed) {
     reasons.push("Cell prayer did not reach at least 2 hours.");
   }
@@ -72,6 +93,11 @@ export const compareQualificationRank = (a, b) => {
     (Number(b?.qualifyingSouls) || 0) - (Number(a?.qualifyingSouls) || 0);
   if (soulsDiff !== 0) return soulsDiff;
 
+  const cellMeetingPeopleDiff =
+    (Number(b?.cellMeetingPeopleCount) || 0) -
+    (Number(a?.cellMeetingPeopleCount) || 0);
+  if (cellMeetingPeopleDiff !== 0) return cellMeetingPeopleDiff;
+
   const attendeesDiff =
     (Number(b?.churchAttendeeCount) || 0) - (Number(a?.churchAttendeeCount) || 0);
   if (attendeesDiff !== 0) return attendeesDiff;
@@ -94,27 +120,35 @@ const buildNoSubmissionEntry = (worker) => ({
   isQualified: false,
   submittedReport: false,
   qualifyingSouls: 0,
+  mainChurchAttendeeCount: 0,
+  cellMeetingPeopleCount: 0,
   churchAttendeeCount: 0,
   fellowshipHours: 0,
   missingCriteria: [
     "No evangelism and follow-up report was submitted for this week.",
   ],
+  serviceRoleQualification: getServiceRoleQualification({}),
+  serviceRoleCategory: "none",
 });
 
-const buildMetricEntry = (metric) => ({
-  worker: metric.worker,
-  totalScore: metric.totalScore,
-  qualificationBreakdown: metric.qualificationBreakdown,
-  scoreBreakdown: metric.scoreBreakdown || null,
-  isQualified: !!metric.isQualified,
-  submittedReport: !!metric.reportSubmitted,
-  qualifyingSouls: metric.qualifyingSouls || 0,
-  churchAttendeeCount: metric.churchAttendeeCount || 0,
-  fellowshipHours: metric.fellowshipHours || 0,
-  missingCriteria: metric.isQualified
-    ? []
-    : toPlainEnglishReasons(metric.qualificationBreakdown || {}, metric),
-});
+const buildMetricEntry = (metric) =>
+  attachServiceRoleQualification({
+    worker: metric.worker,
+    totalScore: metric.totalScore,
+    qualificationBreakdown: metric.qualificationBreakdown,
+    scoreBreakdown: metric.scoreBreakdown || null,
+    isQualified: !!metric.isQualified,
+    submittedReport: !!metric.reportSubmitted,
+    qualifyingSouls: metric.qualifyingSouls || 0,
+    mainChurchAttendeeCount:
+      metric.mainChurchAttendeeCount ?? metric.churchAttendeeCount ?? 0,
+    cellMeetingPeopleCount: metric.cellMeetingPeopleCount || 0,
+    churchAttendeeCount: metric.churchAttendeeCount || 0,
+    fellowshipHours: metric.fellowshipHours || 0,
+    missingCriteria: metric.isQualified
+      ? []
+      : toPlainEnglishReasons(metric.qualificationBreakdown || {}, metric),
+  });
 
 const shouldExcludeWorker = (worker) => {
   if (!worker?._id) return true;
@@ -137,6 +171,7 @@ const loadWeekMetrics = async (weekReference) =>
     .sort({
       totalScore: -1,
       qualifyingSouls: -1,
+      cellMeetingPeopleCount: -1,
       churchAttendeeCount: -1,
       fellowshipHours: -1,
       updatedAt: 1,
@@ -278,6 +313,7 @@ export const getLateMetricsSummary = async (weekReference) => {
     .sort({
       totalScore: -1,
       qualifyingSouls: -1,
+      cellMeetingPeopleCount: -1,
       churchAttendeeCount: -1,
       fellowshipHours: -1,
       updatedAt: 1,

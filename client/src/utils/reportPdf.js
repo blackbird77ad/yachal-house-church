@@ -4,7 +4,12 @@ let pdfDependenciesPromise;
 
 const sanitizeFileName = (value) =>
   String(value || "report")
-    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, " ")
+    .split("")
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      return code <= 31 || '<>:"/\\|?*'.includes(char) ? " " : char;
+    })
+    .join("")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -41,16 +46,37 @@ export const downloadReportPdf = async ({ element, fileName }) => {
 
   await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
 
-  const scale = Math.min(window.devicePixelRatio || 1, 2);
-  const canvas = await html2canvas(element, {
-    scale,
-    useCORS: true,
+  const captureElement = element.cloneNode(true);
+  captureElement.id = `${REPORT_PRINT_AREA_ID}-pdf-capture`;
+  Object.assign(captureElement.style, {
+    position: "fixed",
+    left: "-10000px",
+    top: "0",
+    width: "794px",
+    maxWidth: "794px",
+    margin: "0",
     backgroundColor: "#ffffff",
-    logging: false,
-    scrollX: 0,
-    scrollY: -window.scrollY,
-    windowWidth: element.scrollWidth,
+    color: "#111827",
+    boxSizing: "border-box",
   });
+  document.body.appendChild(captureElement);
+
+  let canvas;
+  try {
+    const scale = Math.min(window.devicePixelRatio || 1, 2);
+    canvas = await html2canvas(captureElement, {
+      scale,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      logging: false,
+      scrollX: 0,
+      scrollY: 0,
+      windowWidth: captureElement.scrollWidth,
+      windowHeight: captureElement.scrollHeight,
+    });
+  } finally {
+    captureElement.remove();
+  }
 
   const pdf = new jsPDF({
     orientation: "portrait",
@@ -61,7 +87,7 @@ export const downloadReportPdf = async ({ element, fileName }) => {
 
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
-  const margin = 10;
+  const margin = 12;
   const safeFileName = fileName.endsWith(".pdf") ? fileName : `${fileName}.pdf`;
   const contentWidth = pageWidth - margin * 2;
   const contentHeight = (canvas.height * contentWidth) / canvas.width;

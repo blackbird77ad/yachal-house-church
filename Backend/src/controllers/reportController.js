@@ -38,6 +38,18 @@ const MY_REPORT_BASE_FIELDS =
 
 const MY_REPORT_LIST_FIELDS = `${MY_REPORT_BASE_FIELDS} isEditable evangelismData followUpData churchAttendees serviceAttendance cellData cellReportData fellowshipPrayerData productionData briefData departmentalData customData`;
 
+const REPORT_ANALYSIS_TYPES = [
+  "evangelism",
+  "cell",
+  "production",
+  "fellowship-prayer",
+  "brief",
+  "departmental",
+  "custom",
+];
+
+const REPORT_ANALYSIS_TYPE_SET = new Set(REPORT_ANALYSIS_TYPES);
+
 const createTimingCountBucket = () => ({
   all: 0,
   onTime: 0,
@@ -101,6 +113,69 @@ const parsePartnerEntry = (value = "") => {
     workerId: "",
     isNone: false,
   };
+};
+
+const CELL_MEETING_AGE_RANGES = new Set([
+  "unknown",
+  "under-12",
+  "above-12",
+  "typed",
+]);
+
+const getNumericAge = (value) => {
+  if (value === "" || value === null || value === undefined) return null;
+  const age = Number(value);
+  return Number.isFinite(age) && age >= 0 && age <= 120 ? age : null;
+};
+
+const getCellMeetingAgeRange = (person = {}) => {
+  if (CELL_MEETING_AGE_RANGES.has(person.ageRange)) return person.ageRange;
+  return getNumericAge(person.age) !== null ? "typed" : "unknown";
+};
+
+const isCellMeetingPersonAtLeast12 = (person = {}) => {
+  if (person.olderThan12 === true) return true;
+
+  const ageRange = getCellMeetingAgeRange(person);
+  if (ageRange === "above-12") return true;
+  if (ageRange === "under-12" || ageRange === "unknown") return false;
+
+  const age = getNumericAge(person.age);
+  return age !== null && age >= 12;
+};
+
+const normalizePeopleTakenToCell = (people = []) =>
+  people
+    .filter((person) => person?.fullName?.toString?.().trim())
+    .map((person) => {
+      const ageRange = getCellMeetingAgeRange(person);
+      const age = ageRange === "typed" ? getNumericAge(person.age) : null;
+      const normalized = {
+        fullName: person.fullName.toString().trim(),
+        contact: person.contact?.toString?.().trim() || "",
+        ageRange,
+        age,
+      };
+
+      return {
+        ...normalized,
+        olderThan12: isCellMeetingPersonAtLeast12({ ...person, ...normalized }),
+      };
+    });
+
+const normalizeEvangelismReportData = (reportData = {}) => {
+  const rawPeopleTakenToCell =
+    reportData.cellData?.peopleTakenToCell ||
+    reportData.cellData?.cellMeetingPeople;
+
+  if (Array.isArray(rawPeopleTakenToCell)) {
+    reportData.cellData = {
+      ...reportData.cellData,
+      peopleTakenToCell: normalizePeopleTakenToCell(rawPeopleTakenToCell),
+    };
+  }
+
+  return reportData;
 };
 
 const buildReportIdentityFilter = ({
@@ -193,6 +268,8 @@ export const saveDraft = async (req, res, next) => {
       weekReference: req.body.weekReference,
       currentWeekReference: getPortalWeekReferenceForNow(),
     }));
+
+    normalizeEvangelismReportData(reportData);
 
     const identityFilter = buildReportIdentityFilter({
       userId: req.user._id,
@@ -314,6 +391,8 @@ export const submitReport = async (req, res, next) => {
       weekReference: req.body.weekReference,
       currentWeekReference: portalState.weekReference,
     }));
+
+    normalizeEvangelismReportData(reportData);
 
     if (reportData.evangelismData?.souls) {
       const souls = reportData.evangelismData.souls;
@@ -564,6 +643,7 @@ export const editSubmittedReport = async (req, res, next) => {
     }
 
     const { reportType, weekType, weekDate, isEdit, ...reportData } = req.body;
+    normalizeEvangelismReportData(reportData);
     Object.assign(report, reportData);
     if (!report.submittedAt) {
       report.submittedAt = new Date();
@@ -791,6 +871,219 @@ export const getAllReports = async (req, res, next) => {
       total,
       page: Number(page),
       totalPages: Math.ceil(total / Number(limit)),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getWorkerReportAnalysis = async (req, res, next) => {
+  try {
+    const {
+      search = "",
+      department = "",
+      reportType = "",
+      timing = "",
+      dateFrom,
+      dateTo,
+      page = 1,
+      limit = 20,
+      sortBy = "totalSubmitted",
+      sortDir = "desc",
+    } = req.query;
+
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(100, Math.max(5, Number(limit) || 20));
+    const normalizedSearch = search.toString().trim();
+    const userFilter = {
+      status: "approved",
+      workerId: { $ne: "001" },
+    };
+
+    if (department) {
+      userFilter.department = department;
+    }
+
+    if (normalizedSearch) {
+      const escaped = normalizedSearch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(escaped, "i");
+      userFilter.$or = [
+        { fullName: regex },
+        { workerId: regex },
+        { email: regex },
+        { department: regex },
+      ];
+    }
+
+    const workers = await User.find(userFilter)
+      .select("fullName workerId email department role status")
+      .lean();
+    const workerIds = workers.map((worker) => worker._id);
+
+    const reportFilter = {
+      status: "submitted",
+      submittedBy: { $in: workerIds },
+    };
+
+    if (REPORT_ANALYSIS_TYPE_SET.has(reportType)) {
+      reportFilter.reportType = reportType;
+    }
+
+    if (timing === "on-time") {
+      reportFilter.isLateSubmission = false;
+    } else if (timing === "arrears") {
+      reportFilter.isLateSubmission = true;
+    }
+
+    if (dateFrom || dateTo) {
+      reportFilter.weekReference = {};
+      if (dateFrom) reportFilter.weekReference.$gte = normalizeWeekReference(dateFrom);
+      if (dateTo) reportFilter.weekReference.$lte = normalizeWeekReference(dateTo);
+    }
+
+    const aggregateRows = workerIds.length
+      ? await Report.aggregate([
+          { $match: reportFilter },
+          {
+            $group: {
+              _id: {
+                worker: "$submittedBy",
+                reportType: "$reportType",
+              },
+              count: { $sum: 1 },
+              onTime: {
+                $sum: {
+                  $cond: [{ $eq: ["$isLateSubmission", true] }, 0, 1],
+                },
+              },
+              arrears: {
+                $sum: {
+                  $cond: [{ $eq: ["$isLateSubmission", true] }, 1, 0],
+                },
+              },
+              firstSubmittedAt: { $min: "$submittedAt" },
+              latestSubmittedAt: { $max: "$submittedAt" },
+            },
+          },
+        ])
+      : [];
+
+    const analysisByWorker = new Map();
+
+    workers.forEach((worker) => {
+      const typeCounts = REPORT_ANALYSIS_TYPES.reduce((acc, type) => {
+        acc[type] = 0;
+        return acc;
+      }, {});
+
+      analysisByWorker.set(worker._id.toString(), {
+        worker,
+        totalSubmitted: 0,
+        onTimeSubmitted: 0,
+        arrearsSubmitted: 0,
+        typeCounts,
+        firstSubmittedAt: null,
+        latestSubmittedAt: null,
+      });
+    });
+
+    aggregateRows.forEach((row) => {
+      const workerId = row._id.worker?.toString();
+      const reportTypeKey = REPORT_ANALYSIS_TYPE_SET.has(row._id.reportType)
+        ? row._id.reportType
+        : "custom";
+      const entry = analysisByWorker.get(workerId);
+      if (!entry) return;
+
+      entry.typeCounts[reportTypeKey] =
+        (entry.typeCounts[reportTypeKey] || 0) + row.count;
+      entry.totalSubmitted += row.count;
+      entry.onTimeSubmitted += row.onTime;
+      entry.arrearsSubmitted += row.arrears;
+
+      if (
+        row.firstSubmittedAt &&
+        (!entry.firstSubmittedAt || row.firstSubmittedAt < entry.firstSubmittedAt)
+      ) {
+        entry.firstSubmittedAt = row.firstSubmittedAt;
+      }
+
+      if (
+        row.latestSubmittedAt &&
+        (!entry.latestSubmittedAt || row.latestSubmittedAt > entry.latestSubmittedAt)
+      ) {
+        entry.latestSubmittedAt = row.latestSubmittedAt;
+      }
+    });
+
+    const sortDirection = sortDir === "asc" ? 1 : -1;
+    const getSortValue = (entry) => {
+      if (REPORT_ANALYSIS_TYPE_SET.has(sortBy)) {
+        return Number(entry.typeCounts[sortBy] || 0);
+      }
+
+      if (sortBy === "fullName") return entry.worker?.fullName || "";
+      if (sortBy === "workerId") return entry.worker?.workerId || "";
+      if (sortBy === "department") return entry.worker?.department || "";
+      if (sortBy === "onTimeSubmitted") return Number(entry.onTimeSubmitted || 0);
+      if (sortBy === "arrearsSubmitted") return Number(entry.arrearsSubmitted || 0);
+      if (sortBy === "latestSubmittedAt") {
+        return entry.latestSubmittedAt ? new Date(entry.latestSubmittedAt).getTime() : 0;
+      }
+
+      return Number(entry.totalSubmitted || 0);
+    };
+
+    const analysis = [...analysisByWorker.values()].sort((a, b) => {
+      const aValue = getSortValue(a);
+      const bValue = getSortValue(b);
+
+      if (typeof aValue === "string" || typeof bValue === "string") {
+        const compare = String(aValue).localeCompare(String(bValue));
+        if (compare !== 0) return compare * sortDirection;
+      } else if (aValue !== bValue) {
+        return (aValue - bValue) * sortDirection;
+      }
+
+      return (a.worker?.fullName || "").localeCompare(b.worker?.fullName || "");
+    });
+
+    const totals = analysis.reduce(
+      (acc, entry) => {
+        acc.totalSubmitted += entry.totalSubmitted;
+        acc.onTimeSubmitted += entry.onTimeSubmitted;
+        acc.arrearsSubmitted += entry.arrearsSubmitted;
+        REPORT_ANALYSIS_TYPES.forEach((type) => {
+          acc.typeCounts[type] += entry.typeCounts[type] || 0;
+        });
+        return acc;
+      },
+      {
+        totalWorkers: analysis.length,
+        totalSubmitted: 0,
+        onTimeSubmitted: 0,
+        arrearsSubmitted: 0,
+        typeCounts: REPORT_ANALYSIS_TYPES.reduce((acc, type) => {
+          acc[type] = 0;
+          return acc;
+        }, {}),
+      }
+    );
+
+    const skip = (safePage - 1) * safeLimit;
+    const paginatedAnalysis = analysis.slice(skip, skip + safeLimit);
+
+    const departments = [...new Set(workers.map((worker) => worker.department || "unassigned"))]
+      .sort((a, b) => a.localeCompare(b));
+
+    res.status(200).json({
+      analysis: paginatedAnalysis,
+      totals,
+      departments,
+      reportTypes: REPORT_ANALYSIS_TYPES,
+      total: analysis.length,
+      page: safePage,
+      totalPages: Math.ceil(analysis.length / safeLimit),
     });
   } catch (error) {
     next(error);

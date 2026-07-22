@@ -45,6 +45,11 @@ export const getAllReports = async (params = {}) => {
   return response.data;
 };
 
+export const getWorkerReportAnalysis = async (params = {}) => {
+  const response = await axiosInstance.get("/reports/worker-analysis", { params });
+  return response.data;
+};
+
 export const getReportById = async (reportId) => {
   const response = await axiosInstance.get(`/reports/${reportId}`);
   return response.data;

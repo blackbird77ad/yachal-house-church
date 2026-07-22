@@ -1,5 +1,15 @@
-﻿import { useState, useEffect } from "react";
-import { Clock, Unlock, Lock, History, AlertCircle, RefreshCw, Timer } from "lucide-react";
+import { useCallback, useState, useEffect } from "react";
+import {
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  History,
+  Lock,
+  RefreshCw,
+  Timer,
+  Unlock,
+} from "lucide-react";
 import { getPortalStatus, getPortalHistory } from "../../services/portalService";
 import { overridePortal } from "../../services/adminService";
 import axiosInstance from "../../utils/axiosInstance";
@@ -17,11 +27,11 @@ const PortalControl = () => {
   const [reason, setReason]   = useState("");
   const [customClose, setCustomClose]   = useState("");
   const [useCustomClose, setUseCustomClose] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const [cleaning, setCleaning] = useState(false);
-  const [fixing, setFixing]     = useState(false);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const [p, h] = await Promise.all([
         getPortalStatus(),
@@ -34,21 +44,9 @@ const PortalControl = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  useEffect(() => { fetchData(); }, []);
-
-  const handleFixWeeks = async () => {
-    if (!window.confirm("This will correct all reports saved with the wrong system week date. Safe to run — read-only check then update. Continue?")) return;
-    setFixing(true);
-    try {
-      const { data } = await axiosInstance.post("/admin/fix-week-references");
-      toast.success("Done", data?.message || "Week references fixed.");
-      await fetchData({ silent: true });
-    } catch (err) {
-      toast.error("Error", err.response?.data?.message || "Fix failed.");
-    } finally { setFixing(false); }
-  };
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleCleanup = async () => {
     if (!window.confirm("This will close all open portals and remove duplicate records. Continue?")) return;
@@ -106,37 +104,37 @@ const PortalControl = () => {
     : null;
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-2xl">
+    <div className="space-y-5 animate-fade-in max-w-screen-xl mx-auto">
       <ToastContainer toasts={toasts} onClose={removeToast} />
 
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="section-title">Portal Control</h1>
           <p className="section-subtitle">Manage manual access outside the automatic Friday to Monday window</p>
         </div>
-        <button onClick={fetchData} className="btn-ghost text-sm flex items-center gap-2">
+        <button onClick={fetchData} className="btn-ghost text-sm flex items-center gap-2 w-fit">
           <RefreshCw className="w-4 h-4" /> Refresh
         </button>
       </div>
 
       {/* ── Current status card ──────────────────────────────── */}
       <div className={cn(
-        "card p-6 border-2 transition-colors",
+        "card p-4 sm:p-5 border-2 transition-colors",
         isOpen
           ? "border-green-300 dark:border-green-700"
           : "border-gray-200 dark:border-slate-700"
       )}>
-        <div className="flex items-center gap-4 mb-5">
+        <div className="flex items-center gap-3 sm:gap-4 mb-4">
           <div className={cn(
-            "w-14 h-14 rounded-2xl flex items-center justify-center",
+            "w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0",
             isOpen
               ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
               : "bg-gray-100 dark:bg-slate-700 text-gray-400 dark:text-slate-500"
           )}>
-            <Clock className="w-7 h-7" />
+            <Clock className="w-6 h-6" />
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-bold text-gray-900 dark:text-slate-100 text-xl">
+            <h2 className="font-bold text-gray-900 dark:text-slate-100 text-lg sm:text-xl">
               Portal is {isOpen ? "OPEN" : "CLOSED"}
             </h2>
             {isOpen && portal?.timeLeft && (
@@ -161,7 +159,7 @@ const PortalControl = () => {
         </div>
 
         {weekLabel && (
-          <div className="bg-gray-50 dark:bg-slate-800 rounded-xl p-3 mb-5 text-sm text-gray-700 dark:text-slate-300">
+          <div className="bg-gray-50 dark:bg-slate-800 rounded-xl p-3 mb-4 text-sm text-gray-700 dark:text-slate-300">
             Current system week: <span className="font-semibold">{weekLabel}</span>
             {portal?.override?.overriddenBy?.fullName && (
               <span className="block text-xs text-gray-500 dark:text-slate-400 mt-1">
@@ -173,7 +171,7 @@ const PortalControl = () => {
         )}
 
         {/* Automatic schedule info */}
-        <div className="bg-gray-50 dark:bg-slate-800 rounded-xl p-4 mb-5">
+        <div className="bg-gray-50 dark:bg-slate-800 rounded-xl p-4 mb-4">
           <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">
             Automatic Schedule
           </p>
@@ -193,9 +191,9 @@ const PortalControl = () => {
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-4 mb-5">
-          <div className="flex items-center justify-between gap-4">
-            <div>
+        <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-4 mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
                 Manual portal access
               </p>
@@ -318,23 +316,44 @@ const PortalControl = () => {
       </div>
 
       {/* ── Portal history ──────────────────────────────────── */}
-      <div className="card p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <History className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-          <h3 className="font-bold text-gray-900 dark:text-slate-100">Portal History</h3>
-          <span className="text-xs text-gray-400 dark:text-slate-500 flex-1">Most recent first</span>
-          <button onClick={handleCleanup} disabled={cleaning} className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-50">
-            {cleaning ? "Cleaning..." : "Fix duplicates"}
-          </button>
-        </div>
+      <div className="card overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setHistoryOpen((prev) => !prev)}
+          className="w-full flex items-center gap-3 p-4 sm:p-5 text-left hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors"
+        >
+          <div className="w-9 h-9 rounded-xl bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 flex items-center justify-center flex-shrink-0">
+            <History className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-gray-900 dark:text-slate-100">Portal History</h3>
+            <p className="text-xs text-gray-400 dark:text-slate-500">
+              {history.length} record{history.length === 1 ? "" : "s"} available. Click to {historyOpen ? "hide" : "open"}.
+            </p>
+          </div>
+          {historyOpen ? (
+            <ChevronUp className="w-4 h-4 text-gray-400" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-gray-400" />
+          )}
+        </button>
 
-        {history.length === 0 ? (
-          <p className="text-sm text-gray-400 dark:text-slate-500 text-center py-6">
-            No history yet.
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {history.map((p) => (
+        {historyOpen && (
+          <div className="border-t border-gray-100 dark:border-slate-700 p-4 sm:p-5">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <span className="text-xs text-gray-400 dark:text-slate-500">Most recent first</span>
+              <button onClick={handleCleanup} disabled={cleaning} className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-50">
+                {cleaning ? "Cleaning..." : "Fix duplicates"}
+              </button>
+            </div>
+
+            {history.length === 0 ? (
+              <p className="text-sm text-gray-400 dark:text-slate-500 text-center py-6">
+                No history yet.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {history.map((p) => (
               <div key={p._id} className="flex items-start gap-3 p-4 bg-gray-50 dark:bg-slate-800 rounded-xl">
                 <div className={cn(
                   "w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0",
@@ -367,7 +386,9 @@ const PortalControl = () => {
                   )}
                 </div>
               </div>
-            ))}
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

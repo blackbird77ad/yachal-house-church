@@ -1,14 +1,15 @@
 import { useState, useEffect, useRef } from "react";
-import { Search, X, Users, FileText, Trophy, Clock, ClipboardList, Calendar, ChevronRight } from "lucide-react";
+import { Search, X, Users, FileText, Trophy, Clock, ClipboardList, Calendar, ChevronRight, BarChart3 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import axiosInstance from "../../utils/axiosInstance";
-import { cn } from "../../utils/scoreHelpers";
 
 const QUICK_LINKS = [
   { label: "Workers", icon: <Users className="w-4 h-4" />, to: "/admin/workers", role: "admin" },
   { label: "Reports", icon: <FileText className="w-4 h-4" />, to: "/admin/reports", role: "admin" },
+  { label: "Worker Analysis", icon: <BarChart3 className="w-4 h-4" />, to: "/admin/worker-analysis", role: "admin" },
   { label: "Qualification", icon: <Trophy className="w-4 h-4" />, to: "/admin/qualification", role: "admin" },
+  { label: "Service Roles", icon: <Trophy className="w-4 h-4" />, to: "/admin/service-roles", role: "admin" },
   { label: "Roster", icon: <Calendar className="w-4 h-4" />, to: "/admin/roster", role: "admin" },
   { label: "Portal Control", icon: <Clock className="w-4 h-4" />, to: "/admin/portal", role: "admin" },
   { label: "Report Types", icon: <ClipboardList className="w-4 h-4" />, to: "/admin/report-types", role: "admin" },
@@ -54,7 +55,9 @@ const GlobalSearch = () => {
           ]);
           setResults({ workers: wRes.data.workers?.slice(0, 5) || [], reports: rRes.data.reports?.slice(0, 3) || [] });
         }
-      } catch {} finally { setSearching(false); }
+      } catch {
+        setResults({ workers: [], reports: [] });
+      } finally { setSearching(false); }
     }, 300);
     return () => clearTimeout(timer);
   }, [query, isAdminLevel]);

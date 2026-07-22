@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { X, ChevronRight, ChevronLeft, Lightbulb } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 import { cn } from "../../utils/scoreHelpers";
@@ -30,7 +30,7 @@ const WORKER_STEPS = [
   },
   {
     title: "Qualification",
-    body: "To qualify each week you need: 10+ souls preached to, 2+ hrs fellowship prayer, 2+ hrs cell prayer, 4+ service attendance counts, and your report submitted on time. All 5 must be met.",
+    body: "To qualify each week you need: 10+ souls preached to, Tuesday and Sunday service attendance, 2+ hrs fellowship prayer, cell meeting attendance, 4+ people aged 12+ taken to cell meeting, 2+ hrs cell prayer, 4+ people aged 12+ brought to church, and your report submitted on time.",
     icon: "✅",
     position: "center",
   },

@@ -2,7 +2,8 @@ import express from "express";
 import {
   register, login, getMe, approveWorker, suspendWorker,
   reinstateWorker, changePassword, adminCreateWorker,
-  adminBulkCreateWorkers, forgotPassword, adminResetPassword,
+  adminBulkCreateWorkers, forgotPassword, resetPasswordWithToken,
+  adminResetPassword,
 } from "../controllers/authController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import { isAdminLevel } from "../middleware/roleMiddleware.js";
@@ -12,6 +13,7 @@ const router = express.Router();
 router.post("/register", register);
 router.post("/login", login);
 router.post("/forgot-password", forgotPassword);
+router.post("/reset-password/:token", resetPasswordWithToken);
 router.get("/me", protect, getMe);
 router.put("/change-password", protect, changePassword);
 

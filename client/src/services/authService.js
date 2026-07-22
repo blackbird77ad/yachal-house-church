@@ -45,6 +45,16 @@ export const changePassword = async (data) => {
   return response.data;
 };
 
+export const requestPasswordReset = async (email) => {
+  const response = await axiosInstance.post("/auth/forgot-password", { email });
+  return response.data;
+};
+
+export const resetPasswordWithToken = async (token, data) => {
+  const response = await axiosInstance.post(`/auth/reset-password/${token}`, data);
+  return response.data;
+};
+
 export const adminCreateWorker = async (data) => {
   const response = await axiosInstance.post("/auth/create-worker", data);
   return response.data;
