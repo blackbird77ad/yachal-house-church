@@ -1844,6 +1844,9 @@ const EvangelismForm = ({
             <h4 className="font-semibold text-gray-900 dark:text-slate-100">
               People Taken to Cell Meeting
             </h4>
+            <span className="text-xs text-red-400 font-semibold">
+              Required
+            </span>
             <span
               className={cn(
                 "px-3 py-1 rounded-full text-sm font-semibold",
@@ -1859,7 +1862,9 @@ const EvangelismForm = ({
             </span>
           </div>
 
-          <p className="text-xs text-gray-400 dark:text-slate-500">Optional.</p>
+          <p className="text-xs text-gray-400 dark:text-slate-500">
+            Add everyone you took to cell meeting. If no one was taken, leave this blank and it will count as 0.
+          </p>
 
           <div className="space-y-3">
             {cellMeetingPeople.map((person, i) => {
