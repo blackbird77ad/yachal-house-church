@@ -246,13 +246,20 @@ const EvangelismContent = ({ report }) => {
   } = report;
   const soulLabel = (status) => SOUL_STATUSES?.find((item) => item.value === status)?.label || status;
   const peopleTakenToCell = cellData?.peopleTakenToCell || [];
-  const ageLabel = (person = {}) => {
-    if (person.ageRange === "under-12") return "Under 12";
-    if (person.ageRange === "above-12") return "Above 12";
-    if (person.ageRange === "typed" && person.age != null) return `${person.age} years`;
-    if (person.olderThan12) return "Above 12";
-    return "I don't know yet";
-  };
+  const peopleTakenToCellGroups = cellData?.peopleTakenToCellGroups?.length
+    ? cellData.peopleTakenToCellGroups
+    : peopleTakenToCell.length
+    ? [
+        {
+          cellName: peopleTakenToCell[0]?.cellName || "Cell not specified",
+          people: peopleTakenToCell,
+        },
+      ]
+    : [];
+  const peopleTakenToCellCount = peopleTakenToCellGroups.reduce(
+    (total, group) => total + (group.people?.length || 0),
+    0
+  );
 
   return (
     <>
@@ -365,27 +372,36 @@ const EvangelismContent = ({ report }) => {
         </Section>
       )}
 
-      {peopleTakenToCell.length > 0 && (
-        <Section title={`People Taken to Cell Meeting (${peopleTakenToCell.length})`}>
-          <TableHead
-            cols={[
-              { label: "#", w: 0.3 },
-              { label: "Name", w: 2 },
-              { label: "Contact", w: 1.5 },
-              { label: "Age", w: 1.5 },
-            ]}
-          />
-          {peopleTakenToCell.map((item, index) => (
-            <TableRow
-              key={index}
-              index={index}
-              cols={[
-                { w: 0.3, val: index + 1 },
-                { w: 2, val: item.fullName, bold: true },
-                { w: 1.5, val: item.contact || "Not shared" },
-                { w: 1.5, val: ageLabel(item) },
-              ]}
-            />
+      {peopleTakenToCellGroups.length > 0 && (
+        <Section title={`People Taken to Cell Meeting (${peopleTakenToCellCount})`}>
+          {peopleTakenToCellGroups.map((group, groupIndex) => (
+            <div key={groupIndex} style={{ marginTop: groupIndex === 0 ? 0 : 10 }}>
+              <TextBlock>
+                Cell: <strong>{group.cellName || "Cell not specified"}</strong>
+              </TextBlock>
+              {group.people?.length > 0 && (
+                <>
+                  <TableHead
+                    cols={[
+                      { label: "#", w: 0.3 },
+                      { label: "Name", w: 2 },
+                      { label: "12+ Years", w: 1 },
+                    ]}
+                  />
+                  {group.people.map((item, index) => (
+                    <TableRow
+                      key={index}
+                      index={index}
+                      cols={[
+                        { w: 0.3, val: index + 1 },
+                        { w: 2, val: item.fullName, bold: true },
+                        { w: 1, val: item.olderThan12 ? "Yes" : "No" },
+                      ]}
+                    />
+                  ))}
+                </>
+              )}
+            </div>
           ))}
         </Section>
       )}

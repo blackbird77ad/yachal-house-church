@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: "0.0.0.0",
-    port: 5173,
+    port: 5180,
     strictPort: true,
     headers: {
       "Cache-Control": "no-store",
@@ -14,7 +14,7 @@ export default defineConfig({
     hmr: {
       host: "localhost",
       protocol: "ws",
-      clientPort: 5173,
+      clientPort: 5180,
     },
   },
   resolve: {

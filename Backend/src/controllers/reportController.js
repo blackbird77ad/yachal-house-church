@@ -144,36 +144,107 @@ const isCellMeetingPersonAtLeast12 = (person = {}) => {
   return age !== null && age >= 12;
 };
 
-const normalizePeopleTakenToCell = (people = []) =>
-  people
-    .filter((person) => person?.fullName?.toString?.().trim())
-    .map((person) => {
-      const ageRange = getCellMeetingAgeRange(person);
-      const age = ageRange === "typed" ? getNumericAge(person.age) : null;
-      const normalized = {
-        fullName: person.fullName.toString().trim(),
-        contact: person.contact?.toString?.().trim() || "",
-        ageRange,
-        age,
-      };
+const normalizeCellMeetingPerson = (person = {}, fallbackCellName = "") => {
+  const fullName =
+    person.fullName?.toString?.().trim() ||
+    person.name?.toString?.().trim() ||
+    "";
 
-      return {
-        ...normalized,
-        olderThan12: isCellMeetingPersonAtLeast12({ ...person, ...normalized }),
-      };
+  if (!fullName) return null;
+
+  const ageRange = getCellMeetingAgeRange(person);
+  const age = ageRange === "typed" ? getNumericAge(person.age) : null;
+  const normalized = {
+    fullName,
+    cellName:
+      person.cellName?.toString?.().trim() ||
+      fallbackCellName?.toString?.().trim() ||
+      "",
+    olderThan12: isCellMeetingPersonAtLeast12(person),
+  };
+
+  if (person.contact?.toString?.().trim()) {
+    normalized.contact = person.contact.toString().trim();
+  }
+
+  if (person.ageRange || age !== null) {
+    normalized.ageRange = ageRange;
+    normalized.age = age;
+    normalized.olderThan12 = isCellMeetingPersonAtLeast12({
+      ...person,
+      ...normalized,
     });
+  }
+
+  return normalized;
+};
+
+const normalizePeopleTakenToCell = (people = [], fallbackCellName = "") =>
+  people
+    .map((person) => normalizeCellMeetingPerson(person, fallbackCellName))
+    .filter(Boolean);
+
+const normalizePeopleTakenToCellGroups = (groups = []) =>
+  groups
+    .map((group) => {
+      const cellName = group.cellName?.toString?.().trim() || "";
+      return {
+        cellName,
+        people: normalizePeopleTakenToCell(group.people || [], cellName),
+      };
+    })
+    .filter((group) => group.cellName || group.people.length > 0);
+
+const groupPeopleTakenToCell = (people = []) => {
+  const groups = new Map();
+
+  people.forEach((person) => {
+    const cellName = person.cellName || "";
+    const key = cellName.toLowerCase() || "__blank__";
+    const group = groups.get(key) || { cellName, people: [] };
+    group.people.push(person);
+    groups.set(key, group);
+  });
+
+  return [...groups.values()];
+};
 
 const normalizeEvangelismReportData = (reportData = {}) => {
+  if (!reportData.cellData) return reportData;
+
+  const rawGroups =
+    reportData.cellData.peopleTakenToCellGroups ||
+    reportData.cellData.cellMeetingGroups;
+
   const rawPeopleTakenToCell =
     reportData.cellData?.peopleTakenToCell ||
     reportData.cellData?.cellMeetingPeople;
 
-  if (Array.isArray(rawPeopleTakenToCell)) {
-    reportData.cellData = {
-      ...reportData.cellData,
-      peopleTakenToCell: normalizePeopleTakenToCell(rawPeopleTakenToCell),
-    };
+  const peopleTakenToCellGroups = Array.isArray(rawGroups)
+    ? normalizePeopleTakenToCellGroups(rawGroups)
+    : [];
+
+  let peopleTakenToCell = Array.isArray(rawPeopleTakenToCell)
+    ? normalizePeopleTakenToCell(rawPeopleTakenToCell)
+    : [];
+
+  if (peopleTakenToCellGroups.length > 0) {
+    peopleTakenToCell = peopleTakenToCellGroups.flatMap((group) =>
+      group.people.map((person) => ({
+        ...person,
+        cellName: person.cellName || group.cellName,
+      }))
+    );
   }
+
+  reportData.cellData = {
+    ...reportData.cellData,
+    peopleTakenToCellGroups:
+      peopleTakenToCellGroups.length > 0
+        ? peopleTakenToCellGroups
+        : groupPeopleTakenToCell(peopleTakenToCell),
+    peopleTakenToCell,
+  };
 
   return reportData;
 };
@@ -1128,11 +1199,16 @@ export const getMyCellNames = async (req, res, next) => {
     const reports = await Report.find({
       submittedBy: req.user._id,
       reportType: "evangelism",
-      status: "submitted",
-      "cellData.cells.0": { $exists: true },
+      $or: [
+        { "cellData.cells.0": { $exists: true } },
+        { "cellData.peopleTakenToCellGroups.0": { $exists: true } },
+        { "cellData.peopleTakenToCell.0": { $exists: true } },
+      ],
     })
-      .select("cellData.cells.cellName")
-      .sort({ createdAt: -1 })
+      .select(
+        "cellData.cells.cellName cellData.peopleTakenToCellGroups.cellName cellData.peopleTakenToCell.cellName"
+      )
+      .sort({ updatedAt: -1, createdAt: -1 })
       .limit(20)
       .lean();
 
@@ -1141,6 +1217,12 @@ export const getMyCellNames = async (req, res, next) => {
     for (const r of reports) {
       for (const cell of r.cellData?.cells || []) {
         if (cell.cellName?.trim()) names.add(cell.cellName.trim());
+      }
+      for (const group of r.cellData?.peopleTakenToCellGroups || []) {
+        if (group.cellName?.trim()) names.add(group.cellName.trim());
+      }
+      for (const person of r.cellData?.peopleTakenToCell || []) {
+        if (person.cellName?.trim()) names.add(person.cellName.trim());
       }
     }
 

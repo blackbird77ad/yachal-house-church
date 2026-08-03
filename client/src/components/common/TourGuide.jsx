@@ -2,13 +2,7 @@ import { useState, useEffect } from "react";
 import { X, ChevronRight, ChevronLeft, Lightbulb } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 import { cn } from "../../utils/scoreHelpers";
-import {
-  TOUR_KEY,
-  UPDATE_TOUR_DURATION_MS,
-  UPDATE_TOUR_FIRST_SEEN_KEY,
-  UPDATE_TOUR_KEY,
-  getTourAudience,
-} from "../../utils/tourStorage";
+import { TOUR_KEY } from "../../utils/tourStorage";
 
 const WORKER_STEPS = [
   {
@@ -130,81 +124,16 @@ const ADMIN_STEPS = [
   },
 ];
 
-const ADMIN_UPDATE_STEPS = [
-  {
-    title: "New Reporting Update",
-    body: "For the next 7 days, this quick update highlights the new Service Roles sorting, Worker Analysis page, and the new cell-meeting field in Evangelism and Follow-up reports.",
-    icon: "NEW",
-    position: "center",
-  },
-  {
-    title: "People Taken to Cell Meeting",
-    body: "Evangelism and Follow-up reports now include People Taken to Cell Meeting. It appears between Cell Meeting and Cell Prayer, with name required, contact optional, and age options for qualification checks.",
-    icon: "CELL",
-    position: "center",
-  },
-  {
-    title: "Service Roles",
-    body: "The Service Roles page sorts weekly results into Leading Roles, Supporting Roles, and Remaining Workers. It follows the new rules and stays aligned with roster preparation.",
-    icon: "ROLE",
-    position: "center",
-  },
-  {
-    title: "Worker Analysis",
-    body: "Worker Analysis shows each worker's total submitted reports by type and timing. Search, filter, sort, paginate, click a worker for details, and print the worker's analysis when needed.",
-    icon: "DATA",
-    position: "center",
-  },
-  {
-    title: "Admin Update Complete",
-    body: "Use Qualification, Service Roles, Worker Analysis, and Roster together for the weekly review flow.",
-    icon: "DONE",
-    position: "center",
-  },
-];
-
-const WORKER_UPDATE_STEPS = [
-  {
-    title: "New Update",
-    body: "Evangelism and Follow-up reports now ask for people or souls you took to cell meeting.",
-    icon: "NEW",
-    position: "center",
-  },
-  {
-    title: "Where to Fill It",
-    body: "Open your Evangelism and Follow-up report. Under Cell Meeting, add each person's name, optional contact, and age option before moving to Cell Prayer.",
-    icon: "CELL",
-    position: "center",
-  },
-  {
-    title: "Why It Matters",
-    body: "This helps your weekly qualification and service-role review reflect the people you brought to cell meeting.",
-    icon: "DONE",
-    position: "center",
-  },
-];
-
 const TourGuide = () => {
   const { user } = useAuth();
   const [visible, setVisible] = useState(false);
   const [step, setStep] = useState(0);
-  const [tourMode, setTourMode] = useState("main");
   const [animDir, setAnimDir] = useState("right"); // "right" | "left"
   const [animating, setAnimating] = useState(false);
 
   const isAdminLevel = ["pastor", "admin", "moderator"].includes(user?.role);
-  const updateAudience = getTourAudience(user?.role);
-  const steps =
-    tourMode === "update"
-      ? isAdminLevel
-        ? ADMIN_UPDATE_STEPS
-        : WORKER_UPDATE_STEPS
-      : isAdminLevel
-      ? ADMIN_STEPS
-      : WORKER_STEPS;
+  const steps = isAdminLevel ? ADMIN_STEPS : WORKER_STEPS;
   const storageKey = TOUR_KEY(user?.role || "worker");
-  const updateStorageKey = UPDATE_TOUR_KEY(updateAudience);
-  const updateFirstSeenKey = UPDATE_TOUR_FIRST_SEEN_KEY(updateAudience);
 
   useEffect(() => {
     if (!user) return;
@@ -213,41 +142,17 @@ const TourGuide = () => {
       const mainTourDone = localStorage.getItem(storageKey);
 
       if (!mainTourDone) {
-        setTourMode("main");
         setStep(0);
         setVisible(true);
-        return;
-      }
-
-      const updateDone = localStorage.getItem(updateStorageKey);
-      if (updateDone) return;
-
-      const now = Date.now();
-      const storedFirstSeen = Number(localStorage.getItem(updateFirstSeenKey) || 0);
-      const firstSeen = storedFirstSeen || now;
-
-      if (!storedFirstSeen) {
-        localStorage.setItem(updateFirstSeenKey, String(firstSeen));
-      }
-
-      if (now - firstSeen <= UPDATE_TOUR_DURATION_MS) {
-        setTourMode("update");
-        setStep(0);
-        setVisible(true);
-      } else {
-        localStorage.setItem(updateStorageKey, "true");
       }
     }, 1200);
 
     return () => clearTimeout(timer);
-  }, [storageKey, updateFirstSeenKey, updateStorageKey, user]);
+  }, [storageKey, user]);
 
   const dismiss = (permanent = true) => {
     if (permanent) {
-      localStorage.setItem(
-        tourMode === "update" ? updateStorageKey : storageKey,
-        "true"
-      );
+      localStorage.setItem(storageKey, "true");
     }
     setVisible(false);
     setStep(0);
@@ -294,11 +199,7 @@ const TourGuide = () => {
           <div className="flex items-center gap-2">
             <Lightbulb className="w-4 h-4 text-purple-600 dark:text-purple-400" />
             <span className="text-xs font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
-              {tourMode === "update"
-                ? "New Update Tour"
-                : isAdminLevel
-                ? "Admin Guide"
-                : "Worker Guide"}
+              {isAdminLevel ? "Admin Guide" : "Worker Guide"}
             </span>
           </div>
           <div className="flex items-center gap-3">

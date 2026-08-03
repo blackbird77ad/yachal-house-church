@@ -45,23 +45,20 @@ const emptyAttendee = {
 };
 const emptyCellMeetingPerson = {
   fullName: "",
-  contact: "",
-  ageRange: "unknown",
-  age: "",
   olderThan12: false,
 };
+const createEmptyCellMeetingPerson = () => ({ ...emptyCellMeetingPerson });
+const createEmptyCellMeetingGroup = () => ({
+  cellName: "",
+  people: [createEmptyCellMeetingPerson()],
+});
 const emptyCell = { cellName: "", meetingDays: [], reportTime: "", role: "" };
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const FELLOWSHIPS = ["Fellowship 1", "Fellowship 2", "Fellowship 3", "Other"];
 const PRAYER_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const MIN_CELL_MEETING_PEOPLE = 4;
-const CELL_MEETING_AGE_OPTIONS = [
-  { value: "unknown", label: "I don't know yet" },
-  { value: "under-12", label: "Under 12 years" },
-  { value: "above-12", label: "Above 12 years" },
-  { value: "typed", label: "Type their age" },
-];
+const CELL_NAME_STORAGE_KEY = "yahal_evangelism_cell_names";
 
 const normalizeText = (value = "") =>
   value.toString().trim().replace(/\s+/g, " ").toLowerCase();
@@ -71,26 +68,75 @@ const normalizePhone = (value = "") =>
 
 const hasValue = (value) => normalizeText(value).length > 0;
 
-const getNumericAge = (value) => {
-  if (value === "" || value === null || value === undefined) return null;
-  const age = Number(value);
-  return Number.isFinite(age) ? age : null;
-};
-
-const getCellMeetingAgeRange = (person = {}) => {
-  if (person.ageRange) return person.ageRange;
-  return getNumericAge(person.age) !== null ? "typed" : "unknown";
-};
-
 const isCellMeetingPersonAtLeast12 = (person = {}) => {
   if (person.olderThan12 === true) return true;
+  if (person.ageRange === "above-12") return true;
+  const age = Number(person.age);
+  return Number.isFinite(age) && age >= 12;
+};
 
-  const ageRange = getCellMeetingAgeRange(person);
-  if (ageRange === "above-12") return true;
-  if (ageRange === "under-12" || ageRange === "unknown") return false;
+const normalizeCellMeetingPerson = (person = {}) => ({
+  fullName: person.fullName || "",
+  olderThan12: isCellMeetingPersonAtLeast12(person),
+});
 
-  const age = getNumericAge(person.age);
-  return age !== null && age >= 12;
+const getStoredCellNames = () => {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CELL_NAME_STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((name) => hasValue(name)) : [];
+  } catch {
+    return [];
+  }
+};
+
+const mergeCellNames = (...nameLists) => {
+  const names = new Map();
+
+  nameLists.flat().forEach((name) => {
+    const trimmed = name?.toString?.().trim();
+    if (!trimmed) return;
+    names.set(normalizeText(trimmed), trimmed);
+  });
+
+  return [...names.values()].slice(0, 20);
+};
+
+const normalizePeopleTakenToCellGroups = (groups = []) => {
+  const normalizedGroups = groups
+    .map((group) => {
+      const people = Array.isArray(group.people)
+        ? group.people.map(normalizeCellMeetingPerson)
+        : [];
+
+      return {
+        cellName: group.cellName || "",
+        people: people.length ? people : [createEmptyCellMeetingPerson()],
+      };
+    })
+    .filter((group) => hasValue(group.cellName) || group.people.some((person) => hasValue(person.fullName)));
+
+  return normalizedGroups.length ? normalizedGroups : [createEmptyCellMeetingGroup()];
+};
+
+const groupFlatPeopleTakenToCell = (people = [], fallbackCellName = "") => {
+  const groups = new Map();
+
+  people.forEach((person) => {
+    const cellName = person.cellName || fallbackCellName || "";
+    const key = normalizeText(cellName) || "__blank__";
+    const existing =
+      groups.get(key) || {
+        cellName,
+        people: [],
+      };
+
+    existing.people.push(normalizeCellMeetingPerson(person));
+    groups.set(key, existing);
+  });
+
+  return normalizePeopleTakenToCellGroups([...groups.values()]);
 };
 
 const toTimeInputValue = (value = "") => {
@@ -200,8 +246,8 @@ const EvangelismForm = ({
   const [scriptures, setScriptures] = useState("");
   const [followUps, setFollowUps] = useState([{ ...emptyFollowUp }]);
   const [attendees, setAttendees] = useState([{ ...emptyAttendee }]);
-  const [cellMeetingPeople, setCellMeetingPeople] = useState([
-    { ...emptyCellMeetingPerson },
+  const [peopleTakenToCellGroups, setPeopleTakenToCellGroups] = useState([
+    createEmptyCellMeetingGroup(),
   ]);
 
   const [serviceAttendance, setServiceAttendance] = useState([
@@ -226,7 +272,7 @@ const EvangelismForm = ({
   const [hoursOfPrayer, setHoursOfPrayer] = useState("");
 
   const [frontDeskCheckIns, setFrontDeskCheckIns] = useState({});
-  const [pastCellNames, setPastCellNames] = useState([]);
+  const [pastCellNames, setPastCellNames] = useState(() => getStoredCellNames());
 
   const [draftLoaded, setDraftLoaded] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -250,7 +296,9 @@ const EvangelismForm = ({
   useEffect(() => {
     axiosInstance
       .get("/reports/my-cell-names")
-      .then(({ data }) => setPastCellNames(data.cellNames || []))
+      .then(({ data }) =>
+        setPastCellNames((current) => mergeCellNames(current, data.cellNames || []))
+      )
       .catch(() => {});
   }, []);
 
@@ -297,7 +345,7 @@ const EvangelismForm = ({
         if (!mounted) return;
 
         if (!draft) {
-          setCellMeetingPeople([{ ...emptyCellMeetingPerson }]);
+          setPeopleTakenToCellGroups([createEmptyCellMeetingGroup()]);
           setDraftLoaded(true);
           setHydrated(true);
           return;
@@ -376,23 +424,19 @@ const EvangelismForm = ({
             setCells(draft.cellData.cells.map((c) => ({ ...emptyCell, ...c })));
           }
 
-          if (draft.cellData.peopleTakenToCell?.length) {
-            setCellMeetingPeople(
-              draft.cellData.peopleTakenToCell.map((person) => {
-                const ageRange = getCellMeetingAgeRange(person);
-                return {
-                  ...emptyCellMeetingPerson,
-                  ...person,
-                  ageRange,
-                  age:
-                    ageRange === "typed" && person.age !== undefined && person.age !== null
-                      ? String(person.age)
-                      : "",
-                };
-              })
+          if (draft.cellData.peopleTakenToCellGroups?.length) {
+            setPeopleTakenToCellGroups(
+              normalizePeopleTakenToCellGroups(draft.cellData.peopleTakenToCellGroups)
+            );
+          } else if (draft.cellData.peopleTakenToCell?.length) {
+            setPeopleTakenToCellGroups(
+              groupFlatPeopleTakenToCell(
+                draft.cellData.peopleTakenToCell,
+                draft.cellData.cells?.[0]?.cellName || ""
+              )
             );
           } else {
-            setCellMeetingPeople([{ ...emptyCellMeetingPerson }]);
+            setPeopleTakenToCellGroups([createEmptyCellMeetingGroup()]);
           }
 
           if (draft.cellData.cellPrayer) {
@@ -403,7 +447,7 @@ const EvangelismForm = ({
             setCellPrayerReportTime(toTimeInputValue(draft.cellData.cellPrayer.reportTime || ""));
           }
         } else {
-          setCellMeetingPeople([{ ...emptyCellMeetingPerson }]);
+          setPeopleTakenToCellGroups([createEmptyCellMeetingGroup()]);
         }
 
         if (draft.fellowshipPrayerData) {
@@ -500,17 +544,27 @@ const EvangelismForm = ({
   const updateAttendee = (i, k, v) =>
     setAttendees((p) => p.map((a, idx) => (idx === i ? { ...a, [k]: v } : a)));
 
-  const updateCellMeetingPerson = (i, k, v) => {
+  const updatePeopleTakenToCellGroupName = (groupIndex, value) => {
     markInteracted();
-    setCellMeetingPeople((p) =>
-      p.map((person, idx) =>
-        idx === i
+    setPeopleTakenToCellGroups((groups) =>
+      groups.map((group, idx) =>
+        idx === groupIndex ? { ...group, cellName: value } : group
+      )
+    );
+  };
+
+  const updateCellMeetingPerson = (groupIndex, personIndex, key, value) => {
+    markInteracted();
+    setPeopleTakenToCellGroups((groups) =>
+      groups.map((group, idx) =>
+        idx === groupIndex
           ? {
-              ...person,
-              [k]: v,
-              ...(k === "ageRange" && v !== "typed" ? { age: "" } : {}),
+              ...group,
+              people: group.people.map((person, pIdx) =>
+                pIdx === personIndex ? { ...person, [key]: value } : person
+              ),
             }
-          : person
+          : group
       )
     );
   };
@@ -572,16 +626,28 @@ const EvangelismForm = ({
     [qualifyingAttendees]
   );
 
+  const nonEmptyPeopleTakenToCellGroups = useMemo(
+    () =>
+      peopleTakenToCellGroups
+        .map((group) => ({
+          cellName: group.cellName || "",
+          people: (group.people || []).filter(
+            (person) => hasValue(person.fullName) || person.olderThan12
+          ),
+        }))
+        .filter((group) => hasValue(group.cellName) || group.people.length > 0),
+    [peopleTakenToCellGroups]
+  );
+
   const nonEmptyCellMeetingPeople = useMemo(
     () =>
-      cellMeetingPeople.filter(
-        (person) =>
-          hasValue(person.fullName) ||
-          hasValue(person.contact) ||
-          getCellMeetingAgeRange(person) !== "unknown" ||
-          getNumericAge(person.age) !== null
+      nonEmptyPeopleTakenToCellGroups.flatMap((group) =>
+        group.people.map((person) => ({
+          ...person,
+          cellName: group.cellName,
+        }))
       ),
-    [cellMeetingPeople]
+    [nonEmptyPeopleTakenToCellGroups]
   );
 
   const qualifyingCellMeetingPeople = useMemo(
@@ -593,14 +659,12 @@ const EvangelismForm = ({
 
   const hasInvalidCellMeetingPeople = useMemo(
     () =>
-      nonEmptyCellMeetingPeople.some((person) => {
-        if (!hasValue(person.fullName)) return true;
-        if (getCellMeetingAgeRange(person) !== "typed") return false;
-
-        const age = getNumericAge(person.age);
-        return age === null || age < 0 || age > 120;
-      }),
-    [nonEmptyCellMeetingPeople]
+      nonEmptyPeopleTakenToCellGroups.some((group) =>
+        group.people.some(
+          (person) => !hasValue(group.cellName) || !hasValue(person.fullName)
+        )
+      ),
+    [nonEmptyPeopleTakenToCellGroups]
   );
 
   const resolvedFellowshipName =
@@ -766,23 +830,18 @@ const EvangelismForm = ({
     cellData: {
       didAttendCell: didAttendCell === true,
       cells: didAttendCell === true ? cells : [],
-      peopleTakenToCell: nonEmptyCellMeetingPeople.map((person) => {
-        const ageRange = getCellMeetingAgeRange(person);
-        const typedAge = ageRange === "typed" ? getNumericAge(person.age) : null;
-        const normalizedPerson = {
-          ...person,
-          ageRange,
-          age: typedAge,
-        };
-
-        return {
+      peopleTakenToCellGroups: nonEmptyPeopleTakenToCellGroups.map((group) => ({
+        cellName: group.cellName.trim(),
+        people: group.people.map((person) => ({
           fullName: (person.fullName || "").trim(),
-          contact: (person.contact || "").trim(),
-          ageRange,
-          age: typedAge,
-          olderThan12: isCellMeetingPersonAtLeast12(normalizedPerson),
-        };
-      }),
+          olderThan12: person.olderThan12 === true,
+        })),
+      })),
+      peopleTakenToCell: nonEmptyCellMeetingPeople.map((person) => ({
+        fullName: (person.fullName || "").trim(),
+        cellName: (person.cellName || "").trim(),
+        olderThan12: person.olderThan12 === true,
+      })),
       cellPrayer: {
         didPrayWithCell: didPrayWithCell === true,
         days: didPrayWithCell === true ? cellPrayerDays : [],
@@ -829,7 +888,7 @@ const EvangelismForm = ({
     if (!sectionValidity.cellMeetingPeopleValid) {
       toast.warning(
         "Cell meeting people incomplete",
-        "Every person taken to cell meeting needs a name. Typed ages must be between 0 and 120."
+        "Type the cell name first, then add the name of each person taken to that cell."
       );
       return false;
     }
@@ -970,7 +1029,7 @@ const EvangelismForm = ({
     partners,
     followUps,
     attendees,
-    cellMeetingPeople,
+    peopleTakenToCellGroups,
     serviceAttendance,
     didAttendCell,
     cells,
@@ -1845,7 +1904,7 @@ const EvangelismForm = ({
               People Taken to Cell Meeting
             </h4>
             <span className="text-xs text-red-400 font-semibold">
-              Required
+              For qualification
             </span>
             <span
               className={cn(
@@ -1863,109 +1922,209 @@ const EvangelismForm = ({
           </div>
 
           <p className="text-xs text-gray-400 dark:text-slate-500">
-            Add everyone you took to cell meeting. If no one was taken, leave this blank and it will count as 0.
+            Type the cell name first, then add the people you took to that cell.
           </p>
 
-          <div className="space-y-3">
-            {cellMeetingPeople.map((person, i) => {
-              const ageRange = getCellMeetingAgeRange(person);
-              const isTypedAge = ageRange === "typed";
+          <div className="space-y-4">
+            {peopleTakenToCellGroups.map((group, groupIndex) => (
+              <div
+                key={groupIndex}
+                className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-4"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-gray-700 dark:text-slate-300">
+                    Cell group {groupIndex + 1}
+                  </p>
+                  {peopleTakenToCellGroups.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        markInteracted();
+                        setPeopleTakenToCellGroups((groups) =>
+                          groups.filter((_, idx) => idx !== groupIndex)
+                        );
+                      }}
+                      className="text-red-400 hover:text-red-600"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
 
-              return (
-                <div key={i} className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-gray-400">
-                      Person #{i + 1}
-                    </span>
-                    {cellMeetingPeople.length > 1 && (
-                      <button
-                        onClick={() => {
-                          markInteracted();
-                          setCellMeetingPeople((p) => p.filter((_, idx) => idx !== i));
-                        }}
-                        className="text-red-400 hover:text-red-600"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
+                <div className="relative">
+                  <label className="form-label">Cell name</label>
+                  <input
+                    className="input-field"
+                    placeholder="Type the cell name"
+                    value={group.cellName}
+                    onChange={(e) =>
+                      updatePeopleTakenToCellGroupName(groupIndex, e.target.value)
+                    }
+                    autoComplete="off"
+                  />
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="form-label">Name required</label>
-                      <input
-                        className="input-field"
-                        placeholder="Full name"
-                        value={person.fullName}
-                        onChange={(e) =>
-                          updateCellMeetingPerson(i, "fullName", e.target.value)
-                        }
-                      />
-                    </div>
-
-                    <div>
-                      <label className="form-label">Contact optional</label>
-                      <input
-                        className="input-field"
-                        placeholder="Phone or contact"
-                        value={person.contact}
-                        onChange={(e) =>
-                          updateCellMeetingPerson(i, "contact", e.target.value)
-                        }
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="form-label">Age</label>
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {CELL_MEETING_AGE_OPTIONS.map((option) => (
+                  {pastCellNames.length > 0 && group.cellName === "" && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {pastCellNames.map((name) => (
                         <button
-                          key={option.value}
+                          key={name}
                           type="button"
-                          onClick={() =>
-                            updateCellMeetingPerson(i, "ageRange", option.value)
-                          }
-                          className={cn(
-                            "px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
-                            ageRange === option.value
-                              ? "border-cyan-400 bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-300"
-                              : "border-gray-200 dark:border-slate-600 text-gray-500 hover:border-cyan-300"
-                          )}
+                          onClick={() => updatePeopleTakenToCellGroupName(groupIndex, name)}
+                          className="px-2.5 py-1 bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-700 rounded-lg text-xs font-medium hover:bg-cyan-100 dark:hover:bg-cyan-900/40 transition-colors"
                         >
-                          {option.label}
+                          {name}
                         </button>
                       ))}
                     </div>
+                  )}
 
-                    {isTypedAge && (
-                      <input
-                        type="number"
-                        min="0"
-                        max="120"
-                        className="input-field mt-3"
-                        placeholder="Type their age"
-                        value={person.age}
-                        onChange={(e) =>
-                          updateCellMeetingPerson(i, "age", e.target.value)
-                        }
-                      />
-                    )}
-                  </div>
+                  {pastCellNames.length > 0 && group.cellName.length > 0 && (() => {
+                    const filtered = pastCellNames.filter(
+                      (name) =>
+                        name.toLowerCase().includes(group.cellName.toLowerCase()) &&
+                        name !== group.cellName
+                    );
+
+                    return filtered.length > 0 ? (
+                      <div className="absolute z-10 left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-xl shadow-lg overflow-hidden">
+                        {filtered.map((name) => (
+                          <button
+                            key={name}
+                            type="button"
+                            onClick={() => updatePeopleTakenToCellGroupName(groupIndex, name)}
+                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-slate-200 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors"
+                          >
+                            {name}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null;
+                  })()}
                 </div>
-              );
-            })}
+
+                <div className="space-y-3">
+                  {group.people.map((person, personIndex) => (
+                    <div
+                      key={personIndex}
+                      className="p-3 bg-white dark:bg-slate-900/40 rounded-xl space-y-3"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-gray-400 w-6">
+                          #{personIndex + 1}
+                        </span>
+                        <input
+                          className="input-field flex-1"
+                          placeholder="Full name"
+                          value={person.fullName}
+                          onChange={(e) =>
+                            updateCellMeetingPerson(
+                              groupIndex,
+                              personIndex,
+                              "fullName",
+                              e.target.value
+                            )
+                          }
+                        />
+                        {group.people.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              markInteracted();
+                              setPeopleTakenToCellGroups((groups) =>
+                                groups.map((item, idx) =>
+                                  idx === groupIndex
+                                    ? {
+                                        ...item,
+                                        people: item.people.filter(
+                                          (_, pIdx) => pIdx !== personIndex
+                                        ),
+                                      }
+                                    : item
+                                )
+                              );
+                            }}
+                            className="text-red-400 hover:text-red-600 flex-shrink-0"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      <label
+                        className={cn(
+                          "flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 cursor-pointer select-none transition-all w-full",
+                          person.olderThan12
+                            ? "border-cyan-400 bg-cyan-50 dark:bg-cyan-900/20"
+                            : "border-gray-200 dark:border-slate-600"
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 accent-cyan-600 flex-shrink-0"
+                          checked={person.olderThan12}
+                          onChange={(e) =>
+                            updateCellMeetingPerson(
+                              groupIndex,
+                              personIndex,
+                              "olderThan12",
+                              e.target.checked
+                            )
+                          }
+                        />
+                        <span
+                          className={cn(
+                            "text-sm font-medium",
+                            person.olderThan12
+                              ? "text-cyan-700 dark:text-cyan-300"
+                              : "text-gray-500 dark:text-slate-400"
+                          )}
+                        >
+                          {person.olderThan12
+                            ? "Older than 12 - counts toward qualification"
+                            : "Tick if this person is older than 12"}
+                        </span>
+                      </label>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    markInteracted();
+                    setPeopleTakenToCellGroups((groups) =>
+                      groups.map((item, idx) =>
+                        idx === groupIndex
+                          ? {
+                              ...item,
+                              people: [...item.people, createEmptyCellMeetingPerson()],
+                            }
+                          : item
+                      )
+                    );
+                  }}
+                  className="w-full py-2.5 border-2 border-dashed border-cyan-300 dark:border-cyan-700 text-cyan-600 dark:text-cyan-400 rounded-xl text-sm font-medium hover:bg-cyan-50 dark:hover:bg-cyan-900/20 flex items-center justify-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add another person
+                </button>
+              </div>
+            ))}
           </div>
 
           <button
+            type="button"
             onClick={() => {
               markInteracted();
-              setCellMeetingPeople((p) => [...p, { ...emptyCellMeetingPerson }]);
+              setPeopleTakenToCellGroups((groups) => [
+                ...groups,
+                createEmptyCellMeetingGroup(),
+              ]);
             }}
             className="w-full py-2.5 border-2 border-dashed border-cyan-300 dark:border-cyan-700 text-cyan-600 dark:text-cyan-400 rounded-xl text-sm font-medium hover:bg-cyan-50 dark:hover:bg-cyan-900/20 flex items-center justify-center gap-2"
           >
             <Plus className="w-4 h-4" />
-            Add another person
+            Have another cell
           </button>
         </div>
 

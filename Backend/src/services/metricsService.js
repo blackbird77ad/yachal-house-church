@@ -97,7 +97,12 @@ const isPersonAtLeast12 = (person = {}) => {
 };
 
 const countCellMeetingPeople = (report) => {
-  const peopleTakenToCell = report.cellData?.peopleTakenToCell || [];
+  const peopleTakenToCell =
+    report.cellData?.peopleTakenToCell?.length
+      ? report.cellData.peopleTakenToCell
+      : (report.cellData?.peopleTakenToCellGroups || []).flatMap(
+          (group) => group.people || []
+        );
   if (!peopleTakenToCell.length) return 0;
 
   return peopleTakenToCell.filter(isPersonAtLeast12).length;
