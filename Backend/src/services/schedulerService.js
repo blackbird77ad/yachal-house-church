@@ -661,6 +661,13 @@ const processPortalClosureForWeek = async (weekReference, { source = "cron" } = 
   const normalizedWeek = normalizeWeekReference(weekReference);
   const { opensAt, closesAt } = getPortalWindowForWeekReference(normalizedWeek);
 
+  if (now <= closesAt) {
+    console.log(
+      `Scheduler: Skipped portal closure for ${normalizedWeek.toDateString()} before deadline (${source})`
+    );
+    return false;
+  }
+
   const claimedPortal = await claimPortalProcessing(normalizedWeek, opensAt, closesAt);
 
   if (!claimedPortal) {
@@ -712,7 +719,14 @@ const processPortalClosureForWeek = async (weekReference, { source = "cron" } = 
 
 const closePortalAndProcess = async () => {
   try {
-    const weekReference = getPortalWeekReferenceForNow(new Date());
+    const now = new Date();
+
+    if (isWithinSubmissionWindow(now)) {
+      console.log("Scheduler: Skipped portal closure while submission window is still open");
+      return;
+    }
+
+    const weekReference = getPreviousPortalWeekReference(now);
     await processPortalClosureForWeek(weekReference, { source: "cron" });
   } catch (err) {
     console.error("Scheduler closePortalAndProcess error:", err.message);
@@ -885,7 +899,7 @@ export const initScheduler = () => {
   cron.schedule("0 * * * *", refreshLiveQualification, { timezone: "Africa/Accra" });
   cron.schedule("59 14 * * 0", sendTwentyFourHourReminder, { timezone: "Africa/Accra" });
   cron.schedule("0 11 * * 1", sendClosingReminder, { timezone: "Africa/Accra" });
-  cron.schedule("59 14 * * 1", closePortalAndProcess, { timezone: "Africa/Accra" });
+  cron.schedule("0 15 * * 1", closePortalAndProcess, { timezone: "Africa/Accra" });
   cron.schedule("*/15 * * * *", catchUpMissedPortalClosure, { timezone: "Africa/Accra" });
   cron.schedule("*/15 * * * *", replayRecentPortalCommunications, {
     timezone: "Africa/Accra",

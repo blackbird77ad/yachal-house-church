@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import axiosInstance from "../../utils/axiosInstance";
 import { useAuth } from "../../hooks/useAuth";
-import { getPortalStatus } from "../../services/portalService";
+import { getPortalStatusWithFallback } from "../../services/portalService";
 import { deleteMyDraftReport, getMyReports } from "../../services/reportService";
 import Loader from "../../components/common/Loader";
 import { useToast, ToastContainer } from "../../components/common/Toast";
@@ -36,7 +36,7 @@ const WorkerDashboard = () => {
     try {
       const [reportsRes, portalRes, unreadRes, rosterRes] = await Promise.all([
         getMyReports({ limit: 200 }).catch(() => ({ reports: [] })),
-        getPortalStatus().catch(() => ({ isOpen: false })),
+        getPortalStatusWithFallback(),
         axiosInstance.get("/notifications/unread-count").catch(() => ({ data: { count: 0 } })),
         axiosInstance.get("/roster/my-assignment").catch(() => ({ data: {} })),
       ]);
@@ -59,7 +59,7 @@ const WorkerDashboard = () => {
     fetchData();
 
     const interval = setInterval(() => {
-      getPortalStatus().then(setPortal).catch(() => {});
+      getPortalStatusWithFallback().then(setPortal);
       axiosInstance
         .get("/notifications/unread-count")
         .then(({ data }) => setUnreadNotifications(data?.count || 0))

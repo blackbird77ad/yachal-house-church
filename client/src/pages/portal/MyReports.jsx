@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import axiosInstance from "../../utils/axiosInstance";
-import { getPortalStatus } from "../../services/portalService";
+import { getPortalStatusWithFallback } from "../../services/portalService";
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
 import { formatDateTime, getWeekLabel } from "../../utils/formatDate";
@@ -114,7 +114,7 @@ const MyReports = () => {
             ...(selectedType !== "all" ? { reportType: selectedType } : {}),
           },
         }),
-        getPortalStatus().catch(() => ({ isOpen: false })),
+        getPortalStatusWithFallback(),
         getMyReportSummary().catch(() => ({
           statusCounts: { all: 0, draft: 0, submitted: 0 },
           typeCountsByStatus: {

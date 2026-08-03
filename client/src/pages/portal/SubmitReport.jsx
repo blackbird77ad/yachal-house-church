@@ -11,7 +11,7 @@ import {
   Lock,
   FolderOpen,
 } from "lucide-react";
-import { getPortalStatus } from "../../services/portalService";
+import { getPortalStatusWithFallback } from "../../services/portalService";
 import { getMyReports } from "../../services/reportService";
 import { REPORT_TYPES } from "../../utils/constants";
 import EvangelismForm from "../../components/forms/EvangelismForm";
@@ -145,17 +145,10 @@ const SubmitReport = () => {
   const [selectedReportId, setSelectedReportId] = useState(null);
 
   const fetchPortal = async () => {
-    try {
-      const data = await getPortalStatus();
-      setPortal(data);
-      return data;
-    } catch {
-      const fallback = { isOpen: false };
-      setPortal(fallback);
-      return fallback;
-    } finally {
-      setPortalLoading(false);
-    }
+    const data = await getPortalStatusWithFallback();
+    setPortal(data);
+    setPortalLoading(false);
+    return data;
   };
 
   const fetchSubmitted = async (weekReference) => {

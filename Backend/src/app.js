@@ -2,7 +2,6 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
-import rateLimit from "express-rate-limit";
 import { env } from "./config/env.js";
 
 import authRoute         from "./routes/authRoute.js";
@@ -19,6 +18,7 @@ import mediaRoute        from "./routes/mediaRoute.js";
 import serviceTimeRoute  from "./routes/serviceTimeRoute.js";
 import pushRoute         from "./routes/pushRoute.js";
 import { errorHandler }  from "./middleware/errorHandler.js";
+import { authLimiter, generalLimiter } from "./middleware/rateLimiter.js";
 
 const app = express();
 
@@ -147,28 +147,11 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
 // ── Rate limiting ─────────────────────────────────────────────────
-// General: 300 req / 15 min per IP
-const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many requests. Please slow down." },
-});
-
 // Auth: 20 attempts / 15 min per IP — brute force protection
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many login attempts. Please try again in 15 minutes." },
-});
-
-app.use("/api", generalLimiter);
 app.use("/api/auth/login",    authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", authLimiter);
+app.use("/api", generalLimiter);
 
 // ── Routes ────────────────────────────────────────────────────────
 app.use("/api/auth",          authRoute);
