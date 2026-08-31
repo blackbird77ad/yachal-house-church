@@ -90,17 +90,13 @@ const shouldUseLocalApiFallback = () => {
     return isLocalHostname(window.location.hostname);
   }
 
-  return import.meta.env.DEV && isLocalHostname(window.location.hostname);
+  return isLocalHostname(window.location.hostname);
 };
 
 const resolveApiBaseUrl = () => {
   const configuredApiBaseUrl = readEnvValue(import.meta.env.VITE_API_URL);
 
-  if (import.meta.env.PROD) {
-    return configuredApiBaseUrl || LIVE_API_BASE_URL;
-  }
-
-  if (shouldUseLocalApiFallback()) {
+  if (!configuredApiBaseUrl && shouldUseLocalApiFallback()) {
     return getLocalApiBaseUrl();
   }
 
