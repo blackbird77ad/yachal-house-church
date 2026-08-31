@@ -37,7 +37,7 @@ export const Toast = ({ id, type = "info", title, message, onClose, duration = 4
 };
 
 export const ToastContainer = ({ toasts, onClose }) => (
-  <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+  <div className="fixed bottom-4 right-4 z-[90] flex flex-col gap-2">
     {toasts.map((toast) => (
       <Toast key={toast.id} {...toast} onClose={onClose} />
     ))}

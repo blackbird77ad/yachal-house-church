@@ -5,6 +5,7 @@ import {
   getWorkerByWorkerId,
   searchWorkersByName,
   updateWorkerProfile,
+  deleteWorker,
   getWorkerMetrics,
   getMyProfile,
   updateMyProfile,
@@ -21,6 +22,7 @@ router.get("/by-worker-id/:workerId", protect, getWorkerByWorkerId);
 router.get("/", protect, isAdminLevel, getAllWorkers);
 router.get("/:workerId", protect, isAdminLevel, getWorkerById);
 router.put("/:workerId", protect, isAdminLevel, updateWorkerProfile);
+router.delete("/:workerId", protect, isAdminLevel, deleteWorker);
 router.get("/:workerId/metrics", protect, isAdminLevel, getWorkerMetrics);
 
 export default router;

@@ -1,19 +1,23 @@
 ﻿import { useState, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, UserCheck, UserX, Edit2, Save, X, Key, CheckCircle, XCircle } from "lucide-react";
-import { getWorkerById, updateWorker, getWorkerMetrics } from "../../services/workerService";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, UserCheck, UserX, Edit2, Save, X, Key, CheckCircle, XCircle, Trash2 } from "lucide-react";
+import { getWorkerById, updateWorker, getWorkerMetrics, deleteWorker } from "../../services/workerService";
 import { approveWorker, suspendWorker, reinstateWorker } from "../../services/authService";
 import axiosInstance from "../../utils/axiosInstance";
 import ScoreBadge from "../../components/common/ScoreBadge";
 import Loader from "../../components/common/Loader";
+import WorkerDeleteModal from "../../components/admin/WorkerDeleteModal";
 import { useToast, ToastContainer } from "../../components/common/Toast";
+import { useAuth } from "../../hooks/useAuth";
 import { getCriteriaStatus } from "../../utils/scoreHelpers";
 import { formatDate, getWeekLabel } from "../../utils/formatDate";
 import { DEPARTMENTS } from "../../utils/constants";
 
 const WorkerProfile = () => {
   const { workerId } = useParams();
+  const navigate = useNavigate();
   const { toasts, toast, removeToast } = useToast();
+  const { user } = useAuth();
   const [worker, setWorker] = useState(null);
   const [metrics, setMetrics] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -22,6 +26,8 @@ const WorkerProfile = () => {
   const [saving, setSaving] = useState(false);
   const [resetCredentials, setResetCredentials] = useState(null);
   const [copiedReset, setCopiedReset] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingWorker, setDeletingWorker] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -92,6 +98,19 @@ const WorkerProfile = () => {
     }
   };
 
+  const handleDelete = async () => {
+    if (!worker) return;
+    setDeletingWorker(true);
+    try {
+      await deleteWorker(worker._id);
+      navigate("/admin/workers", { replace: true });
+    } catch (err) {
+      toast.error("Error", err.response?.data?.message || "Could not delete worker.");
+    } finally {
+      setDeletingWorker(false);
+    }
+  };
+
   const handleReset = async () => {
     if (!confirm("Reset this worker's password? A temporary password will be generated and emailed to them. You will also see it here to share manually.")) return;
     try {
@@ -110,6 +129,11 @@ const WorkerProfile = () => {
   const criteriaItems = latestMetric
     ? getCriteriaStatus(latestMetric.qualificationBreakdown, latestMetric.scoreBreakdown)
     : [];
+  const canDeleteWorker =
+    user &&
+    String(worker._id) !== String(user?._id) &&
+    worker.role !== "pastor" &&
+    worker.workerId !== "001";
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -145,6 +169,11 @@ const WorkerProfile = () => {
           {worker.status === "suspended" && (
             <button onClick={handleReinstate} className="btn-secondary flex items-center gap-2 text-sm">
               <UserCheck className="w-4 h-4" /> Reinstate
+            </button>
+          )}
+          {canDeleteWorker && (
+            <button onClick={() => setShowDeleteModal(true)} className="btn-danger flex items-center gap-2 text-sm">
+              <Trash2 className="w-4 h-4" /> Delete
             </button>
           )}
           {!editing ? (
@@ -285,6 +314,13 @@ const WorkerProfile = () => {
           </div>
         </div>
       )}
+
+      <WorkerDeleteModal
+        worker={showDeleteModal ? worker : null}
+        deleting={deletingWorker}
+        onClose={() => setShowDeleteModal(false)}
+        onDelete={handleDelete}
+      />
     </div>
   );
 };

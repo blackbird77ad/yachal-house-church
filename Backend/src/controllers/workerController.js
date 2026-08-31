@@ -1,5 +1,12 @@
 import User from "../models/userModel.js";
 import Metrics from "../models/metricsModel.js";
+import Attendance from "../models/attendanceModel.js";
+import FrontDeskSession from "../models/frontDeskSessionModel.js";
+import Notification from "../models/notificationModel.js";
+import Permission from "../models/permissionModel.js";
+import PushSubscription from "../models/pushSubscriptionModel.js";
+import Report from "../models/reportModel.js";
+import Roster from "../models/rosterModel.js";
 
 const mergeNotificationPreferences = (existing = {}, incoming = {}) => ({
   email: existing?.email !== false,
@@ -109,6 +116,78 @@ export const updateWorkerProfile = async (req, res, next) => {
     await worker.save();
 
     res.status(200).json({ message: "Profile updated successfully.", worker });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteWorker = async (req, res, next) => {
+  try {
+    const worker = await User.findById(req.params.workerId).select("fullName email workerId role");
+    if (!worker) {
+      return res.status(404).json({ message: "Worker not found." });
+    }
+
+    if (String(worker._id) === String(req.user._id)) {
+      return res.status(400).json({ message: "You cannot delete your own account." });
+    }
+
+    if (worker.role === "pastor" || worker.workerId === "001") {
+      return res.status(400).json({ message: "The reserved pastor account cannot be deleted." });
+    }
+
+    const workerId = worker._id;
+
+    const [
+      reports,
+      metrics,
+      attendance,
+      permissions,
+      notifications,
+      pushSubscriptions,
+    ] = await Promise.all([
+      Report.deleteMany({ submittedBy: workerId }),
+      Metrics.deleteMany({ worker: workerId }),
+      Attendance.deleteMany({ worker: workerId }),
+      Permission.deleteMany({ worker: workerId }),
+      Notification.deleteMany({ recipient: workerId }),
+      PushSubscription.deleteMany({ user: workerId }),
+    ]);
+
+    await Promise.all([
+      Attendance.updateMany({ loggedBy: workerId }, { $unset: { loggedBy: "" } }),
+      FrontDeskSession.updateMany(
+        { primarySupervisor: workerId },
+        { $unset: { primarySupervisor: "", supervisorCheckInTime: "" } }
+      ),
+      FrontDeskSession.updateMany({ coSupervisors: workerId }, { $pull: { coSupervisors: workerId } }),
+      Notification.updateMany({ sender: workerId }, { $unset: { sender: "" } }),
+      Permission.updateMany({ coordinator: workerId }, { $unset: { coordinator: "" } }),
+      Permission.updateMany({ outcomeUpdatedBy: workerId }, { $unset: { outcomeUpdatedBy: "" } }),
+      Roster.updateMany(
+        { "slots.assignments.worker": workerId },
+        {
+          $pull: { "slots.$[].assignments": { worker: workerId } },
+          $set: { needsRepublish: true },
+        }
+      ),
+      Roster.updateMany({ publishedBy: workerId }, { $unset: { publishedBy: "" } }),
+      User.updateMany({ approvedBy: workerId }, { $unset: { approvedBy: "" } }),
+    ]);
+
+    await User.deleteOne({ _id: workerId });
+
+    res.status(200).json({
+      message: `${worker.fullName} has been permanently deleted.`,
+      deleted: {
+        reports: reports.deletedCount || 0,
+        metrics: metrics.deletedCount || 0,
+        attendance: attendance.deletedCount || 0,
+        permissions: permissions.deletedCount || 0,
+        notifications: notifications.deletedCount || 0,
+        pushSubscriptions: pushSubscriptions.deletedCount || 0,
+      },
+    });
   } catch (error) {
     next(error);
   }

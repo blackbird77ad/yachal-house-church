@@ -25,6 +25,11 @@ export const updateWorker = async (workerId, data) => {
   return response.data;
 };
 
+export const deleteWorker = async (workerId) => {
+  const response = await axiosInstance.delete(`/workers/${workerId}`);
+  return response.data;
+};
+
 export const getWorkerMetrics = async (workerId, params = {}) => {
   const response = await axiosInstance.get(`/workers/${workerId}/metrics`, { params });
   return response.data;

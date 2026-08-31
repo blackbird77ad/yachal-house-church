@@ -2,10 +2,10 @@
 import {
   Search, UserCheck, UserX, ChevronRight, UserPlus,
   Download, Eye, EyeOff, Copy, CheckCircle, RefreshCw,
-  Mail, LayoutGrid, List, Clock, AlertCircle,
+  Mail, LayoutGrid, List, Clock, Trash2,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { getAllWorkers } from "../../services/workerService";
+import { getAllWorkers, deleteWorker } from "../../services/workerService";
 import {
   approveWorker, suspendWorker, reinstateWorker,
   adminCreateWorker, adminBulkCreateWorkers,
@@ -13,7 +13,9 @@ import {
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
 import Modal from "../../components/common/Modal";
+import WorkerDeleteModal from "../../components/admin/WorkerDeleteModal";
 import { useToast, ToastContainer } from "../../components/common/Toast";
+import { useAuth } from "../../hooks/useAuth";
 import { formatDate } from "../../utils/formatDate";
 import { DEPARTMENTS } from "../../utils/constants";
 import { cn } from "../../utils/scoreHelpers";
@@ -28,6 +30,7 @@ const PER_PAGE = 15;
 
 const Workers = () => {
   const { toasts, toast, removeToast } = useToast();
+  const { user } = useAuth();
 
   const [workers, setWorkers]         = useState([]);
   const [pending, setPending]         = useState([]);
@@ -60,6 +63,8 @@ const Workers = () => {
   const [bulkPassword, setBulkPassword]           = useState("");
   const [bulkConfirmPassword, setBulkConfirmPassword] = useState("");
   const [showBulkPw, setShowBulkPw]               = useState(false);
+  const [workerToDelete, setWorkerToDelete]       = useState(null);
+  const [deletingWorker, setDeletingWorker]       = useState(false);
 
   const parsedEmails = pastedEmails
     .split(/[\n,;]+/)
@@ -67,6 +72,13 @@ const Workers = () => {
     .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
 
   const setViewMode = (v) => { setView(v); localStorage.setItem("yahal_workers_view", v); };
+
+  const canDeleteWorker = (worker) =>
+    user &&
+    worker &&
+    String(worker._id) !== String(user?._id) &&
+    worker.role !== "pastor" &&
+    worker.workerId !== "001";
 
   // ── Fetch approved/suspended workers (paginated) ──────────────
   const fetchWorkers = useCallback(async (pg = 1) => {
@@ -89,7 +101,9 @@ const Workers = () => {
     try {
       const data = await getAllWorkers({ status: "pending", limit: 100 });
       setPending(data.workers || []);
-    } catch {}
+    } catch {
+      setPending([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -119,6 +133,31 @@ const Workers = () => {
   const handleReinstate = async (id) => {
     try { await reinstateWorker(id); toast.success("Reinstated", "Worker reinstated."); fetchWorkers(page); }
     catch { toast.error("Error", "Could not reinstate."); }
+  };
+
+  const openDeleteModal = (worker) => setWorkerToDelete(worker);
+
+  const closeDeleteModal = () => {
+    if (deletingWorker) return;
+    setWorkerToDelete(null);
+  };
+
+  const handleDelete = async () => {
+    if (!workerToDelete) return;
+    setDeletingWorker(true);
+    try {
+      const data = await deleteWorker(workerToDelete._id);
+      toast.success("Deleted", data.message || "Worker permanently deleted.");
+      setWorkerToDelete(null);
+      const nextPage = workers.length === 1 && page > 1 ? page - 1 : page;
+      setPage(nextPage);
+      fetchWorkers(nextPage);
+      fetchPending();
+    } catch (err) {
+      toast.error("Error", err.response?.data?.message || "Could not delete worker.");
+    } finally {
+      setDeletingWorker(false);
+    }
   };
 
   // ── Create ────────────────────────────────────────────────────
@@ -236,6 +275,11 @@ const Workers = () => {
           {w.status === "suspended" && (
             <button onClick={() => handleReinstate(w._id)} className="p-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg" title="Reinstate">
               <UserCheck className="w-4 h-4" />
+            </button>
+          )}
+          {canDeleteWorker(w) && (
+            <button onClick={() => openDeleteModal(w)} className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg" title="Delete worker">
+              <Trash2 className="w-4 h-4" />
             </button>
           )}
         </div>
@@ -381,6 +425,15 @@ const Workers = () => {
                     >
                       <UserCheck className="w-3.5 h-3.5" /> Approve
                     </button>
+                    {canDeleteWorker(w) && (
+                      <button
+                        onClick={() => openDeleteModal(w)}
+                        className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
+                        title="Delete worker"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                     <Link to={`/admin/workers/${w._id}`} className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg">
                       <ChevronRight className="w-4 h-4" />
                     </Link>
@@ -431,6 +484,7 @@ const Workers = () => {
                     <div className="flex items-center gap-1">
                       {w.status==="approved"  && <button onClick={()=>handleSuspend(w._id)}   className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg" title="Suspend"><UserX className="w-4 h-4"/></button>}
                       {w.status==="suspended" && <button onClick={()=>handleReinstate(w._id)} className="p-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg" title="Reinstate"><UserCheck className="w-4 h-4"/></button>}
+                      {canDeleteWorker(w) && <button onClick={()=>openDeleteModal(w)} className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg" title="Delete worker"><Trash2 className="w-4 h-4"/></button>}
                       <Link to={`/admin/workers/${w._id}`} className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg"><ChevronRight className="w-4 h-4"/></Link>
                     </div>
                   </td>
@@ -454,6 +508,13 @@ const Workers = () => {
           />
         </div>
       )}
+
+      <WorkerDeleteModal
+        worker={workerToDelete}
+        deleting={deletingWorker}
+        onClose={closeDeleteModal}
+        onDelete={handleDelete}
+      />
 
       {/* ── Single Add Modal ─────────────────────────────────── */}
       <Modal isOpen={showCreateModal} onClose={() => { setShowCreateModal(false); setCreatedWorker(null); }} title={createdWorker ? "Worker Created" : "Add Worker"}>
