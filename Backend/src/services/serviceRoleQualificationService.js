@@ -1,5 +1,6 @@
 import Metrics from "../models/metricsModel.js";
 import { normalizeWeekReference } from "../utils/portalWeek.js";
+import { normalizeBranchId } from "../utils/branchAccess.js";
 
 export const SERVICE_ROLE_RULES = {
   LEADING_MAIN_CHURCH_MIN: 4,
@@ -22,6 +23,14 @@ const isSubmittedEntry = (entry = {}) =>
   entry.submittedReport !== false && entry.reportSubmitted !== false;
 
 const shouldExcludeWorker = (worker = {}) => worker?.workerId === "001";
+
+const getBranchIdFromWorker = (worker = {}) =>
+  worker?.branch?._id?.toString?.() || worker?.branch?.toString?.() || "";
+
+const getBranchIdsFromOptions = ({ branchId, branchIds } = {}) => {
+  const values = Array.isArray(branchIds) ? branchIds : [branchId];
+  return [...new Set(values.map(normalizeBranchId).filter(Boolean))];
+};
 
 export const getQualificationStatus = (entry = {}) => {
   if (!isSubmittedEntry(entry)) {
@@ -202,8 +211,11 @@ export const getServiceRoleQualificationWeeks = async ({
   dateFrom,
   dateTo,
   isLateSubmission = false,
+  branchId,
+  branchIds,
 } = {}) => {
   const filter = { isLateSubmission };
+  const normalizedBranchIds = getBranchIdsFromOptions({ branchId, branchIds });
 
   if (weekReference) {
     filter.weekReference = normalizeWeekReference(weekReference);
@@ -214,7 +226,11 @@ export const getServiceRoleQualificationWeeks = async ({
   }
 
   const metrics = await Metrics.find(filter)
-    .populate("worker", "fullName workerId department score isQualified")
+    .populate({
+      path: "worker",
+      select: "fullName workerId department branch score isQualified",
+      populate: { path: "branch", select: "name code status" },
+    })
     .sort({
       weekReference: -1,
       mainChurchAttendeeCount: -1,
@@ -224,9 +240,15 @@ export const getServiceRoleQualificationWeeks = async ({
     })
     .lean();
 
+  const visibleMetrics = normalizedBranchIds.length
+    ? metrics.filter(
+        (metric) => normalizedBranchIds.includes(getBranchIdFromWorker(metric.worker))
+      )
+    : metrics;
+
   const grouped = new Map();
 
-  metrics.forEach((metric) => {
+  visibleMetrics.forEach((metric) => {
     const key = new Date(metric.weekReference).toISOString();
     if (!grouped.has(key)) {
       grouped.set(key, {

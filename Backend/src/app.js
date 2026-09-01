@@ -17,6 +17,7 @@ import rosterRoute       from "./routes/rosterRoute.js";
 import mediaRoute        from "./routes/mediaRoute.js";
 import serviceTimeRoute  from "./routes/serviceTimeRoute.js";
 import pushRoute         from "./routes/pushRoute.js";
+import branchRoute       from "./routes/branchRoute.js";
 import { errorHandler }  from "./middleware/errorHandler.js";
 import { authLimiter, generalLimiter } from "./middleware/rateLimiter.js";
 
@@ -162,6 +163,8 @@ app.use("/api/metrics",       metricsRoute);
 app.use("/api/notifications", notificationRoute);
 app.use("/api/report-types",  reportTypeRoute);
 app.use("/api/portal",        portalRoute);
+app.use("/api/branches",      branchRoute);
+app.use("/api/branch",        branchRoute);
 app.use("/api/attendance",    attendanceRoute);
 app.use("/api/roster",        rosterRoute);
 app.use("/api/media",         mediaRoute);

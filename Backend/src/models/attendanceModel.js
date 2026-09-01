@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 const attendanceSchema = new mongoose.Schema({
   worker:      { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   session:     { type: mongoose.Schema.Types.ObjectId, ref: "FrontDeskSession", required: true },
+  branch:      { type: mongoose.Schema.Types.ObjectId, ref: "Branch" },
   serviceType: { type: String, enum: ["tuesday", "sunday", "special"], required: true },
   serviceDate: { type: Date, required: true },
   checkInTime: { type: Date, required: true },
@@ -24,6 +25,7 @@ const attendanceSchema = new mongoose.Schema({
 
 attendanceSchema.index({ worker: 1, serviceDate: 1 });
 attendanceSchema.index({ session: 1, checkInTime: 1 });
+attendanceSchema.index({ branch: 1, serviceDate: 1 });
 attendanceSchema.index({ serviceType: 1, serviceDate: 1 });
 
 // TTL: auto-delete attendance records 180 days after service date

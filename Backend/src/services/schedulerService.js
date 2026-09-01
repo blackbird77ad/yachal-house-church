@@ -2,6 +2,7 @@ import cron from "node-cron";
 import PortalWindow from "../models/portalWindowModel.js";
 import Metrics from "../models/metricsModel.js";
 import User from "../models/userModel.js";
+import Branch from "../models/branchModel.js";
 import Notification from "../models/notificationModel.js";
 import Roster from "../models/rosterModel.js";
 import FrontDeskSession from "../models/frontDeskSessionModel.js";
@@ -12,6 +13,7 @@ import {
   ensureWeeklyMetricsFresh,
   processWeeklyMetrics,
 } from "./metricsService.js";
+import { getAllWorkersQualificationStatus } from "./qualificationService.js";
 import { buildServiceRoleQualificationSummary } from "./serviceRoleQualificationService.js";
 import {
   isValidEmailAddress,
@@ -35,6 +37,10 @@ import {
   isWithinSubmissionWindow,
   normalizeWeekReference,
 } from "../utils/portalWeek.js";
+import {
+  canAccessAllBranches,
+  getAccessibleBranchIds,
+} from "../utils/branchAccess.js";
 
 const getApprovedRecipients = async () =>
   User.find({ status: "approved" }).select("_id email fullName notificationPreferences");
@@ -43,7 +49,7 @@ const getAdminRecipients = async () =>
   User.find({
     status: "approved",
     role: { $in: ["pastor", "admin", "moderator"] },
-  }).select("_id email fullName notificationPreferences");
+  }).select("_id email fullName role workerId branch managedBranches canViewAllBranches notificationPreferences");
 
 const PROCESSING_STALE_MS = 15 * 60 * 1000;
 const EMAIL_RETRY_INTERVAL_MS = 60 * 60 * 1000;
@@ -77,6 +83,56 @@ const ensureAuditEntry = (container, key) => {
 const getPortalAuditEntry = (portal, key) => {
   portal.communicationAudit = portal.communicationAudit || {};
   return ensureAuditEntry(portal.communicationAudit, key);
+};
+
+const getBranchPortalAuditEntry = (portal, branchId) => {
+  portal.communicationAudit = portal.communicationAudit || {};
+
+  if (!portal.communicationAudit.branchQualificationResults) {
+    portal.communicationAudit.branchQualificationResults = new Map();
+  }
+
+  const map = portal.communicationAudit.branchQualificationResults;
+  const key = String(branchId);
+  let entry = typeof map.get === "function" ? map.get(key) : map[key];
+
+  if (!entry) {
+    entry = { emailDeliveredTo: [] };
+    if (typeof map.set === "function") {
+      map.set(key, entry);
+    } else {
+      map[key] = entry;
+    }
+  }
+
+  entry = typeof map.get === "function" ? map.get(key) : map[key];
+  if (!Array.isArray(entry.emailDeliveredTo)) {
+    entry.emailDeliveredTo = [];
+  }
+
+  return entry;
+};
+
+const splitAdminRecipientsByBranchVisibility = (recipients = []) => {
+  const globalRecipients = [];
+  const byBranch = new Map();
+
+  recipients.forEach((recipient) => {
+    if (canAccessAllBranches(recipient)) {
+      globalRecipients.push(recipient);
+      return;
+    }
+
+    const branchIds = getAccessibleBranchIds(recipient);
+    branchIds.forEach((branchId) => {
+      if (!byBranch.has(branchId)) {
+        byBranch.set(branchId, []);
+      }
+      byBranch.get(branchId).push(recipient);
+    });
+  });
+
+  return { globalRecipients, byBranch };
 };
 
 const getPendingEmailRecipients = (recipients, auditEntry = {}) => {
@@ -494,8 +550,10 @@ const ensurePortalClosureCommunications = async (
   ]);
 
   const leaderRecipients = await getAdminRecipients();
-  const leaderRecipientIds = leaderRecipients.map((recipient) => recipient._id);
-  const adminEmailRecipients = leaderRecipients.filter((recipient) =>
+  const { globalRecipients, byBranch } =
+    splitAdminRecipientsByBranchVisibility(leaderRecipients);
+  const leaderRecipientIds = globalRecipients.map((recipient) => recipient._id);
+  const adminEmailRecipients = globalRecipients.filter((recipient) =>
     isValidEmailAddress(recipient.email)
   );
 
@@ -534,6 +592,63 @@ const ensurePortalClosureCommunications = async (
       url: "/admin/qualification",
     },
   });
+
+  for (const [branchId, branchRecipients] of byBranch.entries()) {
+    const branch = await Branch.findById(branchId).select("name code").lean();
+    const branchLabel = branch?.name || branch?.code || "Branch";
+    const branchQualificationStatus = await getAllWorkersQualificationStatus(
+      normalizedWeek,
+      { branchId }
+    );
+    const branchQualified = branchQualificationStatus.qualified || [];
+    const branchDisqualified = [
+      ...(branchQualificationStatus.disqualified || []),
+      ...(branchQualificationStatus.noSubmission || []),
+    ];
+    const branchServiceRoleSummary = buildServiceRoleQualificationSummary([
+      ...branchQualified,
+      ...branchDisqualified,
+    ]);
+    const branchRecipientIds = branchRecipients.map((recipient) => recipient._id);
+    const branchEmailRecipients = branchRecipients.filter((recipient) =>
+      isValidEmailAddress(recipient.email)
+    );
+    const branchQualificationAudit = getBranchPortalAuditEntry(portal, branchId);
+    branchQualificationAudit.qualifiedCount = branchQualified.length;
+    branchQualificationAudit.disqualifiedCount = branchDisqualified.length;
+
+    const branchQualificationNotification = {
+      type: "qualification-result",
+      title: `${branchLabel} qualification results ready`,
+      message: `${branchLabel}: ${branchQualified.length} qualified, ${branchDisqualified.length} not qualified. ${branchServiceRoleSummary.leading.length} leading-role, ${branchServiceRoleSummary.supporting.length} supporting-role.`,
+      link: "/admin/qualification",
+    };
+
+    await ensureBulkNotificationDelivered({
+      auditEntry: branchQualificationAudit,
+      recipientIds: branchRecipientIds,
+      payload: branchQualificationNotification,
+      since: dispatchSince,
+    });
+
+    await ensureEmailDispatch({
+      auditEntry: branchQualificationAudit,
+      recipients: branchEmailRecipients,
+      sendFn: (recipients) =>
+        sendQualificationResultsEmail(recipients, branchQualified, branchDisqualified),
+      label: `Scheduler ${branchLabel} qualification email delivery issue`,
+    });
+
+    await ensurePushDispatch({
+      auditEntry: branchQualificationAudit,
+      recipientIds: branchRecipientIds,
+      payload: {
+        title: `${branchLabel} qualification results ready`,
+        body: `${branchQualified.length} qualified, ${branchDisqualified.length} not qualified. ${branchServiceRoleSummary.leading.length} leading-role, ${branchServiceRoleSummary.supporting.length} supporting-role.`,
+        url: "/admin/qualification",
+      },
+    });
+  }
 
   const allRecipients = await getApprovedRecipients();
   const allRecipientIds = allRecipients.map((recipient) => recipient._id);

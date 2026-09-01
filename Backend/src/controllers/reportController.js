@@ -15,6 +15,12 @@ import {
   getPreviousPortalWeekReference,
   normalizeWeekReference,
 } from "../utils/portalWeek.js";
+import {
+  applyBranchScopeToUserFilter,
+  assertCanAccessWorkerBranch,
+  getBranchScopeMeta,
+  resolveBranchScope,
+} from "../utils/branchAccess.js";
 
 // Portal week helpers
 const getPortalWeekReference = async () => getPortalWeekReferenceForNow();
@@ -122,6 +128,18 @@ const CELL_MEETING_AGE_RANGES = new Set([
   "typed",
 ]);
 
+const CELL_ATTENDANCE_STATUSES = new Set([
+  "attended",
+  "not_attended",
+  "not_applicable",
+]);
+
+const CELL_PRAYER_STATUSES = new Set([
+  "prayed",
+  "not_prayed",
+  "not_applicable",
+]);
+
 const getNumericAge = (value) => {
   if (value === "" || value === null || value === undefined) return null;
   const age = Number(value);
@@ -184,16 +202,61 @@ const normalizePeopleTakenToCell = (people = [], fallbackCellName = "") =>
     .map((person) => normalizeCellMeetingPerson(person, fallbackCellName))
     .filter(Boolean);
 
+const normalizeCellAttendanceStatus = (value) => {
+  if (value === true) return "attended";
+  if (value === false) return "not_attended";
+
+  const normalized = (value ?? "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (["yes", "yes_i_attended"].includes(normalized)) return "attended";
+  if (["no", "no_i_did_not", "absent"].includes(normalized)) {
+    return "not_attended";
+  }
+  if (["na", "n_a", "n/a", "school_on_vacation"].includes(normalized)) {
+    return "not_applicable";
+  }
+
+  return CELL_ATTENDANCE_STATUSES.has(normalized) ? normalized : "";
+};
+
+const normalizeCellPrayerStatus = (cellPrayer = {}) => {
+  const prayer = cellPrayer ?? {};
+  const normalized = (prayer.prayerStatus ?? "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (["yes", "yes_i_prayed"].includes(normalized)) return "prayed";
+  if (["no", "no_i_did_not"].includes(normalized)) return "not_prayed";
+  if (["na", "n_a", "n/a"].includes(normalized)) return "not_applicable";
+  if (CELL_PRAYER_STATUSES.has(normalized)) return normalized;
+  if (prayer.didPrayWithCell === true) return "prayed";
+  if (prayer.didPrayWithCell === false) return "not_prayed";
+
+  return "";
+};
+
 const normalizePeopleTakenToCellGroups = (groups = []) =>
   groups
     .map((group) => {
       const cellName = group.cellName?.toString?.().trim() || "";
       return {
         cellName,
+        attendanceStatus: normalizeCellAttendanceStatus(
+          group.attendanceStatus ?? group.attended ?? group.didAttendCell
+        ),
         people: normalizePeopleTakenToCell(group.people || [], cellName),
       };
     })
-    .filter((group) => group.cellName || group.people.length > 0);
+    .filter(
+      (group) =>
+        group.cellName || group.attendanceStatus || group.people.length > 0
+    );
 
 const groupPeopleTakenToCell = (people = []) => {
   const groups = new Map();
@@ -201,7 +264,7 @@ const groupPeopleTakenToCell = (people = []) => {
   people.forEach((person) => {
     const cellName = person.cellName || "";
     const key = cellName.toLowerCase() || "__blank__";
-    const group = groups.get(key) || { cellName, people: [] };
+    const group = groups.get(key) || { cellName, attendanceStatus: "", people: [] };
     group.people.push(person);
     groups.set(key, group);
   });
@@ -209,8 +272,17 @@ const groupPeopleTakenToCell = (people = []) => {
   return [...groups.values()];
 };
 
+const normalizePositiveInt = (value, fallback = 1) => {
+  const number = Number.parseInt(value, 10);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+};
+
 const normalizeEvangelismReportData = (reportData = {}) => {
   if (!reportData.cellData) return reportData;
+
+  const rawActivityGroups =
+    reportData.cellData.cellActivityGroups ||
+    reportData.cellData.cellActivities;
 
   const rawGroups =
     reportData.cellData.peopleTakenToCellGroups ||
@@ -220,13 +292,27 @@ const normalizeEvangelismReportData = (reportData = {}) => {
     reportData.cellData?.peopleTakenToCell ||
     reportData.cellData?.cellMeetingPeople;
 
-  const peopleTakenToCellGroups = Array.isArray(rawGroups)
+  const cellActivityGroups = Array.isArray(rawActivityGroups)
+    ? normalizePeopleTakenToCellGroups(rawActivityGroups)
+    : [];
+
+  let peopleTakenToCellGroups = Array.isArray(rawGroups)
     ? normalizePeopleTakenToCellGroups(rawGroups)
     : [];
 
   let peopleTakenToCell = Array.isArray(rawPeopleTakenToCell)
     ? normalizePeopleTakenToCell(rawPeopleTakenToCell)
     : [];
+
+  if (cellActivityGroups.length > 0) {
+    peopleTakenToCellGroups = cellActivityGroups
+      .map((group) => ({
+        cellName: group.cellName,
+        attendanceStatus: group.attendanceStatus,
+        people: group.people,
+      }))
+      .filter((group) => group.cellName || group.people.length > 0);
+  }
 
   if (peopleTakenToCellGroups.length > 0) {
     peopleTakenToCell = peopleTakenToCellGroups.flatMap((group) =>
@@ -237,13 +323,62 @@ const normalizeEvangelismReportData = (reportData = {}) => {
     );
   }
 
+  const normalizedCells = Array.isArray(reportData.cellData.cells)
+    ? reportData.cellData.cells.map((cell) => {
+        const attendanceStatus = normalizeCellAttendanceStatus(
+          cell.attendanceStatus ?? cell.attended
+        );
+
+        return {
+          ...cell,
+          cellName: cell.cellName?.toString?.().trim() || "",
+          attendanceStatus,
+          attended: attendanceStatus === "attended",
+        };
+      })
+    : [];
+
+  const cells =
+    cellActivityGroups.length > 0
+      ? cellActivityGroups.map((group, index) => ({
+          ...(normalizedCells[index] || {}),
+          cellName: group.cellName,
+          attendanceStatus: group.attendanceStatus,
+          attended: group.attendanceStatus === "attended",
+        }))
+      : normalizedCells;
+
+  const numberOfCells = normalizePositiveInt(
+    reportData.cellData.numberOfCells,
+    Math.max(cellActivityGroups.length, cells.length, peopleTakenToCellGroups.length, 1)
+  );
+
+  const normalizedCellPrayer = reportData.cellData.cellPrayer
+    ? {
+        ...reportData.cellData.cellPrayer,
+        prayerStatus: normalizeCellPrayerStatus(reportData.cellData.cellPrayer),
+        didPrayWithCell:
+          normalizeCellPrayerStatus(reportData.cellData.cellPrayer) === "prayed",
+      }
+    : undefined;
+
   reportData.cellData = {
     ...reportData.cellData,
+    numberOfCells,
+    didAttendCell:
+      reportData.cellData.didAttendCell === true ||
+      cells.some((cell) => cell.attendanceStatus === "attended"),
+    cells,
+    cellActivityGroups:
+      cellActivityGroups.length > 0
+        ? cellActivityGroups
+        : peopleTakenToCellGroups,
     peopleTakenToCellGroups:
       peopleTakenToCellGroups.length > 0
         ? peopleTakenToCellGroups
         : groupPeopleTakenToCell(peopleTakenToCell),
     peopleTakenToCell,
+    ...(normalizedCellPrayer ? { cellPrayer: normalizedCellPrayer } : {}),
   };
 
   return reportData;
@@ -906,7 +1041,6 @@ export const getAllReports = async (req, res, next) => {
 
     if (reportType) filter.reportType = reportType;
     if (status) filter.status = status;
-    if (workerId) filter.submittedBy = workerId;
 
     const hasLateFilter =
       isLateSubmission !== undefined &&
@@ -929,10 +1063,37 @@ export const getAllReports = async (req, res, next) => {
       filter.weekReference = normalizeWeekReference(weekReference);
     }
 
+    const branchScope = resolveBranchScope(req);
+    const scopedWorkerIds = branchScope.branchIds?.length
+      ? await User.find(applyBranchScopeToUserFilter(req, {})).distinct("_id")
+      : null;
+
+    if (workerId && scopedWorkerIds) {
+      const allowedWorkerIds = new Set(scopedWorkerIds.map((id) => String(id)));
+      if (!allowedWorkerIds.has(String(workerId))) {
+        return res.status(200).json({
+          reports: [],
+          total: 0,
+          page: Number(page),
+          totalPages: 0,
+          branchScope: getBranchScopeMeta(req, branchScope),
+        });
+      }
+      filter.submittedBy = workerId;
+    } else if (workerId) {
+      filter.submittedBy = workerId;
+    } else if (scopedWorkerIds) {
+      filter.submittedBy = { $in: scopedWorkerIds };
+    }
+
     const total = await Report.countDocuments(filter);
 
     const reports = await Report.find(filter)
-      .populate("submittedBy", "fullName workerId department")
+      .populate({
+        path: "submittedBy",
+        select: "fullName workerId department branch",
+        populate: { path: "branch", select: "name code status" },
+      })
       .sort({ weekReference: -1, submittedAt: -1, createdAt: -1 })
       .skip((Number(page) - 1) * Number(limit))
       .limit(Number(limit));
@@ -942,6 +1103,7 @@ export const getAllReports = async (req, res, next) => {
       total,
       page: Number(page),
       totalPages: Math.ceil(total / Number(limit)),
+      branchScope: getBranchScopeMeta(req, branchScope),
     });
   } catch (error) {
     next(error);
@@ -970,6 +1132,7 @@ export const getWorkerReportAnalysis = async (req, res, next) => {
       status: "approved",
       workerId: { $ne: "001" },
     };
+    applyBranchScopeToUserFilter(req, userFilter);
 
     if (department) {
       userFilter.department = department;
@@ -987,7 +1150,8 @@ export const getWorkerReportAnalysis = async (req, res, next) => {
     }
 
     const workers = await User.find(userFilter)
-      .select("fullName workerId email department role status")
+      .select("fullName workerId email department role status branch")
+      .populate("branch", "name code status")
       .lean();
     const workerIds = workers.map((worker) => worker._id);
 
@@ -1164,7 +1328,11 @@ export const getWorkerReportAnalysis = async (req, res, next) => {
 export const getReportById = async (req, res, next) => {
   try {
     const report = await Report.findById(req.params.reportId)
-      .populate("submittedBy", "fullName workerId department")
+      .populate({
+        path: "submittedBy",
+        select: "fullName workerId department branch",
+        populate: { path: "branch", select: "name code status" },
+      })
       .populate("customReportType", "name description")
       .lean();
 
@@ -1179,6 +1347,9 @@ export const getReportById = async (req, res, next) => {
 
     if (!isOwner && !isAdminLevel) {
       return res.status(403).json({ message: "You can only view your own reports." });
+    }
+    if (!isOwner && isAdminLevel) {
+      assertCanAccessWorkerBranch(req, report.submittedBy);
     }
 
     res.status(200).json({ report });
@@ -1200,13 +1371,14 @@ export const getMyCellNames = async (req, res, next) => {
       submittedBy: req.user._id,
       reportType: "evangelism",
       $or: [
+        { "cellData.cellActivityGroups.0": { $exists: true } },
         { "cellData.cells.0": { $exists: true } },
         { "cellData.peopleTakenToCellGroups.0": { $exists: true } },
         { "cellData.peopleTakenToCell.0": { $exists: true } },
       ],
     })
       .select(
-        "cellData.cells.cellName cellData.peopleTakenToCellGroups.cellName cellData.peopleTakenToCell.cellName"
+        "cellData.cellActivityGroups.cellName cellData.cells.cellName cellData.peopleTakenToCellGroups.cellName cellData.peopleTakenToCell.cellName"
       )
       .sort({ updatedAt: -1, createdAt: -1 })
       .limit(20)
@@ -1215,6 +1387,9 @@ export const getMyCellNames = async (req, res, next) => {
     const names = new Set();
 
     for (const r of reports) {
+      for (const group of r.cellData?.cellActivityGroups || []) {
+        if (group.cellName?.trim()) names.add(group.cellName.trim());
+      }
       for (const cell of r.cellData?.cells || []) {
         if (cell.cellName?.trim()) names.add(cell.cellName.trim());
       }

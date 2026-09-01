@@ -1,6 +1,7 @@
 import Metrics from "../models/metricsModel.js";
 import User from "../models/userModel.js";
 import { normalizeWeekReference } from "../utils/portalWeek.js";
+import { normalizeBranchId } from "../utils/branchAccess.js";
 import { processWeeklyMetrics } from "./metricsService.js";
 import {
   attachServiceRoleQualification,
@@ -71,7 +72,7 @@ const toPlainEnglishReasons = (breakdown = {}, metric = {}) => {
   }
 
   if (!cellPrayerPassed) {
-    reasons.push("Cell prayer did not reach at least 2 hours.");
+    reasons.push("Cell prayer was not marked as prayed.");
   }
 
   if (!breakdown.attendanceQualified) {
@@ -110,7 +111,33 @@ export const compareQualificationRank = (a, b) => {
 };
 
 const workerSelectFields =
-  "fullName workerId department isRotating additionalDepartments score role";
+  "fullName workerId department branch isRotating additionalDepartments score role";
+
+const getBranchIdFromWorker = (worker) =>
+  worker?.branch?._id?.toString?.() || worker?.branch?.toString?.() || "";
+
+const getBranchIdsFromOptions = (options = {}) => {
+  const values = Array.isArray(options.branchIds)
+    ? options.branchIds
+    : [options.branchId];
+
+  return [
+    ...new Set(values.map(normalizeBranchId).filter(Boolean)),
+  ];
+};
+
+const applyBranchFilter = (filter = {}, options = {}) => {
+  const branchIds = getBranchIdsFromOptions(options);
+  if (branchIds.length === 1) {
+    filter.branch = branchIds[0];
+  } else if (branchIds.length > 1) {
+    filter.branch = { $in: branchIds };
+  }
+  return filter;
+};
+
+const workerMatchesBranches = (worker, branchIds = []) =>
+  branchIds.length === 0 || branchIds.includes(getBranchIdFromWorker(worker));
 
 const buildNoSubmissionEntry = (worker) => ({
   worker,
@@ -155,19 +182,29 @@ const shouldExcludeWorker = (worker) => {
   return worker.workerId === "001";
 };
 
-const loadApprovedWorkers = async () =>
-  User.find({
+const loadApprovedWorkers = async (options = {}) => {
+  const filter = {
     status: "approved",
-  })
-    .select(workerSelectFields)
-    .lean();
+  };
+  applyBranchFilter(filter, options);
 
-const loadWeekMetrics = async (weekReference) =>
-  Metrics.find({
+  return User.find(filter)
+    .select(workerSelectFields)
+    .populate("branch", "name code status")
+    .lean();
+};
+
+const loadWeekMetrics = async (weekReference, options = {}) => {
+  const branchIds = getBranchIdsFromOptions(options);
+  const metrics = await Metrics.find({
     weekReference,
     isLateSubmission: false,
   })
-    .populate("worker", workerSelectFields)
+    .populate({
+      path: "worker",
+      select: workerSelectFields,
+      populate: { path: "branch", select: "name code status" },
+    })
     .sort({
       totalScore: -1,
       qualifyingSouls: -1,
@@ -177,6 +214,11 @@ const loadWeekMetrics = async (weekReference) =>
       updatedAt: 1,
       createdAt: 1,
     });
+
+  if (branchIds.length === 0) return metrics;
+
+  return metrics.filter((metric) => workerMatchesBranches(metric.worker, branchIds));
+};
 
 const buildMetricsByWorker = (metrics = []) => {
   const byWorker = new Map();
@@ -188,12 +230,12 @@ const buildMetricsByWorker = (metrics = []) => {
   return byWorker;
 };
 
-const loadCompleteQualificationSnapshot = async (weekReference) => {
+const loadCompleteQualificationSnapshot = async (weekReference, options = {}) => {
   const week = normalizeWeekReference(weekReference);
 
   let [approvedWorkers, metrics] = await Promise.all([
-    loadApprovedWorkers(),
-    loadWeekMetrics(week),
+    loadApprovedWorkers(options),
+    loadWeekMetrics(week, options),
   ]);
 
   const eligibleWorkers = approvedWorkers.filter((worker) => !shouldExcludeWorker(worker));
@@ -202,7 +244,7 @@ const loadCompleteQualificationSnapshot = async (weekReference) => {
 
   if (metricsByWorker.size < metricsEligibleWorkers.length) {
     await processWeeklyMetrics(week);
-    metrics = await loadWeekMetrics(week);
+    metrics = await loadWeekMetrics(week, options);
     metricsByWorker = buildMetricsByWorker(metrics);
   }
 
@@ -240,27 +282,27 @@ const loadCompleteQualificationSnapshot = async (weekReference) => {
   };
 };
 
-export const getQualifiedWorkers = async (weekReference) => {
-  const { qualified } = await loadCompleteQualificationSnapshot(weekReference);
+export const getQualifiedWorkers = async (weekReference, options = {}) => {
+  const { qualified } = await loadCompleteQualificationSnapshot(weekReference, options);
   return qualified;
 };
 
-export const getDisqualifiedWorkersByCloseness = async (weekReference) => {
-  const { disqualified } = await loadCompleteQualificationSnapshot(weekReference);
+export const getDisqualifiedWorkersByCloseness = async (weekReference, options = {}) => {
+  const { disqualified } = await loadCompleteQualificationSnapshot(weekReference, options);
   return disqualified;
 };
 
-export const getWorkersWithNoSubmission = async (weekReference) => {
-  const { noSubmission } = await loadCompleteQualificationSnapshot(weekReference);
+export const getWorkersWithNoSubmission = async (weekReference, options = {}) => {
+  const { noSubmission } = await loadCompleteQualificationSnapshot(weekReference, options);
   return noSubmission;
 };
 
-export const getAllWorkersQualificationStatus = async (weekReference) =>
-  loadCompleteQualificationSnapshot(weekReference);
+export const getAllWorkersQualificationStatus = async (weekReference, options = {}) =>
+  loadCompleteQualificationSnapshot(weekReference, options);
 
-export const getStoredWeekQualificationSnapshot = async (weekReference) => {
+export const getStoredWeekQualificationSnapshot = async (weekReference, options = {}) => {
   const week = normalizeWeekReference(weekReference);
-  const metrics = await loadWeekMetrics(week);
+  const metrics = await loadWeekMetrics(week, options);
 
   const qualified = [];
   const disqualified = [];
@@ -296,9 +338,9 @@ export const getStoredWeekQualificationSnapshot = async (weekReference) => {
   };
 };
 
-export const getWorkersByDepartmentForRoster = async (weekReference) => {
+export const getWorkersByDepartmentForRoster = async (weekReference, options = {}) => {
   const { qualified, disqualified, noSubmission } =
-    await getAllWorkersQualificationStatus(weekReference);
+    await getAllWorkersQualificationStatus(weekReference, options);
 
   return {
     qualified,
@@ -307,9 +349,14 @@ export const getWorkersByDepartmentForRoster = async (weekReference) => {
   };
 };
 
-export const getLateMetricsSummary = async (weekReference) => {
-  return await Metrics.find({ weekReference, isLateSubmission: true })
-    .populate("worker", "fullName workerId department")
+export const getLateMetricsSummary = async (weekReference, options = {}) => {
+  const branchIds = getBranchIdsFromOptions(options);
+  const metrics = await Metrics.find({ weekReference, isLateSubmission: true })
+    .populate({
+      path: "worker",
+      select: "fullName workerId department branch",
+      populate: { path: "branch", select: "name code status" },
+    })
     .sort({
       totalScore: -1,
       qualifyingSouls: -1,
@@ -319,4 +366,8 @@ export const getLateMetricsSummary = async (weekReference) => {
       updatedAt: 1,
       createdAt: 1,
     });
+
+  if (branchIds.length === 0) return metrics;
+
+  return metrics.filter((metric) => workerMatchesBranches(metric.worker, branchIds));
 };

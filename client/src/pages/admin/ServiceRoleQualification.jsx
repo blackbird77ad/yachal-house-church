@@ -1,8 +1,9 @@
 import { createElement, useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
   ArrowLeft,
+  Building2,
   ChevronDown,
   ChevronUp,
   Download,
@@ -18,8 +19,16 @@ import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
 import { ToastContainer, useToast } from "../../components/common/Toast";
 import { getServiceRoleQualificationHistory } from "../../services/metricsService";
+import { getBranches } from "../../services/branchService";
+import { useAuth } from "../../hooks/useAuth";
 import { getWeekLabel } from "../../utils/formatDate";
 import { cn } from "../../utils/scoreHelpers";
+import {
+  canChooseBranchScope,
+  canManageAllBranches,
+  getBranchAllOptionLabel,
+  getOwnBranchLabel,
+} from "../../utils/branchAccess";
 
 const ROLE_TABS = [
   { key: "leading", label: "Leading Roles", icon: Trophy },
@@ -113,6 +122,7 @@ const getEntrySearchText = (entry) => {
       entry.worker?.fullName,
       entry.worker?.workerId,
       entry.worker?.email,
+      entry.worker?.branch?.name,
       formatDepartment(entry.worker?.department),
       entry.qualificationStatusLabel,
       role.ruleMatched,
@@ -130,7 +140,11 @@ const paginate = (list, page, perPage) => {
 
 const ServiceRoleQualification = () => {
   const { toasts, toast, removeToast } = useToast();
+  const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [weeks, setWeeks] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [branchFilter, setBranchFilter] = useState(() => searchParams.get("branchId") || "all");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedWeek, setExpandedWeek] = useState(null);
@@ -139,6 +153,17 @@ const ServiceRoleQualification = () => {
   const [weekPage, setWeekPage] = useState(1);
   const [listPages, setListPages] = useState({});
   const [printableWeek, setPrintableWeek] = useState(null);
+  const hasAllBranchOversight = canManageAllBranches(user);
+  const canSelectBranches = canChooseBranchScope(user);
+  const branchParam = branchFilter && branchFilter !== "all" ? branchFilter : "";
+  const selectedBranch = branches.find((branch) => branch._id === branchParam);
+  const activeBranchLabel = !canSelectBranches
+    ? getOwnBranchLabel(user)
+    : branchParam && selectedBranch
+    ? selectedBranch.name
+    : hasAllBranchOversight
+    ? ""
+    : getBranchAllOptionLabel(user);
 
   const fetchWeeks = useCallback(async (silent = false) => {
     if (silent) {
@@ -150,6 +175,7 @@ const ServiceRoleQualification = () => {
     try {
       const data = await getServiceRoleQualificationHistory({
         isLateSubmission: false,
+        ...(branchParam ? { branchId: branchParam } : {}),
       });
       const nextWeeks = data.weeks || [];
       setWeeks(nextWeeks);
@@ -167,7 +193,22 @@ const ServiceRoleQualification = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [toast]);
+  }, [branchParam, toast]);
+
+  useEffect(() => {
+    if (!canSelectBranches) return;
+
+    let cancelled = false;
+    getBranches({ status: "active" })
+      .then(({ branches: nextBranches = [] }) => {
+        if (!cancelled) setBranches(nextBranches);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canSelectBranches]);
 
   useEffect(() => {
     fetchWeeks();
@@ -251,6 +292,21 @@ const ServiceRoleQualification = () => {
   const getActiveListPage = (weekKey, tab) =>
     listPages[`${weekKey}:${tab}`] || 1;
 
+  const handleBranchChange = (value) => {
+    setBranchFilter(value);
+    setExpandedWeek(null);
+    setWeekPage(1);
+    setListPages({});
+
+    const nextParams = new URLSearchParams(searchParams);
+    if (value && value !== "all") {
+      nextParams.set("branchId", value);
+    } else {
+      nextParams.delete("branchId");
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
+
   const printWeek = (week) => {
     setPrintableWeek(week);
 
@@ -277,6 +333,7 @@ const ServiceRoleQualification = () => {
         "Rank",
         "Name",
         "Worker ID",
+        "Branch",
         "Department",
         "Qualification Status",
         "Score",
@@ -297,6 +354,7 @@ const ServiceRoleQualification = () => {
           index + 1,
           item.worker?.fullName || "",
           item.worker?.workerId || "ID pending",
+          item.worker?.branch?.name || "",
           formatDepartment(item.worker?.department),
           item.qualificationStatusLabel || "",
           item.totalScore || 0,
@@ -358,6 +416,7 @@ const ServiceRoleQualification = () => {
                   <p className="text-xs text-gray-400 dark:text-slate-500 truncate">
                     ID: {item.worker?.workerId || "ID pending"} -{" "}
                     {formatDepartment(item.worker?.department)}
+                    {item.worker?.branch?.name ? ` - ${item.worker.branch.name}` : ""}
                   </p>
                   <span
                     className={cn(
@@ -409,7 +468,7 @@ const ServiceRoleQualification = () => {
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div className="flex items-start gap-3">
           <Link
-            to="/admin/qualification"
+            to={branchParam ? `/admin/qualification?branchId=${encodeURIComponent(branchParam)}` : "/admin/qualification"}
             className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -418,18 +477,44 @@ const ServiceRoleQualification = () => {
             <h1 className="section-title">Service Role Qualification</h1>
             <p className="section-subtitle">
               Weekly Leading, Supporting, and Remaining worker lists from qualification metrics
+              {activeBranchLabel ? ` - ${activeBranchLabel}` : ""}
             </p>
           </div>
         </div>
 
-        <button
-          onClick={() => fetchWeeks(true)}
-          disabled={refreshing}
-          className="btn-outline text-sm flex items-center gap-1.5 w-fit"
-        >
-          <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
-          Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {canSelectBranches ? (
+            <div className="relative">
+              <Building2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <select
+                className="input-field w-48 pl-9 text-sm"
+                value={branchFilter}
+                onChange={(event) => handleBranchChange(event.target.value)}
+              >
+                <option value="all">{getBranchAllOptionLabel(user)}</option>
+                {branches.map((branch) => (
+                  <option key={branch._id} value={branch._id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+              <Building2 className="h-4 w-4" />
+              {getOwnBranchLabel(user)}
+            </div>
+          )}
+
+          <button
+            onClick={() => fetchWeeks(true)}
+            disabled={refreshing}
+            className="btn-outline text-sm flex items-center gap-1.5 w-fit"
+          >
+            <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="card p-3 sm:p-4">
@@ -670,7 +755,7 @@ const ServiceRoleWeekPrint = ({ week }) => {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10.5 }}>
             <thead>
               <tr style={{ background: "#f1f5f9" }}>
-                {["#", "Worker", "ID", "Status", "Main", "Cell", "Score", "Rule"].map((label) => (
+                {["#", "Worker", "ID", "Branch", "Status", "Main", "Cell", "Score", "Rule"].map((label) => (
                   <th
                     key={label}
                     style={{
@@ -687,7 +772,7 @@ const ServiceRoleWeekPrint = ({ week }) => {
             <tbody>
               {list.length === 0 ? (
                 <tr>
-                  <td colSpan="8" style={{ border: "1px solid #e5e7eb", padding: 10, textAlign: "center", color: "#64748b" }}>
+                  <td colSpan="9" style={{ border: "1px solid #e5e7eb", padding: 10, textAlign: "center", color: "#64748b" }}>
                     No workers in this group.
                   </td>
                 </tr>
@@ -699,6 +784,7 @@ const ServiceRoleWeekPrint = ({ week }) => {
                       <td style={{ border: "1px solid #e5e7eb", padding: 7, textAlign: "center" }}>{index + 1}</td>
                       <td style={{ border: "1px solid #e5e7eb", padding: 7, fontWeight: 700 }}>{entry.worker?.fullName || "Unknown"}</td>
                       <td style={{ border: "1px solid #e5e7eb", padding: 7 }}>{entry.worker?.workerId || "ID pending"}</td>
+                      <td style={{ border: "1px solid #e5e7eb", padding: 7 }}>{entry.worker?.branch?.name || ""}</td>
                       <td style={{ border: "1px solid #e5e7eb", padding: 7 }}>{entry.qualificationStatusLabel || "No Report"}</td>
                       <td style={{ border: "1px solid #e5e7eb", padding: 7 }}>{role.mainChurchCount || 0}</td>
                       <td style={{ border: "1px solid #e5e7eb", padding: 7 }}>{role.cellMeetingPeopleCount || 0}</td>

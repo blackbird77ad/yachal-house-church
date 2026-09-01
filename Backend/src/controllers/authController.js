@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import User from "../models/userModel.js";
+import Branch from "../models/branchModel.js";
 import { env } from "../config/env.js";
 import { createBulkNotification, createNotification } from "../services/notificationService.js";
 import {
@@ -13,6 +14,15 @@ import {
   sendPasswordResetLinkEmail,
 } from "../services/emailService.js";
 import { sendPushToMany } from "../services/pushService.js";
+import {
+  ADMIN_ROLES,
+  SUPER_ADMIN_WORKER_ID,
+  assertCanAccessWorkerBranch,
+  canAccessAllBranches,
+  getAccessibleBranchIds,
+  getUserBranchId,
+  normalizeBranchId,
+} from "../utils/branchAccess.js";
 
 const generateToken = (id) =>
   jwt.sign({ id }, env.jwtSecret, { expiresIn: env.jwtExpiresIn });
@@ -23,6 +33,84 @@ const PASSWORD_RESET_REQUEST_MESSAGE =
 
 const hashPasswordResetToken = (token) =>
   crypto.createHash("sha256").update(token).digest("hex");
+
+const getActiveBranch = async (branchId) => {
+  const normalizedBranchId = normalizeBranchId(branchId);
+  if (!normalizedBranchId) return null;
+
+  const branch = await Branch.findById(normalizedBranchId).select("_id name status");
+  if (!branch) {
+    const error = new Error("Selected branch was not found.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (branch.status !== "active") {
+    const error = new Error("Selected branch is suspended.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return branch;
+};
+
+const resolveAssignableBranchId = async (req, branchId) => {
+  if (!canAccessAllBranches(req.user)) {
+    const accessibleBranchIds = getAccessibleBranchIds(req.user);
+    const requestedBranchId = normalizeBranchId(branchId);
+
+    if (accessibleBranchIds.length === 0) {
+      const error = new Error("Your admin account is not assigned to a branch.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if (requestedBranchId && !accessibleBranchIds.includes(requestedBranchId)) {
+      const error = new Error("You can only assign workers to your branch.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    return requestedBranchId || accessibleBranchIds[0];
+  }
+
+  const branch = await getActiveBranch(branchId);
+  return branch?._id || null;
+};
+
+const getAdminRecipientsForBranch = async (branchId) => {
+  const visibility = [
+    { workerId: SUPER_ADMIN_WORKER_ID },
+    { canViewAllBranches: { $ne: false } },
+  ];
+
+  if (branchId) {
+    visibility.push({ branch: branchId });
+    visibility.push({ managedBranches: branchId });
+  }
+
+  return User.find({
+    status: "approved",
+    role: { $in: ADMIN_ROLES },
+    $or: visibility,
+  }).select("_id email fullName notificationPreferences");
+};
+
+const serializeAuthUser = (user) => ({
+  _id: user._id,
+  fullName: user.fullName,
+  email: user.email,
+  role: user.role,
+  status: user.status,
+  workerId: user.workerId,
+  department: user.department,
+  branch: user.branch || null,
+  managedBranches: user.managedBranches || [],
+  branchRole: user.branchRole || "member",
+  canViewAllBranches: canAccessAllBranches(user),
+  mustChangePassword: user.mustChangePassword || false,
+  notificationPreferences: user.notificationPreferences,
+});
 
 export const generateWorkerId = async () => {
   // Worker ID 001 is reserved for the pastor
@@ -44,7 +132,7 @@ export const generateWorkerId = async () => {
 
 export const register = async (req, res, next) => {
   try {
-    const { fullName, email, password, phone } = req.body;
+    const { fullName, email, password, phone, branchId } = req.body;
     if (!fullName?.trim() || !email?.trim() || !password) {
       return res.status(400).json({
         message: "Full name, email, and password are required.",
@@ -54,38 +142,37 @@ export const register = async (req, res, next) => {
     const existing = await User.findOne({ email: email.toLowerCase().trim() });
     if (existing) return res.status(400).json({ message: "An account with this email already exists." });
 
+    const branch = await getActiveBranch(branchId);
     const hashed = await bcrypt.hash(password, 12);
     const user = await User.create({
       fullName, email: email.toLowerCase().trim(),
       password: hashed, phone, status: "pending", role: "worker",
+      branch: branch?._id || undefined,
+      canViewAllBranches: false,
     });
 
     // Notify all admin/mod/pastor of new registration
     try {
-      const admins = await User.find({
-        status: "approved",
-        role: { $in: ["pastor", "admin", "moderator"] },
-      }).select("_id email fullName");
+      const admins = await getAdminRecipientsForBranch(branch?._id);
 
       if (admins.length > 0) {
-        const { createBulkNotification } = await import("../services/notificationService.js");
         await createBulkNotification(admins.map((a) => a._id), {
           type: "general",
           title: "New worker registration",
-          message: `${fullName} has registered and is awaiting approval.`,
+          message: `${fullName} has registered and is awaiting approval${branch ? ` for ${branch.name}` : ""}.`,
           link: "/admin/workers",
         });
 
         await sendPushToMany(admins.map((admin) => admin._id), {
           title: "New worker registration",
-          body: `${fullName} has registered and is awaiting approval.`,
+          body: `${fullName} has registered and is awaiting approval${branch ? ` for ${branch.name}` : ""}.`,
           url: "/admin/workers",
         });
 
         await sendGenericNotificationEmail(admins, {
           subject: "New worker registration awaiting approval",
           title: "New worker registration",
-          message: `${fullName} has registered and is awaiting approval.`,
+          message: `${fullName} has registered and is awaiting approval${branch ? ` for ${branch.name}` : ""}.`,
           link: "/admin/workers",
           linkLabel: "Review Workers",
         });
@@ -96,7 +183,13 @@ export const register = async (req, res, next) => {
 
     res.status(201).json({
       message: "Registration successful. Your account is pending approval.",
-      user: { _id: user._id, fullName: user.fullName, email: user.email, status: user.status },
+      user: {
+        _id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        status: user.status,
+        branch: branch || null,
+      },
     });
   } catch (error) { next(error); }
 };
@@ -143,24 +236,23 @@ export const login = async (req, res, next) => {
 
     user.lastLogin = new Date();
     await user.save();
+    await user.populate("branch", "name code status");
+    await user.populate("managedBranches", "name code status");
 
     res.status(200).json({
       token: generateToken(user._id),
-      user: {
-        _id: user._id, fullName: user.fullName, email: user.email,
-        role: user.role, status: user.status, workerId: user.workerId,
-        department: user.department,
-        mustChangePassword: user.mustChangePassword || false,
-        notificationPreferences: user.notificationPreferences,
-      },
+      user: serializeAuthUser(user),
     });
   } catch (error) { next(error); }
 };
 
 export const getMe = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user._id).select("-password");
-    res.status(200).json({ user });
+    const user = await User.findById(req.user._id)
+      .select("-password")
+      .populate("branch", "name code status")
+      .populate("managedBranches", "name code status");
+    res.status(200).json({ user: serializeAuthUser(user) });
   } catch (error) { next(error); }
 };
 
@@ -169,6 +261,15 @@ export const approveWorker = async (req, res, next) => {
     const worker = await User.findById(req.params.workerId);
     if (!worker) return res.status(404).json({ message: "Worker not found." });
     if (worker.status === "approved") return res.status(400).json({ message: "Worker is already approved." });
+    assertCanAccessWorkerBranch(req, worker);
+
+    const assignedBranchId = await resolveAssignableBranchId(
+      req,
+      req.body?.branchId || worker.branch
+    );
+    if (assignedBranchId && !worker.branch) {
+      worker.branch = assignedBranchId;
+    }
 
     // Only assign workerId if they don't have one yet
     if (!worker.workerId) {
@@ -192,6 +293,7 @@ export const approveWorker = async (req, res, next) => {
       body: `Your account is now active. Worker ID: ${worker.workerId}.`,
       url: "/portal/dashboard",
     });
+    await worker.populate("branch", "name code status");
 
     res.status(200).json({ message: `${worker.fullName} approved. Worker ID: ${worker.workerId}`, worker });
   } catch (error) { next(error); }
@@ -199,20 +301,30 @@ export const approveWorker = async (req, res, next) => {
 
 export const adminCreateWorker = async (req, res, next) => {
   try {
-    const { fullName, email, phone, department, role, password } = req.body;
+    const { fullName, email, phone, department, role, password, branchId, canViewAllBranches } = req.body;
     if (!fullName || !email) return res.status(400).json({ message: "Full name and email are required." });
     if (!password || password.length < 6) return res.status(400).json({ message: "Password must be at least 6 characters." });
 
     const existing = await User.findOne({ email: email.toLowerCase().trim() });
     if (existing) return res.status(400).json({ message: "An account with this email already exists." });
 
+    const assignedBranchId = await resolveAssignableBranchId(req, branchId);
+    const nextRole = ["admin", "moderator", "worker"].includes(role) ? role : "worker";
+    const isAdminRole = ADMIN_ROLES.includes(nextRole);
+    const nextCanViewAllBranches = isAdminRole
+      ? canAccessAllBranches(req.user) && (!assignedBranchId || canViewAllBranches !== false)
+      : false;
     const hashed = await bcrypt.hash(password, 12);
     const workerId = await generateWorkerId();
 
     const worker = await User.create({
       fullName, email: email.toLowerCase().trim(), phone, department,
-      role: role || "worker", password: hashed,
+      role: nextRole, password: hashed,
       status: "approved", workerId,
+      branch: assignedBranchId || undefined,
+      managedBranches: isAdminRole && assignedBranchId ? [assignedBranchId] : [],
+      branchRole: isAdminRole && assignedBranchId ? "branch-admin" : "member",
+      canViewAllBranches: nextCanViewAllBranches,
       mustChangePassword: true,
       approvedBy: req.user._id, approvedAt: new Date(),
     });
@@ -233,7 +345,18 @@ export const adminCreateWorker = async (req, res, next) => {
 
     res.status(201).json({
       message: `Account created for ${fullName}. Worker ID: ${workerId}.`,
-      worker: { _id: worker._id, fullName, email: worker.email, workerId, status: "approved", role: worker.role },
+      worker: {
+        _id: worker._id,
+        fullName,
+        email: worker.email,
+        workerId,
+        status: "approved",
+        role: worker.role,
+        branch: worker.branch || null,
+        managedBranches: worker.managedBranches || [],
+        branchRole: worker.branchRole,
+        canViewAllBranches: worker.canViewAllBranches,
+      },
     });
   } catch (error) { next(error); }
 };
@@ -253,6 +376,12 @@ export const adminBulkCreateWorkers = async (req, res, next) => {
       if (existing) { results.skipped.push(w.email); continue; }
       if (!w.password || w.password.length < 6) { results.skipped.push(`${w.email} (invalid password)`); continue; }
 
+      const assignedBranchId = await resolveAssignableBranchId(req, w.branchId);
+      const nextRole = ["admin", "moderator", "worker"].includes(w.role) ? w.role : "worker";
+      const isAdminRole = ADMIN_ROLES.includes(nextRole);
+      const nextCanViewAllBranches = isAdminRole
+        ? canAccessAllBranches(req.user) && (!assignedBranchId || w.canViewAllBranches !== false)
+        : false;
       const hashed = await bcrypt.hash(w.password, 12);
       const workerId = await generateWorkerId();
       const fullName = w.fullName || w.email.split("@")[0].replace(/[._\-+]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()).trim();
@@ -260,8 +389,12 @@ export const adminBulkCreateWorkers = async (req, res, next) => {
       const worker = await User.create({
         fullName, email: w.email.toLowerCase().trim(),
         phone: w.phone || "", department: w.department || "unassigned",
-        role: w.role || "worker", password: hashed,
+        role: nextRole, password: hashed,
         status: "approved", workerId,
+        branch: assignedBranchId || undefined,
+        managedBranches: isAdminRole && assignedBranchId ? [assignedBranchId] : [],
+        branchRole: isAdminRole && assignedBranchId ? "branch-admin" : "member",
+        canViewAllBranches: nextCanViewAllBranches,
         mustChangePassword: true,
         approvedBy: req.user._id, approvedAt: new Date(),
       });
@@ -279,7 +412,17 @@ export const adminBulkCreateWorkers = async (req, res, next) => {
         body: `Worker ID ${workerId}. Check your email for login details.`,
         url: "/portal/dashboard",
       });
-      results.created.push({ fullName: worker.fullName, email: worker.email, workerId, role: worker.role, department: worker.department });
+      results.created.push({
+        fullName: worker.fullName,
+        email: worker.email,
+        workerId,
+        role: worker.role,
+        department: worker.department,
+        branch: worker.branch || null,
+        managedBranches: worker.managedBranches || [],
+        branchRole: worker.branchRole,
+        canViewAllBranches: worker.canViewAllBranches,
+      });
     }
 
     res.status(201).json({
@@ -293,6 +436,7 @@ export const suspendWorker = async (req, res, next) => {
   try {
     const worker = await User.findById(req.params.workerId);
     if (!worker) return res.status(404).json({ message: "Worker not found." });
+    assertCanAccessWorkerBranch(req, worker);
     worker.status = "suspended";
     await worker.save();
 
@@ -316,6 +460,7 @@ export const reinstateWorker = async (req, res, next) => {
   try {
     const worker = await User.findById(req.params.workerId);
     if (!worker) return res.status(404).json({ message: "Worker not found." });
+    assertCanAccessWorkerBranch(req, worker);
     worker.status = "approved";
     await worker.save();
 
@@ -412,10 +557,7 @@ export const resetPasswordWithToken = async (req, res, next) => {
     await worker.save();
 
     try {
-      const admins = await User.find({
-        status: "approved",
-        role: { $in: ["pastor", "admin", "moderator"] },
-      }).select("_id email fullName");
+      const admins = await getAdminRecipientsForBranch(worker.branch);
 
       if (admins.length > 0) {
         const adminIds = admins.map((admin) => admin._id);
@@ -458,6 +600,7 @@ export const adminResetPassword = async (req, res, next) => {
   try {
     const worker = await User.findById(req.params.workerId);
     if (!worker) return res.status(404).json({ message: "Worker not found." });
+    assertCanAccessWorkerBranch(req, worker);
 
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
     let tempPassword = "";

@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 const frontDeskSessionSchema = new mongoose.Schema({
+  branch:             { type: mongoose.Schema.Types.ObjectId, ref: "Branch" },
   serviceType:        { type: String, enum: ["tuesday", "sunday", "special"], required: true },
   specialServiceName: { type: String, trim: true },
   serviceDate:        { type: Date, required: true },
@@ -45,6 +46,7 @@ const frontDeskSessionSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 frontDeskSessionSchema.index({ serviceDate: 1, serviceType: 1 });
+frontDeskSessionSchema.index({ branch: 1, serviceDate: 1, serviceType: 1 });
 frontDeskSessionSchema.index({ isOpen: 1 });
 
 // TTL: auto-delete closed sessions 180 days after service date

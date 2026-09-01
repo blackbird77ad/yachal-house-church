@@ -1,7 +1,8 @@
 ﻿import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, UserCheck, UserX, Edit2, Save, X, Key, CheckCircle, XCircle, Trash2 } from "lucide-react";
+import { ArrowLeft, UserCheck, UserX, Edit2, Save, X, Key, CheckCircle, XCircle, Trash2, Building2 } from "lucide-react";
 import { getWorkerById, updateWorker, getWorkerMetrics, deleteWorker } from "../../services/workerService";
+import { getBranches } from "../../services/branchService";
 import { approveWorker, suspendWorker, reinstateWorker } from "../../services/authService";
 import axiosInstance from "../../utils/axiosInstance";
 import ScoreBadge from "../../components/common/ScoreBadge";
@@ -12,6 +13,10 @@ import { useAuth } from "../../hooks/useAuth";
 import { getCriteriaStatus } from "../../utils/scoreHelpers";
 import { formatDate, getWeekLabel } from "../../utils/formatDate";
 import { DEPARTMENTS } from "../../utils/constants";
+import {
+  canChooseBranchScope,
+  canManageAllBranches,
+} from "../../utils/branchAccess";
 
 const WorkerProfile = () => {
   const { workerId } = useParams();
@@ -19,6 +24,7 @@ const WorkerProfile = () => {
   const { toasts, toast, removeToast } = useToast();
   const { user } = useAuth();
   const [worker, setWorker] = useState(null);
+  const [branches, setBranches] = useState([]);
   const [metrics, setMetrics] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -28,6 +34,10 @@ const WorkerProfile = () => {
   const [copiedReset, setCopiedReset] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletingWorker, setDeletingWorker] = useState(false);
+  const canSelectBranches = canChooseBranchScope(user);
+  const canGrantAllBranchAccess = canManageAllBranches(user);
+  const canAssignBranches =
+    canGrantAllBranchAccess || canSelectBranches || !!(user?.branch?._id || user?.branch);
 
   const fetchData = async () => {
     try {
@@ -41,6 +51,8 @@ const WorkerProfile = () => {
         phone: wRes.worker.phone || "",
         department: wRes.worker.department || "unassigned",
         role: wRes.worker.role,
+        branchId: wRes.worker.branch?._id || wRes.worker.branch || "",
+        canViewAllBranches: wRes.worker.canViewAllBranches !== false,
         isRotating: wRes.worker.isRotating || false,
       });
       setMetrics(mRes.metrics?.slice(0, 4) || []);
@@ -52,6 +64,21 @@ const WorkerProfile = () => {
   };
 
   useEffect(() => { fetchData(); }, [workerId]);
+
+  useEffect(() => {
+    if (!canAssignBranches) return;
+
+    let cancelled = false;
+    getBranches({ status: "active" })
+      .then(({ branches: nextBranches = [] }) => {
+        if (!cancelled) setBranches(nextBranches);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canAssignBranches]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -148,7 +175,10 @@ const WorkerProfile = () => {
         </Link>
         <div className="flex-1 min-w-0">
           <h1 className="section-title truncate">{worker.fullName}</h1>
-          <p className="section-subtitle capitalize">{worker.role} - {worker.department?.replace(/-/g, " ")}</p>
+          <p className="section-subtitle capitalize">
+            {worker.role} - {worker.department?.replace(/-/g, " ")}
+            {worker.branch?.name ? ` - ${worker.branch.name}` : ""}
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {worker.status === "pending" && (
@@ -246,6 +276,19 @@ const WorkerProfile = () => {
               }
             </div>
             <div>
+              <label className="form-label">Branch</label>
+              {editing && canAssignBranches
+                ? <select className="input-field" value={form.branchId} onChange={(e) => setForm({ ...form, branchId: e.target.value })}>
+                    <option value="">No branch</option>
+                    {branches.map((branch) => <option key={branch._id} value={branch._id}>{branch.name}</option>)}
+                  </select>
+                : <p className="text-sm text-gray-900 dark:text-slate-100 py-2 flex items-center gap-1.5">
+                    <Building2 className="h-3.5 w-3.5 text-gray-400" />
+                    {worker.branch?.name || "Not set"}
+                  </p>
+              }
+            </div>
+            <div>
               <label className="form-label">Role</label>
               {editing
                 ? <select className="input-field" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
@@ -256,6 +299,15 @@ const WorkerProfile = () => {
                 : <p className="text-sm text-gray-900 dark:text-slate-100 py-2 capitalize">{worker.role}</p>
               }
             </div>
+            {editing && canGrantAllBranchAccess && form.role !== "worker" && worker.workerId !== "001" && (
+              <div>
+                <label className="form-label">Branch Access</label>
+                <label className="flex items-center gap-2 cursor-pointer py-2">
+                  <input type="checkbox" className="w-4 h-4 accent-purple-600" checked={form.canViewAllBranches} onChange={(e) => setForm({ ...form, canViewAllBranches: e.target.checked })} />
+                  <span className="text-sm text-gray-700 dark:text-slate-300">Admin can view all branches</span>
+                </label>
+              </div>
+            )}
             <div>
               <label className="form-label">Rotating</label>
               {editing

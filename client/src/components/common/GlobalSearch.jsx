@@ -3,6 +3,7 @@ import { Search, X, Users, FileText, Trophy, Clock, ClipboardList, Calendar, Che
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import axiosInstance from "../../utils/axiosInstance";
+import { canManageAllBranches } from "../../utils/branchAccess";
 
 const QUICK_LINKS = [
   { label: "Workers", icon: <Users className="w-4 h-4" />, to: "/admin/workers", role: "admin" },
@@ -11,7 +12,7 @@ const QUICK_LINKS = [
   { label: "Qualification", icon: <Trophy className="w-4 h-4" />, to: "/admin/qualification", role: "admin" },
   { label: "Service Roles", icon: <Trophy className="w-4 h-4" />, to: "/admin/service-roles", role: "admin" },
   { label: "Roster", icon: <Calendar className="w-4 h-4" />, to: "/admin/roster", role: "admin" },
-  { label: "Portal Control", icon: <Clock className="w-4 h-4" />, to: "/admin/portal", role: "admin" },
+  { label: "Portal Control", icon: <Clock className="w-4 h-4" />, to: "/admin/portal", role: "admin", requiresAllBranchOversight: true },
   { label: "Report Types", icon: <ClipboardList className="w-4 h-4" />, to: "/admin/report-types", role: "admin" },
   { label: "Submit Report", icon: <FileText className="w-4 h-4" />, to: "/portal/submit-report", role: "worker" },
   { label: "My Reports", icon: <FileText className="w-4 h-4" />, to: "/portal/my-reports", role: "worker" },
@@ -19,7 +20,7 @@ const QUICK_LINKS = [
 ];
 
 const GlobalSearch = () => {
-  const { isAdminLevel } = useAuth();
+  const { isAdminLevel, user } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -66,6 +67,7 @@ const GlobalSearch = () => {
 
   const filteredLinks = QUICK_LINKS.filter((l) =>
     (isAdminLevel ? true : l.role === "worker") &&
+    (!l.requiresAllBranchOversight || canManageAllBranches(user)) &&
     (!query || l.label.toLowerCase().includes(query.toLowerCase()))
   );
 

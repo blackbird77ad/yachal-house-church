@@ -2,10 +2,11 @@
 import {
   Search, UserCheck, UserX, ChevronRight, UserPlus,
   Download, Eye, EyeOff, Copy, CheckCircle, RefreshCw,
-  Mail, LayoutGrid, List, Clock, Trash2,
+  Mail, LayoutGrid, List, Clock, Trash2, Building2,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { getAllWorkers, deleteWorker } from "../../services/workerService";
+import { getBranches } from "../../services/branchService";
 import {
   approveWorker, suspendWorker, reinstateWorker,
   adminCreateWorker, adminBulkCreateWorkers,
@@ -19,6 +20,12 @@ import { useAuth } from "../../hooks/useAuth";
 import { formatDate } from "../../utils/formatDate";
 import { DEPARTMENTS } from "../../utils/constants";
 import { cn } from "../../utils/scoreHelpers";
+import {
+  canChooseBranchScope,
+  canManageAllBranches,
+  getBranchAllOptionLabel,
+  getOwnBranchLabel,
+} from "../../utils/branchAccess";
 
 const ROLES = [
   { value: "worker", label: "Worker" },
@@ -31,15 +38,18 @@ const PER_PAGE = 15;
 const Workers = () => {
   const { toasts, toast, removeToast } = useToast();
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [workers, setWorkers]         = useState([]);
+  const [branches, setBranches]       = useState([]);
   const [pending, setPending]         = useState([]);
   const [page, setPage]               = useState(1);
   const [totalPages, setTotalPages]   = useState(1);
   const [totalWorkers, setTotalWorkers] = useState(0);
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState("");
-  const [statusFilter, setStatusFilter] = useState("approved");
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") || "approved");
+  const [branchFilter, setBranchFilter] = useState(() => searchParams.get("branchId") || "all");
   const [view, setView]               = useState(() => localStorage.getItem("yahal_workers_view") || "list");
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -50,6 +60,8 @@ const Workers = () => {
   const [createForm, setCreateForm]           = useState({
     fullName: "", email: "", phone: "",
     department: "unassigned", role: "worker",
+    branchId: "",
+    canViewAllBranches: false,
     password: "", confirmPassword: "",
   });
 
@@ -60,6 +72,8 @@ const Workers = () => {
   const [bulkPhone, setBulkPhone]                 = useState("");
   const [bulkDept, setBulkDept]                   = useState("unassigned");
   const [bulkRole, setBulkRole]                   = useState("worker");
+  const [bulkBranchId, setBulkBranchId]           = useState("");
+  const [bulkCanViewAllBranches, setBulkCanViewAllBranches] = useState(false);
   const [bulkPassword, setBulkPassword]           = useState("");
   const [bulkConfirmPassword, setBulkConfirmPassword] = useState("");
   const [showBulkPw, setShowBulkPw]               = useState(false);
@@ -72,6 +86,18 @@ const Workers = () => {
     .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
 
   const setViewMode = (v) => { setView(v); localStorage.setItem("yahal_workers_view", v); };
+  const hasAllBranchOversight = canManageAllBranches(user);
+  const canSelectBranches = canChooseBranchScope(user);
+  const branchParam = branchFilter && branchFilter !== "all" ? branchFilter : "";
+  const selectedBranch = branches.find((branch) => branch._id === branchParam);
+  const activeBranchLabel = !canSelectBranches
+    ? getOwnBranchLabel(user)
+    : branchParam && selectedBranch
+    ? selectedBranch.name
+    : hasAllBranchOversight
+    ? ""
+    : getBranchAllOptionLabel(user);
+  const defaultBranchId = branchParam || user?.branch?._id || user?.branch || "";
 
   const canDeleteWorker = (worker) =>
     user &&
@@ -80,6 +106,21 @@ const Workers = () => {
     worker.role !== "pastor" &&
     worker.workerId !== "001";
 
+  useEffect(() => {
+    if (!canSelectBranches) return;
+
+    let cancelled = false;
+    getBranches({ status: "active" })
+      .then(({ branches: nextBranches = [] }) => {
+        if (!cancelled) setBranches(nextBranches);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canSelectBranches]);
+
   // ── Fetch approved/suspended workers (paginated) ──────────────
   const fetchWorkers = useCallback(async (pg = 1) => {
     setLoading(true);
@@ -87,6 +128,7 @@ const Workers = () => {
       const params = { page: pg, limit: PER_PAGE };
       if (statusFilter !== "all") params.status = statusFilter;
       if (search) params.search = search;
+      if (branchParam) params.branchId = branchParam;
       const data = await getAllWorkers(params);
       setWorkers(data.workers || []);
       setTotalPages(data.totalPages || 1);
@@ -94,23 +136,47 @@ const Workers = () => {
     } catch {
       toast.error("Error", "Could not load workers.");
     } finally { setLoading(false); }
-  }, [statusFilter, search]);
+  }, [statusFilter, search, branchParam]);
 
   // ── Always fetch pending separately so it shows regardless of filter ──
   const fetchPending = useCallback(async () => {
     try {
-      const data = await getAllWorkers({ status: "pending", limit: 100 });
+      const params = { status: "pending", limit: 100 };
+      if (branchParam) params.branchId = branchParam;
+      const data = await getAllWorkers(params);
       setPending(data.workers || []);
     } catch {
       setPending([]);
     }
-  }, []);
+  }, [branchParam]);
 
   useEffect(() => {
     setPage(1);
     fetchWorkers(1);
     fetchPending();
-  }, [statusFilter, search]);
+  }, [statusFilter, search, branchParam, fetchWorkers, fetchPending]);
+
+  const updateQueryFilter = (key, value) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (value && value !== "all") {
+      nextParams.set(key, value);
+    } else {
+      nextParams.delete(key);
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const handleStatusFilter = (value) => {
+    setStatusFilter(value);
+    setPage(1);
+    updateQueryFilter("status", value === "approved" ? "" : value);
+  };
+
+  const handleBranchFilter = (value) => {
+    setBranchFilter(value);
+    setPage(1);
+    updateQueryFilter("branchId", value);
+  };
 
   const refresh = () => { fetchWorkers(page); fetchPending(); };
 
@@ -170,7 +236,10 @@ const Workers = () => {
       const { worker } = await adminCreateWorker({
         fullName: createForm.fullName, email: createForm.email,
         phone: createForm.phone, department: createForm.department,
-        role: createForm.role, password: createForm.password,
+        role: createForm.role,
+        branchId: createForm.branchId,
+        canViewAllBranches: createForm.canViewAllBranches,
+        password: createForm.password,
       });
       setCreatedWorker({ ...worker, password: createForm.password });
       fetchWorkers(page);
@@ -187,6 +256,8 @@ const Workers = () => {
       const payload = parsedEmails.map((email) => ({
         fullName: email.split("@")[0].replace(/[._\-+]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()).trim(),
         email, phone: bulkPhone, department: bulkDept, role: bulkRole,
+        branchId: bulkBranchId,
+        canViewAllBranches: bulkCanViewAllBranches,
         password: bulkPassword, mustChangePassword: true,
       }));
       const { results } = await adminBulkCreateWorkers({ workers: payload });
@@ -198,7 +269,8 @@ const Workers = () => {
 
   const resetBulkForm = () => {
     setPastedEmails(""); setBulkPhone(""); setBulkDept("unassigned");
-    setBulkRole("worker"); setBulkPassword(""); setBulkConfirmPassword(""); setBulkResult(null);
+    setBulkRole("worker"); setBulkBranchId(defaultBranchId); setBulkCanViewAllBranches(false);
+    setBulkPassword(""); setBulkConfirmPassword(""); setBulkResult(null);
   };
 
   const copyText = (text, key) => {
@@ -260,6 +332,10 @@ const Workers = () => {
         <span className="font-mono font-bold text-purple-700 dark:text-purple-400">{w.workerId || "Pending"}</span>
         <span className="text-gray-400 dark:text-slate-500 capitalize">{w.department?.replace(/-/g," ") || "Unassigned"}</span>
       </div>
+      <div className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-slate-500">
+        <Building2 className="h-3.5 w-3.5" />
+        {w.branch?.name || "No branch"}
+      </div>
       <div className="flex items-center justify-between pt-1 border-t border-gray-50 dark:border-slate-700">
         <div className="flex gap-1">
           {w.status === "pending" && (
@@ -298,14 +374,31 @@ const Workers = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="section-title">Workers</h1>
-          <p className="section-subtitle">{totalWorkers} workers</p>
+          <p className="section-subtitle">
+            {totalWorkers} workers
+            {activeBranchLabel ? ` - ${activeBranchLabel}` : ""}
+          </p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <button onClick={() => { resetBulkForm(); setShowBulkModal(true); }} className="btn-outline flex items-center gap-2 text-sm">
             <Mail className="w-4 h-4" /> Bulk Add
           </button>
           <button
-            onClick={() => { setCreatedWorker(null); setCreateForm({ fullName:"",email:"",phone:"",department:"unassigned",role:"worker",password:"",confirmPassword:"" }); setShowCreateModal(true); }}
+            onClick={() => {
+              setCreatedWorker(null);
+              setCreateForm({
+                fullName: "",
+                email: "",
+                phone: "",
+                department: "unassigned",
+                role: "worker",
+                branchId: defaultBranchId,
+                canViewAllBranches: false,
+                password: "",
+                confirmPassword: "",
+              });
+              setShowCreateModal(true);
+            }}
             className="btn-primary flex items-center gap-2 text-sm"
           >
             <UserPlus className="w-4 h-4" /> Add Worker
@@ -316,7 +409,7 @@ const Workers = () => {
       {/* Pending alert strip - shows above tabs when there are pending workers but tab not selected */}
       {pending.length > 0 && statusFilter !== "pending" && (
         <button
-          onClick={() => { setStatusFilter("pending"); setPage(1); }}
+          onClick={() => handleStatusFilter("pending")}
           className="w-full flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-xl px-4 py-3 text-left hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors"
         >
           <div className="w-6 h-6 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
@@ -344,7 +437,7 @@ const Workers = () => {
           ].map((tab) => (
             <button
               key={tab.value}
-              onClick={() => { setStatusFilter(tab.value); setPage(1); }}
+              onClick={() => handleStatusFilter(tab.value)}
               className={cn(
                 "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all",
                 statusFilter === tab.value ? tab.activeClass : tab.inactiveClass
@@ -365,6 +458,28 @@ const Workers = () => {
 
         {/* Search + view toggle */}
         <div className="flex flex-col sm:flex-row gap-3">
+          {canSelectBranches ? (
+            <div className="relative sm:w-56">
+              <Building2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <select
+                className="input-field pl-9"
+                value={branchFilter}
+                onChange={(e) => handleBranchFilter(e.target.value)}
+              >
+                <option value="all">{getBranchAllOptionLabel(user)}</option>
+                {branches.map((branch) => (
+                  <option key={branch._id} value={branch._id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+              <Building2 className="h-4 w-4" />
+              {getOwnBranchLabel(user, selectedBranch?.name || "Own branch")}
+            </div>
+          )}
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -415,6 +530,9 @@ const Workers = () => {
                     <p className="font-semibold text-gray-900 dark:text-slate-100 text-sm truncate">{w.fullName}</p>
                     <p className="text-xs text-gray-400 dark:text-slate-500 truncate">{w.email}</p>
                     <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
+                      <Building2 className="w-3 h-3 inline mr-1" />{w.branch?.name || "No branch selected"}
+                    </p>
+                    <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
                       <Clock className="w-3 h-3 inline mr-1" />Joined {formatDate(w.createdAt)}
                     </p>
                   </div>
@@ -456,7 +574,7 @@ const Workers = () => {
           <table className="w-full">
             <thead>
               <tr>
-                {["Worker","ID","Dept","Role","Status","Joined",""].map((h) => (
+                {["Worker","ID","Dept","Branch","Role","Status","Joined",""].map((h) => (
                   <th key={h} className="table-header whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -477,9 +595,10 @@ const Workers = () => {
                   </td>
                   <td className="table-cell"><span className="font-mono font-bold text-purple-700 dark:text-purple-400 text-xs">{w.workerId||"—"}</span></td>
                   <td className="table-cell capitalize text-xs hidden md:table-cell">{w.department?.replace(/-/g," ")||"—"}</td>
+                  <td className="table-cell text-xs hidden lg:table-cell">{w.branch?.name || "—"}</td>
                   <td className="table-cell capitalize text-xs hidden sm:table-cell">{w.role}</td>
                   <td className="table-cell">{statusBadge(w.status)}</td>
-                  <td className="table-cell text-xs hidden lg:table-cell">{formatDate(w.createdAt)}</td>
+                  <td className="table-cell text-xs hidden xl:table-cell">{formatDate(w.createdAt)}</td>
                   <td className="table-cell">
                     <div className="flex items-center gap-1">
                       {w.status==="approved"  && <button onClick={()=>handleSuspend(w._id)}   className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg" title="Suspend"><UserX className="w-4 h-4"/></button>}
@@ -527,7 +646,37 @@ const Workers = () => {
               <div><label className="form-label">Phone (optional)</label><input className="input-field" placeholder="+233 XXX XXX XXX" value={createForm.phone} onChange={(e) => setCreateForm({...createForm,phone:e.target.value})} /></div>
               <div><label className="form-label">Department</label><select className="input-field" value={createForm.department} onChange={(e) => setCreateForm({...createForm,department:e.target.value})}>{DEPARTMENTS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}</select></div>
               <div><label className="form-label">Role</label><select className="input-field" value={createForm.role} onChange={(e) => setCreateForm({...createForm,role:e.target.value})}>{ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}</select></div>
+              {canSelectBranches && branches.length > 0 && (
+                <div>
+                  <label className="form-label">Branch</label>
+                  <select
+                    className="input-field"
+                    value={createForm.branchId}
+                    onChange={(e) => setCreateForm({...createForm,branchId:e.target.value})}
+                  >
+                    <option value="">No branch</option>
+                    {branches.map((branch) => (
+                      <option key={branch._id} value={branch._id}>
+                        {branch.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
+            {canSelectBranches && createForm.role !== "worker" && (
+              <label className="flex items-start gap-3 rounded-xl border border-gray-100 p-3 dark:border-slate-700">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 accent-purple-600"
+                  checked={createForm.canViewAllBranches}
+                  onChange={(e) => setCreateForm({...createForm,canViewAllBranches:e.target.checked})}
+                />
+                <span className="text-sm text-gray-700 dark:text-slate-300">
+                  Admin can view all branches
+                </span>
+              </label>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-gray-100 dark:border-slate-700">
               <div><label className="form-label">Password</label><div className="relative"><input type={showPw?"text":"password"} className="input-field pr-10" placeholder="Min 6 characters" value={createForm.password} onChange={(e) => setCreateForm({...createForm,password:e.target.value})} /><button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">{showPw?<EyeOff className="w-4 h-4"/>:<Eye className="w-4 h-4"/>}</button></div></div>
               <div><label className="form-label">Confirm Password</label><input type="password" className="input-field" placeholder="Repeat password" value={createForm.confirmPassword} onChange={(e) => setCreateForm({...createForm,confirmPassword:e.target.value})} /></div>
@@ -581,6 +730,36 @@ const Workers = () => {
               <div><label className="form-label">Department</label><select className="input-field" value={bulkDept} onChange={(e) => setBulkDept(e.target.value)}>{DEPARTMENTS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}</select></div>
               <div><label className="form-label">Role</label><select className="input-field" value={bulkRole} onChange={(e) => setBulkRole(e.target.value)}>{ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}</select></div>
             </div>
+            {canSelectBranches && branches.length > 0 && (
+              <div>
+                <label className="form-label">Branch</label>
+                <select
+                  className="input-field"
+                  value={bulkBranchId}
+                  onChange={(e) => setBulkBranchId(e.target.value)}
+                >
+                  <option value="">No branch</option>
+                  {branches.map((branch) => (
+                    <option key={branch._id} value={branch._id}>
+                      {branch.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {canSelectBranches && bulkRole !== "worker" && (
+              <label className="flex items-start gap-3 rounded-xl border border-gray-100 p-3 dark:border-slate-700">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 accent-purple-600"
+                  checked={bulkCanViewAllBranches}
+                  onChange={(e) => setBulkCanViewAllBranches(e.target.checked)}
+                />
+                <span className="text-sm text-gray-700 dark:text-slate-300">
+                  Admins in this batch can view all branches
+                </span>
+              </label>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-gray-100 dark:border-slate-700">
               <div><label className="form-label">Password</label><div className="relative"><input type={showBulkPw?"text":"password"} className="input-field pr-10" placeholder="Min 6 characters" value={bulkPassword} onChange={(e) => setBulkPassword(e.target.value)} /><button type="button" onClick={() => setShowBulkPw(!showBulkPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">{showBulkPw?<EyeOff className="w-4 h-4"/>:<Eye className="w-4 h-4"/>}</button></div></div>
               <div><label className="form-label">Confirm Password</label><input type="password" className="input-field" placeholder="Repeat password" value={bulkConfirmPassword} onChange={(e) => setBulkConfirmPassword(e.target.value)} /></div>

@@ -39,7 +39,6 @@ export const getCriteriaStatus = (breakdown, scoreBreakdown = null) => {
   const minFellowshipHours = QUALIFICATION_CRITERIA.MIN_FELLOWSHIP_HOURS ?? 2;
   const minCellMeetingPeople = QUALIFICATION_CRITERIA.MIN_CELL_MEETING_PEOPLE ?? 4;
   const minChurchAttendees = QUALIFICATION_CRITERIA.MIN_CHURCH_ATTENDEES ?? 4;
-  const minCellPrayerHours = QUALIFICATION_CRITERIA.MIN_CELL_PRAYER_HOURS ?? 2;
   const usesCellPeopleCriterion = hasCellMeetingPeopleCriterion(
     breakdown,
     scoreBreakdown
@@ -124,13 +123,11 @@ export const getCriteriaStatus = (breakdown, scoreBreakdown = null) => {
   criteria.push(
     {
       key: "cellPrayerQualified",
-      label: `Cell prayer - min ${minCellPrayerHours} hours`,
+      label: "Cell prayer completed",
       weight: 10,
       passed: cellPrayerPassed,
       score: getScoreValue(scoreBreakdown, "cellPrayerScore", cellPrayerPassed, 10),
-      reason: !cellPrayerPassed
-        ? `Cell prayer less than ${minCellPrayerHours} hours`
-        : null,
+      reason: !cellPrayerPassed ? "Cell prayer was not marked as prayed" : null,
     },
     {
       key: "attendanceQualified",

@@ -13,6 +13,7 @@ import WorkerRoster from "../pages/portal/WorkerRoster";
 import Notifications from "../pages/portal/Notifications";
 import FrontDesk from "../pages/portal/FrontDesk";
 import AdminDashboard from "../pages/admin/AdminDashboard";
+import Branches from "../pages/admin/Branches";
 import Workers from "../pages/admin/Workers";
 import WorkerProfile from "../pages/admin/WorkerProfile";
 import Reports from "../pages/admin/Reports";
@@ -31,6 +32,8 @@ import InstallPrompt from "../components/common/InstallPrompt";
 import SupportFooter from "../components/common/SupportFooter";
 import ProtectedRoute from "../components/common/ProtectedRoute";
 import RoleGuard from "../components/common/RoleGuard";
+import BranchPrompt from "../components/common/BranchPrompt";
+import AllBranchOversightGuard from "../components/common/AllBranchOversightGuard";
 import { ADMIN_ROLES } from "../utils/constants";
 
 const AuthLayout = () => (
@@ -45,6 +48,7 @@ const PrivateLayout = () => (
     <TourGuide />
     <InstallPrompt />
     <PortalNavbar />
+    <BranchPrompt />
     <main className="flex-1 page-container"><Outlet /></main>
     <SupportFooter />
   </div>
@@ -79,13 +83,14 @@ const router = createBrowserRouter([{
     element: <ProtectedRoute><RoleGuard allowedRoles={ADMIN_ROLES}><PrivateLayout /></RoleGuard></ProtectedRoute>,
     children: [
       { path: "/admin/dashboard", element: <AdminDashboard /> },
+      { path: "/admin/branches", element: <Branches /> },
       { path: "/admin/workers", element: <Workers /> },
       { path: "/admin/workers/:workerId", element: <WorkerProfile /> },
       { path: "/admin/reports", element: <Reports /> },
       { path: "/admin/reports/:reportId", element: <ReportDetail /> },
       { path: "/admin/worker-analysis", element: <WorkerAnalysis /> },
       { path: "/admin/report-types", element: <ReportTypes /> },
-      { path: "/admin/portal", element: <PortalControl /> },
+      { path: "/admin/portal", element: <AllBranchOversightGuard><PortalControl /></AllBranchOversightGuard> },
       { path: "/admin/qualification", element: <Qualification /> },
       { path: "/admin/service-roles", element: <ServiceRoleQualification /> },
       { path: "/admin/roster", element: <RosterBuilder /> },

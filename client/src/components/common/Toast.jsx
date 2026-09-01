@@ -23,7 +23,7 @@ export const Toast = ({ id, type = "info", title, message, onClose, duration = 4
   }, [id, duration, onClose]);
 
   return (
-    <div className={cn("flex items-start gap-3 p-4 rounded-xl border shadow-lg w-80 animate-slide-up", styles[type])}>
+    <div className={cn("flex w-full items-start gap-3 rounded-xl border p-4 shadow-lg animate-slide-up sm:w-80", styles[type])}>
       <div className="flex-shrink-0 mt-0.5">{icons[type]}</div>
       <div className="flex-1 min-w-0">
         {title && <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{title}</p>}
@@ -37,7 +37,7 @@ export const Toast = ({ id, type = "info", title, message, onClose, duration = 4
 };
 
 export const ToastContainer = ({ toasts, onClose }) => (
-  <div className="fixed bottom-4 right-4 z-[90] flex flex-col gap-2">
+  <div className="fixed bottom-4 left-4 right-4 z-[120] flex flex-col gap-2 sm:left-auto">
     {toasts.map((toast) => (
       <Toast key={toast.id} {...toast} onClose={onClose} />
     ))}

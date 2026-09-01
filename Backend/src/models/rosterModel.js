@@ -36,6 +36,8 @@ const rosterSchema = new mongoose.Schema(
   {
     weekReference: { type: Date, required: true },
 
+    branch: { type: mongoose.Schema.Types.ObjectId, ref: "Branch" },
+
     serviceType: {
       type: String,
       enum: ["tuesday", "sunday", "special"],
@@ -66,6 +68,7 @@ const rosterSchema = new mongoose.Schema(
 );
 
 rosterSchema.index({ weekReference: 1, serviceType: 1 });
+rosterSchema.index({ branch: 1, weekReference: 1, serviceType: 1 });
 rosterSchema.index({ isPublished: 1 });
 
 const Roster = mongoose.model("Roster", rosterSchema);

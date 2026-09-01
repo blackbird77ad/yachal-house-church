@@ -4,11 +4,13 @@ import {
   LayoutDashboard, FileText, Clock, Calendar, Bell, User,
   MonitorCheck, Users, Shield, Settings, ClipboardList,
   LogOut, ChevronDown, Menu, X, Sun, Moon, Lightbulb, Trophy, BarChart3,
+  Building2,
 } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 import { useRestartTour } from "../../hooks/useRestartTour";
 import NotificationBell from "./NotificationBell";
 import { cn } from "../../utils/scoreHelpers";
+import { canManageAllBranches } from "../../utils/branchAccess";
 
 const workerLinks = [
   { to: "/portal/dashboard",     label: "Dashboard",     icon: LayoutDashboard },
@@ -20,13 +22,14 @@ const workerLinks = [
 
 const adminLinks = [
   { to: "/admin/dashboard",   label: "Dashboard",    icon: LayoutDashboard },
+  { to: "/admin/branches",    label: "Branches",     icon: Building2 },
   { to: "/admin/workers",     label: "Workers",      icon: Users },
   { to: "/admin/reports",     label: "Reports",      icon: FileText },
   { to: "/admin/worker-analysis", label: "Analysis", icon: BarChart3 },
   { to: "/admin/qualification", label: "Qualify",    icon: Shield },
   { to: "/admin/service-roles", label: "Service Roles", icon: Trophy },
   { to: "/admin/roster",      label: "Roster",       icon: Calendar },
-  { to: "/admin/portal",      label: "Portal",       icon: Settings },
+  { to: "/admin/portal",      label: "Portal",       icon: Settings, requiresAllBranchOversight: true },
   { to: "/admin/report-types", label: "Report Types", icon: ClipboardList },
   { to: "/portal/front-desk", label: "Front Desk",   icon: MonitorCheck },
   { to: "/admin/attendance",  label: "Attendance",   icon: Users },
@@ -59,7 +62,9 @@ const PortalNavbar = () => {
     navigate("/");
   };
 
-  const links = isAdminLevel ? adminLinks : workerLinks;
+  const links = isAdminLevel
+    ? adminLinks.filter((link) => !link.requiresAllBranchOversight || canManageAllBranches(user))
+    : workerLinks;
   const initials = user?.fullName?.charAt(0)?.toUpperCase() || "?";
   const firstName = user?.fullName?.split(" ")[0] || "";
 

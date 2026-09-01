@@ -1,8 +1,8 @@
 import axiosInstance from "../utils/axiosInstance";
 
-export const getDashboardSummary = async () => {
+export const getDashboardSummary = async (params = {}) => {
   const response = await axiosInstance.get("/admin/dashboard", {
-    params: { _ts: Date.now() },
+    params: { ...params, _ts: Date.now() },
   });
   return response.data;
 };

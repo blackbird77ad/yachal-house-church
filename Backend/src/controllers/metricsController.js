@@ -1,4 +1,5 @@
 import Metrics from "../models/metricsModel.js";
+import User from "../models/userModel.js";
 import {
   ensureWeeklyMetricsFresh,
   processWeeklyMetrics,
@@ -12,6 +13,11 @@ import {
 } from "../services/qualificationService.js";
 import { getServiceRoleQualificationWeeks } from "../services/serviceRoleQualificationService.js";
 import { getPortalWeekReferenceForNow } from "../utils/portalWeek.js";
+import {
+  applyBranchScopeToUserFilter,
+  getBranchScopeMeta,
+  resolveBranchScope,
+} from "../utils/branchAccess.js";
 
 const getCurrentWeekReference = async () => {
   return getPortalWeekReferenceForNow();
@@ -53,6 +59,7 @@ export const getAllMetrics = async (req, res, next) => {
   try {
     const { weekReference, isLateSubmission, dateFrom, dateTo } = req.query;
     const filter = {};
+    const branchScope = resolveBranchScope(req);
 
     if (weekReference) filter.weekReference = new Date(weekReference);
     if (isLateSubmission !== undefined && isLateSubmission !== "") {
@@ -65,11 +72,21 @@ export const getAllMetrics = async (req, res, next) => {
       if (dateTo) filter.weekReference.$lte = new Date(dateTo);
     }
 
+    if (branchScope.branchIds?.length) {
+      filter.worker = {
+        $in: await User.find(applyBranchScopeToUserFilter(req, {})).distinct("_id"),
+      };
+    }
+
     const metrics = await Metrics.find(filter)
-      .populate("worker", "fullName workerId department score isQualified")
+      .populate({
+        path: "worker",
+        select: "fullName workerId department branch score isQualified",
+        populate: { path: "branch", select: "name code status" },
+      })
       .sort({ weekReference: -1, totalScore: -1 });
 
-    res.status(200).json({ metrics });
+    res.status(200).json({ metrics, branchScope: getBranchScopeMeta(req, branchScope) });
   } catch (error) {
     next(error);
   }
@@ -79,8 +96,12 @@ export const getQualifiedList = async (req, res, next) => {
   try {
     const { weekReference } = req.query;
     const week = weekReference ? new Date(weekReference) : await getCurrentWeekReference();
-    const qualified = await getQualifiedWorkers(week);
-    res.status(200).json({ qualified });
+    const branchScope = resolveBranchScope(req);
+    const qualified = await getQualifiedWorkers(week, {
+      branchId: branchScope.branchId,
+      branchIds: branchScope.branchIds,
+    });
+    res.status(200).json({ qualified, branchScope: getBranchScopeMeta(req, branchScope) });
   } catch (error) {
     next(error);
   }
@@ -90,8 +111,12 @@ export const getDisqualifiedList = async (req, res, next) => {
   try {
     const { weekReference } = req.query;
     const week = weekReference ? new Date(weekReference) : await getCurrentWeekReference();
-    const disqualified = await getDisqualifiedWorkersByCloseness(week);
-    res.status(200).json({ disqualified });
+    const branchScope = resolveBranchScope(req);
+    const disqualified = await getDisqualifiedWorkersByCloseness(week, {
+      branchId: branchScope.branchId,
+      branchIds: branchScope.branchIds,
+    });
+    res.status(200).json({ disqualified, branchScope: getBranchScopeMeta(req, branchScope) });
   } catch (error) {
     next(error);
   }
@@ -104,8 +129,12 @@ export const getLateMetrics = async (req, res, next) => {
       return res.status(400).json({ message: "weekReference is required for late metrics." });
     }
 
-    const summary = await getLateMetricsSummary(new Date(weekReference));
-    res.status(200).json({ lateMetrics: summary });
+    const branchScope = resolveBranchScope(req);
+    const summary = await getLateMetricsSummary(new Date(weekReference), {
+      branchId: branchScope.branchId,
+      branchIds: branchScope.branchIds,
+    });
+    res.status(200).json({ lateMetrics: summary, branchScope: getBranchScopeMeta(req, branchScope) });
   } catch (error) {
     next(error);
   }
@@ -134,8 +163,12 @@ export const getAllWorkersStatus = async (req, res, next) => {
       maxAgeMinutes: 60,
     });
 
+    const branchScope = resolveBranchScope(req);
     const { qualified, disqualified, noSubmission, ranking } =
-      await getAllWorkersQualificationStatus(week);
+      await getAllWorkersQualificationStatus(week, {
+        branchId: branchScope.branchId,
+        branchIds: branchScope.branchIds,
+      });
 
     const summary = {
       totalWorkers: qualified.length + disqualified.length + noSubmission.length,
@@ -152,6 +185,7 @@ export const getAllWorkersStatus = async (req, res, next) => {
       noSubmission,
       ranking,
       summary,
+      branchScope: getBranchScopeMeta(req, branchScope),
     });
   } catch (error) {
     next(error);
@@ -161,14 +195,17 @@ export const getAllWorkersStatus = async (req, res, next) => {
 export const getServiceRoleQualificationHistory = async (req, res, next) => {
   try {
     const { weekReference, dateFrom, dateTo, isLateSubmission } = req.query;
+    const branchScope = resolveBranchScope(req);
     const weeks = await getServiceRoleQualificationWeeks({
       weekReference,
       dateFrom,
       dateTo,
       isLateSubmission: isLateSubmission === "true",
+      branchId: branchScope.branchId,
+      branchIds: branchScope.branchIds,
     });
 
-    res.status(200).json({ weeks });
+    res.status(200).json({ weeks, branchScope: getBranchScopeMeta(req, branchScope) });
   } catch (error) {
     next(error);
   }

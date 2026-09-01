@@ -9,18 +9,30 @@ import {
   BarChart3,
   RefreshCw,
   UserX,
+  Building2,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { getDashboardSummary } from "../../services/adminService";
+import { getBranches } from "../../services/branchService";
 import ScoreBadge from "../../components/common/ScoreBadge";
 import { formatDateTime, getWeekLabel } from "../../utils/formatDate";
 import { cn } from "../../utils/scoreHelpers";
 import { useAuth } from "../../hooks/useAuth";
+import {
+  canChooseBranchScope,
+  getBranchAllOptionLabel,
+  getOwnBranchLabel,
+} from "../../utils/branchAccess";
 
 const AdminDashboard = () => {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [summary, setSummary] = useState({});
+  const [branches, setBranches] = useState([]);
+  const [selectedBranchId, setSelectedBranchId] = useState(
+    () => searchParams.get("branchId") || "all"
+  );
   const [leaderboard, setLeaderboard] = useState([]);
   const [submissionWeekLabel, setSubmissionWeekLabel] = useState("This week");
   const [qualificationWeekLabel, setQualificationWeekLabel] = useState("This week");
@@ -32,6 +44,34 @@ const AdminDashboard = () => {
   );
 
   const loadRef = useRef(() => {});
+  const canSelectBranches = canChooseBranchScope(user);
+  const branchParam =
+    selectedBranchId && selectedBranchId !== "all" ? selectedBranchId : "";
+  const selectedBranch = branches.find((branch) => branch._id === branchParam);
+  const activeBranchLabel = !canSelectBranches
+    ? getOwnBranchLabel(user)
+    : branchParam
+    ? selectedBranch?.name || summary?.branchScope?.selectedBranchId || "Selected branch"
+    : getBranchAllOptionLabel(user);
+  const addBranchTo = (path) => {
+    if (!branchParam) return path;
+    return `${path}${path.includes("?") ? "&" : "?"}branchId=${encodeURIComponent(branchParam)}`;
+  };
+
+  useEffect(() => {
+    if (!canSelectBranches) return;
+
+    let cancelled = false;
+    getBranches({ status: "active" })
+      .then(({ branches: nextBranches = [] }) => {
+        if (!cancelled) setBranches(nextBranches);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canSelectBranches]);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +86,9 @@ const AdminDashboard = () => {
       try {
         setSummaryError("");
 
-        const safeSummary = (await getDashboardSummary()) || {};
+        const safeSummary = (await getDashboardSummary(
+          branchParam ? { branchId: branchParam } : {}
+        )) || {};
         if (cancelled) return;
 
         setSummary(safeSummary);
@@ -80,9 +122,10 @@ const AdminDashboard = () => {
             "Dashboard data failed to load. Try refreshing."
         );
       } finally {
-        if (cancelled) return;
-        setSummaryLoading(false);
-        setRefreshing(false);
+        if (!cancelled) {
+          setSummaryLoading(false);
+          setRefreshing(false);
+        }
       }
     };
 
@@ -105,7 +148,7 @@ const AdminDashboard = () => {
       clearInterval(refreshInterval);
       window.removeEventListener("focus", handleFocusRefresh);
     };
-  }, []);
+  }, [branchParam]);
 
   useEffect(() => {
     const updateLeaderboardLimit = () => {
@@ -121,6 +164,16 @@ const AdminDashboard = () => {
   }, []);
 
   const visibleLeaderboard = leaderboard.slice(0, leaderboardDisplayLimit);
+  const handleBranchChange = (value) => {
+    setSelectedBranchId(value);
+    const nextParams = new URLSearchParams(searchParams);
+    if (value && value !== "all") {
+      nextParams.set("branchId", value);
+    } else {
+      nextParams.delete("branchId");
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
 
   const stats = [
     {
@@ -129,7 +182,7 @@ const AdminDashboard = () => {
       icon: <Users className="w-5 h-5" />,
       color:
         "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400",
-      link: "/admin/workers",
+      link: addBranchTo("/admin/workers"),
     },
     {
       label: "Pending Approval",
@@ -137,7 +190,7 @@ const AdminDashboard = () => {
       icon: <AlertCircle className="w-5 h-5" />,
       color:
         "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400",
-      link: "/admin/workers?status=pending",
+      link: addBranchTo("/admin/workers?status=pending"),
     },
     {
       label: "Submitted This Week",
@@ -145,7 +198,7 @@ const AdminDashboard = () => {
       icon: <FileText className="w-5 h-5" />,
       color:
         "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400",
-      link: "/admin/reports",
+      link: addBranchTo("/admin/reports"),
     },
     {
       label: "Qualified This Week",
@@ -153,7 +206,7 @@ const AdminDashboard = () => {
       icon: <Trophy className="w-5 h-5" />,
       color:
         "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400",
-      link: "/admin/qualification",
+      link: addBranchTo("/admin/qualification"),
     },
   ];
 
@@ -187,7 +240,7 @@ const AdminDashboard = () => {
         <div>
           <h1 className="section-title">Admin Dashboard</h1>
           <p className="section-subtitle">
-            {submissionWeekLabel} - Welcome, {user?.fullName?.split(" ")[0]}
+            {submissionWeekLabel} - {activeBranchLabel} - Welcome, {user?.fullName?.split(" ")[0]}
           </p>
           {summaryLoading && (
             <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
@@ -197,6 +250,29 @@ const AdminDashboard = () => {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {canSelectBranches ? (
+            <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800">
+              <Building2 className="h-4 w-4 text-purple-600" />
+              <select
+                className="bg-transparent text-sm font-medium text-gray-700 outline-none dark:text-slate-200"
+                value={selectedBranchId}
+                onChange={(event) => handleBranchChange(event.target.value)}
+              >
+                <option value="all">{getBranchAllOptionLabel(user)}</option>
+                {branches.map((branch) => (
+                  <option key={branch._id} value={branch._id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+              <Building2 className="h-4 w-4" />
+              {getOwnBranchLabel(user, activeBranchLabel)}
+            </div>
+          )}
+
           <button
             onClick={() => loadRef.current({ silent: true })}
             className="btn-outline text-sm flex items-center gap-1.5"
@@ -280,7 +356,7 @@ const AdminDashboard = () => {
             {summary.pendingApprovals > 1 ? "s" : ""} waiting for account approval.
           </p>
           <Link
-            to="/admin/workers?status=pending"
+            to={addBranchTo("/admin/workers?status=pending")}
             className="text-xs font-semibold text-amber-700 dark:text-amber-400 hover:underline flex items-center gap-1"
           >
             Review <ChevronRight className="w-3 h-3" />
@@ -306,7 +382,7 @@ const AdminDashboard = () => {
               </p>
             </div>
             <Link
-              to="/admin/qualification"
+              to={addBranchTo("/admin/qualification")}
               className="text-xs text-purple-700 dark:text-purple-400 hover:underline flex items-center gap-1"
             >
               Full view <ChevronRight className="w-3 h-3" />
@@ -372,14 +448,14 @@ const AdminDashboard = () => {
           <div className="grid grid-cols-2 gap-3">
             {[
               {
-                to: "/admin/workers",
+                to: addBranchTo("/admin/workers"),
                 label: "Manage Workers",
                 icon: <Users className="w-5 h-5" />,
                 color:
                   "text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20",
               },
               {
-                to: "/admin/reports",
+                to: addBranchTo("/admin/reports"),
                 label: "View Reports",
                 icon: <FileText className="w-5 h-5" />,
                 color:
@@ -393,7 +469,7 @@ const AdminDashboard = () => {
                   "text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20",
               },
               {
-                to: "/admin/qualification",
+                to: addBranchTo("/admin/qualification"),
                 label: "Qualification",
                 icon: <Trophy className="w-5 h-5" />,
                 color:

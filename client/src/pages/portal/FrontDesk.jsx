@@ -81,7 +81,9 @@ const FrontDesk = () => {
       if (isAdminLevel) { setStep("auth-self"); return; }
       try {
         const { data: rd } = await axiosInstance.get("/roster/my-assignment");
-        const assigned = rd.roster?.myAssignments?.some((a) => a.department === "front-desk");
+        const assigned = (rd.rosters || []).some((roster) =>
+          roster.myAssignments?.some((assignment) => assignment.department === "front-desk")
+        );
         setStep(assigned ? "auth-self" : "unauthorized");
       } catch { setStep("unauthorized"); }
     } catch { setStep("unauthorized"); }
@@ -230,7 +232,12 @@ const FrontDesk = () => {
     if (!query.trim()) { setSuggestions([]); return; }
     const t = setTimeout(async () => {
       try {
-        const { data } = await axiosInstance.get(`/attendance/search?q=${query.trim()}`);
+        const { data } = await axiosInstance.get("/attendance/search", {
+          params: {
+            q: query.trim(),
+            ...(sessionRef.current?._id ? { sessionId: sessionRef.current._id } : {}),
+          },
+        });
         const checked = attendance.map((a) => a.worker?._id);
         setSuggestions((data.workers || []).filter((w) => !checked.includes(w._id)));
       } catch {}

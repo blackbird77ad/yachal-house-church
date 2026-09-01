@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Plus,
+  Minus,
   Trash2,
   Save,
   Send,
@@ -50,23 +51,100 @@ const emptyCellMeetingPerson = {
 const createEmptyCellMeetingPerson = () => ({ ...emptyCellMeetingPerson });
 const createEmptyCellMeetingGroup = () => ({
   cellName: "",
+  attendanceStatus: null,
   people: [createEmptyCellMeetingPerson()],
 });
-const emptyCell = { cellName: "", meetingDays: [], reportTime: "", role: "" };
 
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const FELLOWSHIPS = ["Fellowship 1", "Fellowship 2", "Fellowship 3", "Other"];
 const PRAYER_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const MIN_CELL_MEETING_PEOPLE = 4;
 const CELL_NAME_STORAGE_KEY = "yahal_evangelism_cell_names";
-
+const CELL_ATTENDANCE_OPTIONS = [
+  {
+    value: "attended",
+    label: "Yes, I attended",
+    activeClass:
+      "border-green-400 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300",
+  },
+  {
+    value: "not_attended",
+    label: "No, I did not",
+    activeClass:
+      "border-red-300 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400",
+  },
+  {
+    value: "not_applicable",
+    label: "N/A - School on vacation (Campus Cell)",
+    activeClass:
+      "border-amber-300 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300",
+  },
+];
+const CELL_PRAYER_OPTIONS = [
+  {
+    value: "prayed",
+    label: "Yes, I prayed",
+    activeClass:
+      "border-green-400 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300",
+  },
+  {
+    value: "not_prayed",
+    label: "No, I did not",
+    activeClass:
+      "border-red-300 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400",
+  },
+  {
+    value: "not_applicable",
+    label: "N/A - Clashed with another church program",
+    activeClass:
+      "border-amber-300 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300",
+  },
+];
 const normalizeText = (value = "") =>
-  value.toString().trim().replace(/\s+/g, " ").toLowerCase();
+  (value ?? "").toString().trim().replace(/\s+/g, " ").toLowerCase();
 
 const normalizePhone = (value = "") =>
   value.toString().replace(/[^\d]/g, "");
 
 const hasValue = (value) => normalizeText(value).length > 0;
+
+const normalizeCellCountValue = (value) => {
+  const count = Number.parseInt(value, 10);
+  return Number.isFinite(count) && count > 0 ? count : 1;
+};
+
+const normalizeCellAttendanceStatus = (value) => {
+  if (value === true) return "attended";
+  if (value === false) return "not_attended";
+
+  const normalized = normalizeText(value).replace(/[\s-]+/g, "_");
+
+  if (["attended", "yes", "yes_i_attended"].includes(normalized)) {
+    return "attended";
+  }
+
+  if (["not_attended", "no", "no_i_did_not", "absent"].includes(normalized)) {
+    return "not_attended";
+  }
+
+  if (["na", "n_a", "n/a", "not_applicable", "school_on_vacation"].includes(normalized)) {
+    return "not_applicable";
+  }
+
+  return null;
+};
+
+const normalizeCellPrayerStatus = (cellPrayer = {}) => {
+  const prayer = cellPrayer ?? {};
+  const status = normalizeText(prayer.prayerStatus).replace(/[\s-]+/g, "_");
+
+  if (["prayed", "yes", "yes_i_prayed"].includes(status)) return "prayed";
+  if (["not_prayed", "no", "no_i_did_not"].includes(status)) return "not_prayed";
+  if (["na", "n_a", "n/a", "not_applicable"].includes(status)) return "not_applicable";
+  if (prayer.didPrayWithCell === true) return "prayed";
+  if (prayer.didPrayWithCell === false) return "not_prayed";
+
+  return null;
+};
 
 const isCellMeetingPersonAtLeast12 = (person = {}) => {
   if (person.olderThan12 === true) return true;
@@ -112,10 +190,18 @@ const normalizePeopleTakenToCellGroups = (groups = []) => {
 
       return {
         cellName: group.cellName || "",
+        attendanceStatus: normalizeCellAttendanceStatus(
+          group.attendanceStatus ?? group.attended ?? group.didAttendCell
+        ),
         people: people.length ? people : [createEmptyCellMeetingPerson()],
       };
     })
-    .filter((group) => hasValue(group.cellName) || group.people.some((person) => hasValue(person.fullName)));
+    .filter(
+      (group) =>
+        hasValue(group.cellName) ||
+        group.attendanceStatus ||
+        group.people.some((person) => hasValue(person.fullName))
+    );
 
   return normalizedGroups.length ? normalizedGroups : [createEmptyCellMeetingGroup()];
 };
@@ -129,6 +215,7 @@ const groupFlatPeopleTakenToCell = (people = [], fallbackCellName = "") => {
     const existing =
       groups.get(key) || {
         cellName,
+        attendanceStatus: null,
         people: [],
       };
 
@@ -137,6 +224,69 @@ const groupFlatPeopleTakenToCell = (people = [], fallbackCellName = "") => {
   });
 
   return normalizePeopleTakenToCellGroups([...groups.values()]);
+};
+
+const normalizeCellActivityGroupForUi = (group = {}) => {
+  const people = Array.isArray(group.people)
+    ? group.people.map(normalizeCellMeetingPerson)
+    : [];
+
+  return {
+    cellName: group.cellName || "",
+    attendanceStatus: normalizeCellAttendanceStatus(
+      group.attendanceStatus ?? group.attended ?? group.didAttendCell
+    ),
+    people: people.length ? people : [createEmptyCellMeetingPerson()],
+  };
+};
+
+const ensureCellActivityGroupCount = (groups = [], count = 1) => {
+  const targetCount = normalizeCellCountValue(count);
+  const nextGroups = groups.slice(0, targetCount).map(normalizeCellActivityGroupForUi);
+
+  while (nextGroups.length < targetCount) {
+    nextGroups.push(createEmptyCellMeetingGroup());
+  }
+
+  return nextGroups;
+};
+
+const buildCellActivityGroupsFromDraft = (cellData = {}) => {
+  if (Array.isArray(cellData.cellActivityGroups) && cellData.cellActivityGroups.length) {
+    return normalizePeopleTakenToCellGroups(cellData.cellActivityGroups);
+  }
+
+  const cellGroupsFromPeople = cellData.peopleTakenToCellGroups?.length
+    ? normalizePeopleTakenToCellGroups(cellData.peopleTakenToCellGroups)
+    : cellData.peopleTakenToCell?.length
+    ? groupFlatPeopleTakenToCell(cellData.peopleTakenToCell, cellData.cells?.[0]?.cellName || "")
+    : [];
+
+  const cells = Array.isArray(cellData.cells) ? cellData.cells : [];
+  const fallbackStatus =
+    cellData.didAttendCell === true
+      ? "attended"
+      : cellData.didAttendCell === false
+      ? "not_attended"
+      : null;
+  const groupCount = Math.max(cellGroupsFromPeople.length, cells.length, 1);
+
+  return Array.from({ length: groupCount }, (_, index) => {
+    const peopleGroup = cellGroupsFromPeople[index] || {};
+    const cell = cells[index] || {};
+    const status =
+      normalizeCellAttendanceStatus(
+        peopleGroup.attendanceStatus ?? cell.attendanceStatus ?? cell.attended
+      ) || fallbackStatus;
+
+    return {
+      cellName: peopleGroup.cellName || cell.cellName || "",
+      attendanceStatus: status,
+      people: peopleGroup.people?.length
+        ? peopleGroup.people
+        : [createEmptyCellMeetingPerson()],
+    };
+  });
 };
 
 const toTimeInputValue = (value = "") => {
@@ -246,6 +396,7 @@ const EvangelismForm = ({
   const [scriptures, setScriptures] = useState("");
   const [followUps, setFollowUps] = useState([{ ...emptyFollowUp }]);
   const [attendees, setAttendees] = useState([{ ...emptyAttendee }]);
+  const [cellCount, setCellCount] = useState(1);
   const [peopleTakenToCellGroups, setPeopleTakenToCellGroups] = useState([
     createEmptyCellMeetingGroup(),
   ]);
@@ -255,10 +406,7 @@ const EvangelismForm = ({
     { serviceType: "sunday", attended: null, reportingTime: "", lateReason: "" },
   ]);
 
-  const [didAttendCell, setDidAttendCell] = useState(null);
-  const [cells, setCells] = useState([{ ...emptyCell }]);
-
-  const [didPrayWithCell, setDidPrayWithCell] = useState(null);
+  const [cellPrayerStatus, setCellPrayerStatus] = useState(null);
   const [cellPrayerDays, setCellPrayerDays] = useState([]);
   const [cellPrayerStartTime, setCellPrayerStartTime] = useState("");
   const [cellPrayerEndTime, setCellPrayerEndTime] = useState("");
@@ -345,7 +493,13 @@ const EvangelismForm = ({
         if (!mounted) return;
 
         if (!draft) {
+          setCellCount(1);
           setPeopleTakenToCellGroups([createEmptyCellMeetingGroup()]);
+          setCellPrayerStatus(null);
+          setCellPrayerDays([]);
+          setCellPrayerStartTime("");
+          setCellPrayerEndTime("");
+          setCellPrayerReportTime("");
           setDraftLoaded(true);
           setHydrated(true);
           return;
@@ -414,40 +568,37 @@ const EvangelismForm = ({
         }
 
         if (draft.cellData) {
-          setDidAttendCell(
-            draft.cellData.didAttendCell ??
-              draft.cellData.didAttend ??
-              null
+          const draftCellGroups = buildCellActivityGroupsFromDraft(draft.cellData);
+          const nextCellCount = normalizeCellCountValue(
+            draft.cellData.numberOfCells || draftCellGroups.length
           );
 
-          if (draft.cellData.cells?.length) {
-            setCells(draft.cellData.cells.map((c) => ({ ...emptyCell, ...c })));
-          }
-
-          if (draft.cellData.peopleTakenToCellGroups?.length) {
-            setPeopleTakenToCellGroups(
-              normalizePeopleTakenToCellGroups(draft.cellData.peopleTakenToCellGroups)
-            );
-          } else if (draft.cellData.peopleTakenToCell?.length) {
-            setPeopleTakenToCellGroups(
-              groupFlatPeopleTakenToCell(
-                draft.cellData.peopleTakenToCell,
-                draft.cellData.cells?.[0]?.cellName || ""
-              )
-            );
-          } else {
-            setPeopleTakenToCellGroups([createEmptyCellMeetingGroup()]);
-          }
+          setCellCount(nextCellCount);
+          setPeopleTakenToCellGroups(
+            ensureCellActivityGroupCount(draftCellGroups, nextCellCount)
+          );
 
           if (draft.cellData.cellPrayer) {
-            setDidPrayWithCell(draft.cellData.cellPrayer.didPrayWithCell ?? null);
+            setCellPrayerStatus(normalizeCellPrayerStatus(draft.cellData.cellPrayer));
             setCellPrayerDays(draft.cellData.cellPrayer.days || []);
             setCellPrayerStartTime(toTimeInputValue(draft.cellData.cellPrayer.startTime || ""));
             setCellPrayerEndTime(toTimeInputValue(draft.cellData.cellPrayer.endTime || ""));
             setCellPrayerReportTime(toTimeInputValue(draft.cellData.cellPrayer.reportTime || ""));
+          } else {
+            setCellPrayerStatus(null);
+            setCellPrayerDays([]);
+            setCellPrayerStartTime("");
+            setCellPrayerEndTime("");
+            setCellPrayerReportTime("");
           }
         } else {
+          setCellCount(1);
           setPeopleTakenToCellGroups([createEmptyCellMeetingGroup()]);
+          setCellPrayerStatus(null);
+          setCellPrayerDays([]);
+          setCellPrayerStartTime("");
+          setCellPrayerEndTime("");
+          setCellPrayerReportTime("");
         }
 
         if (draft.fellowshipPrayerData) {
@@ -544,11 +695,33 @@ const EvangelismForm = ({
   const updateAttendee = (i, k, v) =>
     setAttendees((p) => p.map((a, idx) => (idx === i ? { ...a, [k]: v } : a)));
 
+  const updateCellCount = (value) => {
+    const nextCount = normalizeCellCountValue(value);
+    markInteracted();
+    setCellCount(nextCount);
+    setPeopleTakenToCellGroups((groups) =>
+      ensureCellActivityGroupCount(groups, nextCount)
+    );
+  };
+
+  const adjustCellCount = (delta) => {
+    updateCellCount(cellCount + delta);
+  };
+
   const updatePeopleTakenToCellGroupName = (groupIndex, value) => {
     markInteracted();
     setPeopleTakenToCellGroups((groups) =>
       groups.map((group, idx) =>
         idx === groupIndex ? { ...group, cellName: value } : group
+      )
+    );
+  };
+
+  const updateCellActivityAttendance = (groupIndex, value) => {
+    markInteracted();
+    setPeopleTakenToCellGroups((groups) =>
+      groups.map((group, idx) =>
+        idx === groupIndex ? { ...group, attendanceStatus: value } : group
       )
     );
   };
@@ -572,18 +745,6 @@ const EvangelismForm = ({
   const updateSA = (i, k, v) => {
     markInteracted();
     setServiceAttendance((p) => p.map((s, idx) => (idx === i ? { ...s, [k]: v } : s)));
-  };
-
-  const updateCell = (i, k, v) => {
-    markInteracted();
-    setCells((p) => p.map((c, idx) => (idx === i ? { ...c, [k]: v } : c)));
-  };
-
-  const togglePrayerDay = (day) => {
-    markInteracted();
-    setCellPrayerDays((prev) =>
-      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
-    );
   };
 
   const partnerFilled = useMemo(
@@ -626,17 +787,28 @@ const EvangelismForm = ({
     [qualifyingAttendees]
   );
 
+  const visibleCellActivityGroups = useMemo(
+    () => ensureCellActivityGroupCount(peopleTakenToCellGroups, cellCount),
+    [peopleTakenToCellGroups, cellCount]
+  );
+
   const nonEmptyPeopleTakenToCellGroups = useMemo(
     () =>
-      peopleTakenToCellGroups
+      visibleCellActivityGroups
         .map((group) => ({
           cellName: group.cellName || "",
+          attendanceStatus: normalizeCellAttendanceStatus(group.attendanceStatus),
           people: (group.people || []).filter(
             (person) => hasValue(person.fullName) || person.olderThan12
           ),
         }))
-        .filter((group) => hasValue(group.cellName) || group.people.length > 0),
-    [peopleTakenToCellGroups]
+        .filter(
+          (group) =>
+            hasValue(group.cellName) ||
+            group.attendanceStatus ||
+            group.people.length > 0
+        ),
+    [visibleCellActivityGroups]
   );
 
   const nonEmptyCellMeetingPeople = useMemo(
@@ -656,6 +828,14 @@ const EvangelismForm = ({
   );
 
   const cellMeetingPeopleCount = qualifyingCellMeetingPeople.length;
+
+  const attendedAnyCell = useMemo(
+    () =>
+      visibleCellActivityGroups.some(
+        (group) => normalizeCellAttendanceStatus(group.attendanceStatus) === "attended"
+      ),
+    [visibleCellActivityGroups]
+  );
 
   const hasInvalidCellMeetingPeople = useMemo(
     () =>
@@ -737,25 +917,22 @@ const EvangelismForm = ({
       );
 
     const serviceValid = serviceAttendance.every((s) => s.attended !== null);
-    const cellAttendanceValid = didAttendCell !== null;
+    const cellActivitiesValid =
+      cellCount > 0 &&
+      visibleCellActivityGroups.every(
+        (group) => hasValue(group.cellName) && !!normalizeCellAttendanceStatus(group.attendanceStatus)
+      );
     const fellowshipValid = hasValue(fellowshipName);
     const fellowshipOtherValid =
       fellowshipName !== "Other" || hasValue(fellowshipOther);
     const fellowshipPrayerValid = prayedThisWeek !== null;
 
-    const cellPrayerValid =
-      didPrayWithCell === null ||
-      didPrayWithCell === false ||
-      (didPrayWithCell === true &&
-        cellPrayerDays.length > 0 &&
-        hasValue(cellPrayerStartTime) &&
-        hasValue(cellPrayerEndTime) &&
-        hasValue(cellPrayerReportTime));
+    const cellPrayerValid = !!cellPrayerStatus;
 
     return {
       partnersValid,
       serviceValid,
-      cellAttendanceValid,
+      cellAttendanceValid: cellActivitiesValid,
       cellMeetingPeopleValid: !hasInvalidCellMeetingPeople,
       fellowshipValid,
       fellowshipOtherValid,
@@ -764,7 +941,7 @@ const EvangelismForm = ({
       minimalSubmitValid:
         partnersValid &&
         serviceValid &&
-        cellAttendanceValid &&
+        cellActivitiesValid &&
         !hasInvalidCellMeetingPeople &&
         fellowshipValid &&
         fellowshipOtherValid &&
@@ -774,16 +951,13 @@ const EvangelismForm = ({
   }, [
     partnerFilled,
     serviceAttendance,
-    didAttendCell,
+    cellCount,
+    visibleCellActivityGroups,
     hasInvalidCellMeetingPeople,
     fellowshipName,
     fellowshipOther,
     prayedThisWeek,
-    didPrayWithCell,
-    cellPrayerDays,
-    cellPrayerStartTime,
-    cellPrayerEndTime,
-    cellPrayerReportTime,
+    cellPrayerStatus,
   ]);
 
   const buildPayload = () => ({
@@ -828,10 +1002,29 @@ const EvangelismForm = ({
       lateReason: s.lateReason || "",
     })),
     cellData: {
-      didAttendCell: didAttendCell === true,
-      cells: didAttendCell === true ? cells : [],
+      numberOfCells: cellCount,
+      didAttendCell: attendedAnyCell,
+      cellActivityGroups: visibleCellActivityGroups.map((group) => ({
+        cellName: (group.cellName || "").trim(),
+        attendanceStatus: normalizeCellAttendanceStatus(group.attendanceStatus) || "",
+        people: (group.people || [])
+          .filter((person) => hasValue(person.fullName) || person.olderThan12)
+          .map((person) => ({
+            fullName: (person.fullName || "").trim(),
+            olderThan12: person.olderThan12 === true,
+          })),
+      })),
+      cells: visibleCellActivityGroups.map((group) => ({
+        cellName: (group.cellName || "").trim(),
+        attendanceStatus: normalizeCellAttendanceStatus(group.attendanceStatus) || "",
+        attended: normalizeCellAttendanceStatus(group.attendanceStatus) === "attended",
+        meetingDays: [],
+        reportTime: "",
+        role: "",
+      })),
       peopleTakenToCellGroups: nonEmptyPeopleTakenToCellGroups.map((group) => ({
         cellName: group.cellName.trim(),
+        attendanceStatus: normalizeCellAttendanceStatus(group.attendanceStatus) || "",
         people: group.people.map((person) => ({
           fullName: (person.fullName || "").trim(),
           olderThan12: person.olderThan12 === true,
@@ -843,12 +1036,17 @@ const EvangelismForm = ({
         olderThan12: person.olderThan12 === true,
       })),
       cellPrayer: {
-        didPrayWithCell: didPrayWithCell === true,
-        days: didPrayWithCell === true ? cellPrayerDays : [],
-        startTime: didPrayWithCell === true ? cellPrayerStartTime : "",
-        endTime: didPrayWithCell === true ? cellPrayerEndTime : "",
-        reportTime: didPrayWithCell === true ? cellPrayerReportTime : "",
-        hours: didPrayWithCell === true ? cellPrayerHours : 0,
+        prayerStatus: cellPrayerStatus || "",
+        didPrayWithCell: cellPrayerStatus === "prayed",
+        days: cellPrayerStatus === "prayed" ? cellPrayerDays : [],
+        startTime: cellPrayerStatus === "prayed" ? cellPrayerStartTime : "",
+        endTime: cellPrayerStatus === "prayed" ? cellPrayerEndTime : "",
+        reportTime: cellPrayerStatus === "prayed" ? cellPrayerReportTime : "",
+        hours: cellPrayerStatus === "prayed" ? Math.max(cellPrayerHours, 2) : 0,
+        notApplicableReason:
+          cellPrayerStatus === "not_applicable"
+            ? "Clashed with another church program"
+            : "",
       },
     },
     fellowshipPrayerData: {
@@ -879,8 +1077,8 @@ const EvangelismForm = ({
 
     if (!sectionValidity.cellAttendanceValid) {
       toast.warning(
-        "Cell attendance required",
-        "Answer whether you attended cell meeting this week."
+        "Cell activities required",
+        "Enter each cell name and choose Yes, No, or N/A for attendance."
       );
       return false;
     }
@@ -911,8 +1109,8 @@ const EvangelismForm = ({
 
     if (!sectionValidity.cellPrayerValid) {
       toast.warning(
-        "Cell prayer incomplete",
-        "Complete the cell prayer details or choose No."
+        "Cell prayer required",
+        "Choose Yes, No, or N/A for cell prayer."
       );
       return false;
     }
@@ -1029,11 +1227,10 @@ const EvangelismForm = ({
     partners,
     followUps,
     attendees,
+    cellCount,
     peopleTakenToCellGroups,
     serviceAttendance,
-    didAttendCell,
-    cells,
-    didPrayWithCell,
+    cellPrayerStatus,
     cellPrayerDays,
     cellPrayerStartTime,
     cellPrayerEndTime,
@@ -1736,206 +1933,57 @@ const EvangelismForm = ({
         ))}
       </div>
 
-      <div className="card p-5 space-y-4">
+      <div className="card p-5 space-y-5">
         <div className="flex items-center gap-2">
-          <h3 className="font-bold text-gray-900 dark:text-slate-100">Cell Meeting</h3>
+          <h3 className="font-bold text-gray-900 dark:text-slate-100 uppercase">
+            Cell Activities
+          </h3>
           <span className="text-xs text-red-400 font-semibold">Required</span>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { val: true, label: "Yes, I attended" },
-            { val: false, label: "No, I did not" },
-          ].map(({ val, label }) => (
+        <div>
+          <label className="form-label">How many Cells do you belong to?</label>
+          <div className="flex items-center gap-2 mt-2">
             <button
-              key={String(val)}
               type="button"
-              onClick={() => {
-                markInteracted();
-                setDidAttendCell(val);
-              }}
-              className={cn(
-                "py-2.5 rounded-xl border-2 text-sm font-medium transition-all",
-                didAttendCell === val
-                  ? val
-                    ? "border-green-400 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300"
-                    : "border-red-300 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400"
-                  : "border-gray-200 dark:border-slate-600 text-gray-500 hover:border-gray-300"
-              )}
+              onClick={() => adjustCellCount(-1)}
+              disabled={cellCount <= 1}
+              className="w-10 h-10 rounded-xl border-2 border-gray-200 dark:border-slate-600 text-gray-500 hover:border-cyan-300 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center"
+              aria-label="Decrease cell count"
             >
-              {label}
+              <Minus className="w-4 h-4" />
             </button>
-          ))}
-        </div>
-
-        {didAttendCell === true && (
-          <div className="space-y-4">
-            {cells.map((cell, i) => (
-              <div key={i} className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-gray-700 dark:text-slate-300">
-                    Cell {i + 1}
-                  </p>
-                  {cells.length > 1 && (
-                    <button
-                      onClick={() => {
-                        markInteracted();
-                        setCells((p) => p.filter((_, idx) => idx !== i));
-                      }}
-                      className="text-red-400 hover:text-red-600"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-
-                <div className="relative">
-                  <label className="form-label">Cell Name</label>
-                  <input
-                    className="input-field"
-                    placeholder="Name of your cell"
-                    value={cell.cellName}
-                    onChange={(e) => updateCell(i, "cellName", e.target.value)}
-                    autoComplete="off"
-                  />
-
-                  {pastCellNames.length > 0 && cell.cellName === "" && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {pastCellNames.map((name) => (
-                        <button
-                          key={name}
-                          type="button"
-                          onClick={() => updateCell(i, "cellName", name)}
-                          className="px-2.5 py-1 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700 rounded-lg text-xs font-medium hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors"
-                        >
-                          {name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {pastCellNames.length > 0 && cell.cellName.length > 0 && (() => {
-                    const filtered = pastCellNames.filter(
-                      (n) =>
-                        n.toLowerCase().includes(cell.cellName.toLowerCase()) &&
-                        n !== cell.cellName
-                    );
-
-                    return filtered.length > 0 ? (
-                      <div className="absolute z-10 left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-xl shadow-lg overflow-hidden">
-                        {filtered.map((name) => (
-                          <button
-                            key={name}
-                            type="button"
-                            onClick={() => updateCell(i, "cellName", name)}
-                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-slate-200 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors"
-                          >
-                            {name}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null;
-                  })()}
-                </div>
-
-                <div>
-                  <label className="form-label">Meeting Day</label>
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    {DAYS.map((day) => (
-                      <button
-                        key={day}
-                        type="button"
-                        onClick={() =>
-                          updateCell(i, "meetingDays", cell.meetingDays[0] === day ? [] : [day])
-                        }
-                        className={cn(
-                          "px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
-                          cell.meetingDays[0] === day
-                            ? "border-purple-400 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300"
-                            : "border-gray-200 dark:border-slate-600 text-gray-500 hover:border-purple-300"
-                        )}
-                      >
-                        {day}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="form-label">Time you reported</label>
-                    <input
-                      type="time"
-                      className="input-field"
-                      value={cell.reportTime}
-                      onChange={(e) => updateCell(i, "reportTime", e.target.value)}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="form-label">Role played (if any)</label>
-                    <input
-                      className="input-field"
-                      placeholder="e.g. Led worship, Taught"
-                      value={cell.role}
-                      onChange={(e) => updateCell(i, "role", e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-
+            <input
+              type="number"
+              min="1"
+              inputMode="numeric"
+              className="input-field w-24 text-center"
+              value={cellCount}
+              onChange={(e) => updateCellCount(e.target.value)}
+            />
             <button
-              onClick={() => {
-                markInteracted();
-                setCells((p) => [...p, { ...emptyCell }]);
-              }}
-              className="w-full py-2.5 border-2 border-dashed border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 rounded-xl text-sm font-medium hover:bg-purple-50 dark:hover:bg-purple-900/20 flex items-center justify-center gap-2"
+              type="button"
+              onClick={() => adjustCellCount(1)}
+              className="w-10 h-10 rounded-xl border-2 border-gray-200 dark:border-slate-600 text-gray-500 hover:border-cyan-300 flex items-center justify-center"
+              aria-label="Increase cell count"
             >
               <Plus className="w-4 h-4" />
-              Add another cell
             </button>
           </div>
-        )}
+        </div>
 
-        <div className="border-t border-gray-100 dark:border-slate-700 pt-4 space-y-4">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h4 className="font-semibold text-gray-900 dark:text-slate-100">
-              People Taken to Cell Meeting
-            </h4>
-            <span className="text-xs text-red-400 font-semibold">
-              For qualification
-            </span>
-            <span
-              className={cn(
-                "px-3 py-1 rounded-full text-sm font-semibold",
-                cellMeetingPeopleCount >= MIN_CELL_MEETING_PEOPLE
-                  ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
-                  : "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300"
-              )}
-            >
-              {cellMeetingPeopleCount} qualifying
-              {cellMeetingPeopleCount >= MIN_CELL_MEETING_PEOPLE
-                ? " complete"
-                : ` / ${MIN_CELL_MEETING_PEOPLE} min`}
-            </span>
-          </div>
-
-          <p className="text-xs text-gray-400 dark:text-slate-500">
-            Type the cell name first, then add the people you took to that cell.
-          </p>
-
+        <div className="space-y-4">
           <div className="space-y-4">
-            {peopleTakenToCellGroups.map((group, groupIndex) => (
+            {visibleCellActivityGroups.map((group, groupIndex) => (
               <div
                 key={groupIndex}
                 className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-4"
               >
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-semibold text-gray-700 dark:text-slate-300">
-                    Cell group {groupIndex + 1}
+                    Cell Group {groupIndex + 1}
                   </p>
-                  {peopleTakenToCellGroups.length > 1 && (
+                  {cellCount > 1 && (
                     <button
                       type="button"
                       onClick={() => {
@@ -1943,6 +1991,7 @@ const EvangelismForm = ({
                         setPeopleTakenToCellGroups((groups) =>
                           groups.filter((_, idx) => idx !== groupIndex)
                         );
+                        setCellCount((count) => Math.max(1, count - 1));
                       }}
                       className="text-red-400 hover:text-red-600"
                     >
@@ -2002,7 +2051,49 @@ const EvangelismForm = ({
                   })()}
                 </div>
 
+                <div>
+                  <label className="form-label">Did you attend this cell?</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
+                    {CELL_ATTENDANCE_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() =>
+                          updateCellActivityAttendance(groupIndex, option.value)
+                        }
+                        className={cn(
+                          "min-h-11 px-3 py-2.5 rounded-xl border-2 text-sm font-medium transition-all text-center",
+                          group.attendanceStatus === option.value
+                            ? option.activeClass
+                            : "border-gray-200 dark:border-slate-600 text-gray-500 hover:border-cyan-300"
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="space-y-3">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <h4 className="font-semibold text-gray-900 dark:text-slate-100">
+                      People taken to Cell
+                    </h4>
+                    <span
+                      className={cn(
+                        "px-3 py-1 rounded-full text-sm font-semibold",
+                        cellMeetingPeopleCount >= MIN_CELL_MEETING_PEOPLE
+                          ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                          : "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300"
+                      )}
+                    >
+                      {cellMeetingPeopleCount} qualifying
+                      {cellMeetingPeopleCount >= MIN_CELL_MEETING_PEOPLE
+                        ? " complete"
+                        : ` / ${MIN_CELL_MEETING_PEOPLE} min`}
+                    </span>
+                  </div>
+
                   {group.people.map((person, personIndex) => (
                     <div
                       key={personIndex}
@@ -2114,17 +2205,11 @@ const EvangelismForm = ({
 
           <button
             type="button"
-            onClick={() => {
-              markInteracted();
-              setPeopleTakenToCellGroups((groups) => [
-                ...groups,
-                createEmptyCellMeetingGroup(),
-              ]);
-            }}
+            onClick={() => updateCellCount(cellCount + 1)}
             className="w-full py-2.5 border-2 border-dashed border-cyan-300 dark:border-cyan-700 text-cyan-600 dark:text-cyan-400 rounded-xl text-sm font-medium hover:bg-cyan-50 dark:hover:bg-cyan-900/20 flex items-center justify-center gap-2"
           >
             <Plus className="w-4 h-4" />
-            Have another cell
+            Add Another Cell (If Applicable)
           </button>
         </div>
 
@@ -2133,110 +2218,30 @@ const EvangelismForm = ({
             <h4 className="font-semibold text-gray-900 dark:text-slate-100">
               Cell Prayer
             </h4>
-            <span className="text-xs text-gray-400">
-              Counts in your cell section
-            </span>
+            <span className="text-xs text-red-400 font-semibold">Required</span>
           </div>
 
-          <p className="text-xs text-gray-400 dark:text-slate-500">
-            Did you pray with your cell for at least 2 hours this week?
-          </p>
-
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { val: true, label: "Yes, I prayed" },
-              { val: false, label: "No, I did not" },
-            ].map(({ val, label }) => (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {CELL_PRAYER_OPTIONS.map((option) => (
               <button
-                key={String(val)}
+                key={option.value}
                 type="button"
                 onClick={() => {
                   markInteracted();
-                  setDidPrayWithCell(val);
+                  setCellPrayerStatus(option.value);
                 }}
                 className={cn(
-                  "py-2.5 rounded-xl border-2 text-sm font-medium transition-all",
-                  didPrayWithCell === val
-                    ? val
-                      ? "border-green-400 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300"
-                      : "border-red-300 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400"
+                  "min-h-11 px-3 py-2.5 rounded-xl border-2 text-sm font-medium transition-all text-center",
+                  cellPrayerStatus === option.value
+                    ? option.activeClass
                     : "border-gray-200 dark:border-slate-600 text-gray-500 hover:border-gray-300"
                 )}
               >
-                {label}
+                {option.label}
               </button>
             ))}
           </div>
 
-          {didPrayWithCell === true && (
-            <div className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl space-y-4">
-              <div>
-                <label className="form-label">Prayer day(s)</label>
-                <div className="flex flex-wrap gap-2 mt-1">
-                  {PRAYER_DAYS.map((day) => (
-                    <button
-                      key={day}
-                      type="button"
-                      onClick={() => togglePrayerDay(day)}
-                      className={cn(
-                        "px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
-                        cellPrayerDays.includes(day)
-                          ? "border-purple-400 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300"
-                          : "border-gray-200 dark:border-slate-600 text-gray-500 hover:border-purple-300"
-                      )}
-                    >
-                      {day}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="form-label">Prayer start time</label>
-                  <input
-                    type="time"
-                    className="input-field"
-                    value={cellPrayerStartTime}
-                    onChange={(e) => setCellPrayerStartTime(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label className="form-label">Prayer end time</label>
-                  <input
-                    type="time"
-                    className="input-field"
-                    value={cellPrayerEndTime}
-                    onChange={(e) => setCellPrayerEndTime(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label className="form-label">Time you reported prayer</label>
-                  <input
-                    type="time"
-                    className="input-field"
-                    value={cellPrayerReportTime}
-                    onChange={(e) => setCellPrayerReportTime(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="text-xs">
-                {cellPrayerHours >= 2 ? (
-                  <p className="text-green-600 dark:text-green-400 flex items-center gap-1">
-                    <CheckCircle className="w-3 h-3" />
-                    {cellPrayerHours.toFixed(1)} hours — qualifies
-                  </p>
-                ) : (
-                  <p className="text-amber-500">
-                    Minimum 2 hours required to qualify through cell prayer.
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 

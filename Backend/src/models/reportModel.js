@@ -52,7 +52,43 @@ const cellMeetingPersonSchema = new mongoose.Schema(
 const cellMeetingPeopleGroupSchema = new mongoose.Schema(
   {
     cellName: { type: String, trim: true },
+    attendanceStatus: {
+      type: String,
+      enum: ["", "attended", "not_attended", "not_applicable"],
+      default: "",
+    },
     people: [cellMeetingPersonSchema],
+  },
+  { _id: false }
+);
+
+const cellActivityGroupSchema = new mongoose.Schema(
+  {
+    cellName: { type: String, trim: true },
+    attendanceStatus: {
+      type: String,
+      enum: ["", "attended", "not_attended", "not_applicable"],
+      default: "",
+    },
+    people: [cellMeetingPersonSchema],
+  },
+  { _id: false }
+);
+
+const cellPrayerSchema = new mongoose.Schema(
+  {
+    prayerStatus: {
+      type: String,
+      enum: ["", "prayed", "not_prayed", "not_applicable"],
+      default: "",
+    },
+    didPrayWithCell: { type: Boolean, default: false },
+    days: [{ type: String }],
+    startTime: { type: String },
+    endTime: { type: String },
+    reportTime: { type: String },
+    hours: { type: Number, default: 0 },
+    notApplicableReason: { type: String, trim: true },
   },
   { _id: false }
 );
@@ -167,18 +203,27 @@ const reportSchema = new mongoose.Schema(
     serviceAttendance: [serviceAttendanceSchema],
 
     cellData: {
+      numberOfCells: { type: Number, default: 1 },
       didAttendCell: { type: Boolean, default: false },
       cells: [
         {
           cellName: { type: String },
+          attendanceStatus: {
+            type: String,
+            enum: ["", "attended", "not_attended", "not_applicable"],
+            default: "",
+          },
+          attended: { type: Boolean, default: false },
           meetingDays: [{ type: String }],
           reportTime: { type: String },
           role: { type: String },
           _id: false,
         },
       ],
+      cellActivityGroups: [cellActivityGroupSchema],
       peopleTakenToCellGroups: [cellMeetingPeopleGroupSchema],
       peopleTakenToCell: [cellMeetingPersonSchema],
+      cellPrayer: cellPrayerSchema,
     },
 
     cellReportData: {

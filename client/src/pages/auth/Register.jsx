@@ -1,7 +1,8 @@
-﻿import { useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, UserPlus } from "lucide-react";
+import { Building2, Eye, EyeOff, UserPlus } from "lucide-react";
 import { registerUser } from "../../services/authService";
+import { getPublicBranches } from "../../services/branchService";
 
 const Register = () => {
   const navigate = useNavigate();
@@ -10,10 +11,12 @@ const Register = () => {
     fullName: "",
     email: "",
     phone: "",
+    branchId: "",
     password: "",
     confirmPassword: "",
   });
 
+  const [branches, setBranches] = useState([]);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -22,6 +25,20 @@ const Register = () => {
 
   const updateField = (key, value) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getPublicBranches()
+      .then(({ branches: nextBranches = [] }) => {
+        if (!cancelled) setBranches(nextBranches);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -37,6 +54,11 @@ const Register = () => {
       return;
     }
 
+    if (branches.length > 0 && !form.branchId) {
+      setError("Please select your current branch.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -44,6 +66,7 @@ const Register = () => {
         fullName: form.fullName.trim(),
         email: form.email.trim(),
         phone: form.phone.trim(),
+        branchId: form.branchId,
         password: form.password,
       });
       navigate("/pending");
@@ -114,6 +137,29 @@ const Register = () => {
                 onChange={(e) => updateField("phone", e.target.value)}
               />
             </div>
+
+            {branches.length > 0 && (
+              <div>
+                <label className="form-label">Current Branch</label>
+                <div className="relative">
+                  <Building2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <select
+                    className="input-field pl-9"
+                    value={form.branchId}
+                    onChange={(e) => updateField("branchId", e.target.value)}
+                    required
+                  >
+                    <option value="">Select your branch</option>
+                    {branches.map((branch) => (
+                      <option key={branch._id} value={branch._id}>
+                        {branch.name}
+                        {branch.location ? ` - ${branch.location}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="form-label">Password</label>

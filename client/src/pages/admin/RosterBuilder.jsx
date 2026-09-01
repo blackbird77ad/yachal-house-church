@@ -1,12 +1,21 @@
 ﻿import { useState, useEffect } from "react";
-import { Save, Send, Copy, CheckCircle, ChevronDown, ChevronUp, X, Users, UserPlus, Calendar, MapPin, Clock, AlertCircle, Plus, RotateCcw } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Save, Send, Copy, CheckCircle, ChevronDown, ChevronUp, X, Users, UserPlus, Calendar, MapPin, Clock, AlertCircle, Plus, RotateCcw, Building2 } from "lucide-react";
 import axiosInstance from "../../utils/axiosInstance";
+import { getBranches } from "../../services/branchService";
+import { useAuth } from "../../hooks/useAuth";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
 import { getWeekLabel, getWeekReference } from "../../utils/formatDate";
 import Modal from "../../components/common/Modal";
 import { cn, compareQualificationRank } from "../../utils/scoreHelpers";
+import {
+  canChooseBranchScope,
+  canManageAllBranches,
+  getBranchAllOptionLabel,
+  getOwnBranchLabel,
+} from "../../utils/branchAccess";
 
 const DEPARTMENTS = [
   { value: "song-ministration", label: "Song Ministration" },
@@ -37,8 +46,12 @@ const formatDepartmentLabel = (value = "") =>
     .join(" ");
 
 const RosterBuilder = () => {
+  const { user } = useAuth();
   const { toasts, toast, removeToast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [rosterData, setRosterData] = useState(null);
+  const [branches, setBranches] = useState([]);
+  const [branchFilter, setBranchFilter] = useState(() => searchParams.get("branchId") || "all");
   const [loading, setLoading] = useState(true);
   const [loadingExistingRoster, setLoadingExistingRoster] = useState(true);
   const [availableRosters, setAvailableRosters] = useState([]);
@@ -73,9 +86,57 @@ const RosterBuilder = () => {
   const [rankingWeekReference, setRankingWeekReference] = useState(null);
 
   const weekRef = getWeekReference();
+  const hasAllBranchOversight = canManageAllBranches(user);
+  const canSelectBranches = canChooseBranchScope(user);
+  const branchParam = branchFilter && branchFilter !== "all" ? branchFilter : "";
+  const selectedBranch = branches.find((branch) => branch._id === branchParam);
+  const activeBranchLabel = !canSelectBranches
+    ? getOwnBranchLabel(user)
+    : branchParam && selectedBranch
+    ? selectedBranch.name
+    : getBranchAllOptionLabel(user);
+
+  const updateBranchFilter = (value) => {
+    setBranchFilter(value);
+    setRosterId(null);
+    setAvailableRosters([]);
+    setRepublishNeeded(false);
+    setPublished(false);
+
+    const nextParams = new URLSearchParams(searchParams);
+    if (value && value !== "all") {
+      nextParams.set("branchId", value);
+    } else {
+      nextParams.delete("branchId");
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
 
   useEffect(() => {
-    axiosInstance.get("/roster/builder")
+    if (!canSelectBranches) return;
+
+    let cancelled = false;
+    getBranches({ status: "active" })
+      .then(({ branches: nextBranches = [] }) => {
+        if (cancelled) return;
+        setBranches(nextBranches);
+        if (!hasAllBranchOversight && branchFilter === "all" && nextBranches.length > 0) {
+          updateBranchFilter(nextBranches[0]._id);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canSelectBranches, hasAllBranchOversight]);
+
+  useEffect(() => {
+    setLoading(true);
+    axiosInstance.get("/roster/builder", {
+      params: branchParam ? { branchId: branchParam } : {},
+    })
       .then(({ data }) => {
         setRosterData(data.rosterData);
         setRosterWeekReference(data.rosterWeekReference || null);
@@ -83,7 +144,7 @@ const RosterBuilder = () => {
       })
       .catch(() => toast.error("Error", "Could not load worker data."))
       .finally(() => setLoading(false));
-  }, []);
+  }, [branchParam, toast]);
 
   const applyRosterToForm = (roster = null) => {
     if (!roster) {
@@ -148,6 +209,7 @@ const RosterBuilder = () => {
           weekReference: rosterWeekReference,
           serviceType,
           limit: 50,
+          ...(branchParam ? { branchId: branchParam } : {}),
         },
       });
 
@@ -175,7 +237,7 @@ const RosterBuilder = () => {
 
   useEffect(() => {
     loadAvailableRosters();
-  }, [rosterWeekReference, serviceType]);
+  }, [rosterWeekReference, serviceType, branchParam]);
 
   const rankedSubmittedWorkers = rosterData
     ? (
@@ -289,6 +351,7 @@ const RosterBuilder = () => {
 
   const buildPayload = () => ({
     rosterId,
+    branchId: branchParam,
     weekReference: rosterWeekReference,
     serviceType,
     serviceDate,
@@ -460,7 +523,9 @@ const RosterBuilder = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="section-title">Roster Builder</h1>
-          <p className="section-subtitle">{rosterWeekLabel} · {totalAssigned} workers assigned</p>
+          <p className="section-subtitle">
+            {rosterWeekLabel} - {activeBranchLabel} - {totalAssigned} workers assigned
+          </p>
           {rankingWeekLabel && (
             <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
               Ranking uses the immediately previous finalized qualification week: {rankingWeekLabel}
@@ -474,7 +539,26 @@ const RosterBuilder = () => {
             </p>
           )}
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+          {canSelectBranches && (
+            <div className="relative w-full sm:w-56">
+              <Building2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <select
+                className="input-field w-full pl-9 text-sm"
+                value={branchFilter}
+                onChange={(event) => updateBranchFilter(event.target.value)}
+              >
+                {hasAllBranchOversight && (
+                  <option value="all">{getBranchAllOptionLabel(user)}</option>
+                )}
+                {branches.map((branch) => (
+                  <option key={branch._id} value={branch._id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <button
             onClick={() => applyRosterToForm(null)}
             className="btn-outline text-sm flex items-center gap-1.5"
@@ -562,7 +646,7 @@ const RosterBuilder = () => {
                     {new Date(roster.serviceDate).toLocaleString()}
                   </p>
                   <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">
-                    {assignmentCount} assignment{assignmentCount === 1 ? "" : "s"}
+                    {roster.branch?.name || "All branches"} - {assignmentCount} assignment{assignmentCount === 1 ? "" : "s"}
                   </p>
                 </button>
               );

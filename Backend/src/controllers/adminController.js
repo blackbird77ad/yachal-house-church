@@ -17,6 +17,11 @@ import {
 } from "../services/emailService.js";
 import { sendPushToMany } from "../services/pushService.js";
 import {
+  applyBranchScopeToUserFilter,
+  getBranchScopeMeta,
+  resolveBranchScope,
+} from "../utils/branchAccess.js";
+import {
   getPortalWeekReferenceForNow,
   getPortalWindowForWeekReference,
   isWithinSubmissionWindow,
@@ -29,9 +34,13 @@ const DEFAULT_LEADERBOARD_LIMIT = 10;
 const DASHBOARD_LEADERBOARD_LIMIT = 20;
 const DASHBOARD_METRIC_REFRESH_MINUTES = 30;
 
-const getLeaderboardData = async (weekReference, limit = DEFAULT_LEADERBOARD_LIMIT) => {
+const getLeaderboardData = async (
+  weekReference,
+  limit = DEFAULT_LEADERBOARD_LIMIT,
+  options = {}
+) => {
   const safeLimit = Math.min(Math.max(Number(limit) || DEFAULT_LEADERBOARD_LIMIT, 1), 100);
-  const qualificationStatus = await getAllWorkersQualificationStatus(weekReference);
+  const qualificationStatus = await getAllWorkersQualificationStatus(weekReference, options);
 
   return {
     ...qualificationStatus,
@@ -88,6 +97,53 @@ export const getDashboardSummary = async (req, res, next) => {
     const submissionWeekReference = getCurrentWeekReference();
     const qualificationWeekReference = submissionWeekReference;
     const submissionWindow = getPortalWindowForWeekReference(submissionWeekReference);
+    const branchScope = resolveBranchScope(req);
+    const scopedWorkerIds = branchScope.branchIds?.length
+      ? await User.find(applyBranchScopeToUserFilter(req, {})).distinct("_id")
+      : null;
+    const approvedWorkerFilter = applyBranchScopeToUserFilter(req, { status: "approved" });
+    const pendingWorkerFilter = applyBranchScopeToUserFilter(req, { status: "pending" });
+    const submittedReportFilter = {
+      status: "submitted",
+      isLateSubmission: false,
+      $or: [
+        { weekReference: submissionWeekReference },
+        {
+          submittedAt: {
+            $gte: submissionWindow.opensAt,
+            $lte: submissionWindow.closesAt,
+          },
+        },
+        {
+          submittedAt: { $exists: false },
+          createdAt: {
+            $gte: submissionWindow.opensAt,
+            $lte: submissionWindow.closesAt,
+          },
+        },
+      ],
+    };
+    const draftReportFilter = {
+      status: "draft",
+      isLateSubmission: false,
+      weekReference: submissionWeekReference,
+    };
+    const lateReportFilter = {
+      weekReference: submissionWeekReference,
+      status: "submitted",
+      isLateSubmission: true,
+    };
+    const latestMetricFilter = {
+      weekReference: qualificationWeekReference,
+      isLateSubmission: false,
+    };
+
+    if (scopedWorkerIds) {
+      submittedReportFilter.submittedBy = { $in: scopedWorkerIds };
+      draftReportFilter.submittedBy = { $in: scopedWorkerIds };
+      lateReportFilter.submittedBy = { $in: scopedWorkerIds };
+      latestMetricFilter.worker = { $in: scopedWorkerIds };
+    }
 
     let metricsFreshened = false;
 
@@ -109,49 +165,22 @@ export const getDashboardSummary = async (req, res, next) => {
       qualificationStatus,
       latestQualificationMetric,
     ] = await Promise.all([
-      User.countDocuments({ status: "approved" }),
-      User.countDocuments({ status: "pending" }),
+      User.countDocuments(approvedWorkerFilter),
+      User.countDocuments(pendingWorkerFilter),
       getCurrentPortalState(now),
 
-      Report.countDocuments({
-        status: "submitted",
-        isLateSubmission: false,
-        $or: [
-          { weekReference: submissionWeekReference },
-          {
-            submittedAt: {
-              $gte: submissionWindow.opensAt,
-              $lte: submissionWindow.closesAt,
-            },
-          },
-          {
-            submittedAt: { $exists: false },
-            createdAt: {
-              $gte: submissionWindow.opensAt,
-              $lte: submissionWindow.closesAt,
-            },
-          },
-        ],
+      Report.countDocuments(submittedReportFilter),
+
+      Report.countDocuments(draftReportFilter),
+
+      Report.countDocuments(lateReportFilter),
+
+      getAllWorkersQualificationStatus(qualificationWeekReference, {
+        branchId: branchScope.branchId,
+        branchIds: branchScope.branchIds,
       }),
 
-      Report.countDocuments({
-        status: "draft",
-        isLateSubmission: false,
-        weekReference: submissionWeekReference,
-      }),
-
-      Report.countDocuments({
-        weekReference: submissionWeekReference,
-        status: "submitted",
-        isLateSubmission: true,
-      }),
-
-      getAllWorkersQualificationStatus(qualificationWeekReference),
-
-      Metrics.findOne({
-        weekReference: qualificationWeekReference,
-        isLateSubmission: false,
-      })
+      Metrics.findOne(latestMetricFilter)
         .select("processedAt updatedAt")
         .sort({ processedAt: -1, updatedAt: -1 })
         .lean(),
@@ -186,6 +215,7 @@ export const getDashboardSummary = async (req, res, next) => {
         latestQualificationMetric?.updatedAt ||
         null,
       metricsFreshened,
+      branchScope: getBranchScopeMeta(req, branchScope),
     });
   } catch (error) {
     next(error);
@@ -194,8 +224,9 @@ export const getDashboardSummary = async (req, res, next) => {
 
 export const getPendingWorkers = async (req, res, next) => {
   try {
-    const workers = await User.find({ status: "pending" })
+    const workers = await User.find(applyBranchScopeToUserFilter(req, { status: "pending" }))
       .select("-password")
+      .populate("branch", "name code status")
       .sort({ createdAt: 1 });
 
     res.status(200).json({ workers });
@@ -493,7 +524,11 @@ export const getLeaderboard = async (req, res, next) => {
     await ensureWeeklyMetricsFresh(week, {
       maxAgeMinutes: 60,
     });
-    const leaderboardData = await getLeaderboardData(week, limit);
+    const branchScope = resolveBranchScope(req);
+    const leaderboardData = await getLeaderboardData(week, limit, {
+      branchId: branchScope.branchId,
+      branchIds: branchScope.branchIds,
+    });
 
     res.status(200).json({
       qualificationWeekReference: week,
@@ -501,6 +536,7 @@ export const getLeaderboard = async (req, res, next) => {
       qualified: leaderboardData.qualified,
       almostQualified: leaderboardData.disqualified,
       noSubmission: leaderboardData.noSubmission,
+      branchScope: getBranchScopeMeta(req, branchScope),
     });
   } catch (error) {
     next(error);
@@ -529,7 +565,7 @@ export const sendBulkNotification = async (req, res, next) => {
       filter.role = targetRole;
     }
 
-    const workers = await User.find(filter).select("_id email fullName");
+    const workers = await User.find(applyBranchScopeToUserFilter(req, filter)).select("_id email fullName");
 
     await createBulkNotification(
       workers.map((w) => w._id),

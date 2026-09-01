@@ -84,6 +84,100 @@ const cardStyle = {
   backgroundColor: "#ffffff",
 };
 
+const CELL_ATTENDANCE_LABELS = {
+  attended: "Yes, I attended",
+  not_attended: "No, I did not",
+  not_applicable: "N/A - School on vacation (Campus Cell)",
+};
+
+const CELL_PRAYER_LABELS = {
+  prayed: "Yes, I prayed",
+  not_prayed: "No, I did not",
+  not_applicable: "N/A - Clashed with another church program",
+};
+
+const normalizeStatusKey = (value) =>
+  (value ?? "").toString().trim().toLowerCase().replace(/[\s-]+/g, "_");
+
+const getCellAttendanceLabel = (value) => {
+  if (value === true) return CELL_ATTENDANCE_LABELS.attended;
+  if (value === false) return CELL_ATTENDANCE_LABELS.not_attended;
+
+  const key = normalizeStatusKey(value);
+  if (["yes", "yes_i_attended"].includes(key)) return CELL_ATTENDANCE_LABELS.attended;
+  if (["no", "no_i_did_not", "absent"].includes(key)) {
+    return CELL_ATTENDANCE_LABELS.not_attended;
+  }
+  if (["na", "n_a", "n/a", "school_on_vacation"].includes(key)) {
+    return CELL_ATTENDANCE_LABELS.not_applicable;
+  }
+
+  return CELL_ATTENDANCE_LABELS[key] || "Not answered";
+};
+
+const getCellPrayerLabel = (cellPrayer = {}) => {
+  const prayer = cellPrayer ?? {};
+  const key = normalizeStatusKey(prayer.prayerStatus);
+
+  if (["yes", "yes_i_prayed"].includes(key)) return CELL_PRAYER_LABELS.prayed;
+  if (["no", "no_i_did_not"].includes(key)) return CELL_PRAYER_LABELS.not_prayed;
+  if (["na", "n_a", "n/a"].includes(key)) return CELL_PRAYER_LABELS.not_applicable;
+  if (CELL_PRAYER_LABELS[key]) return CELL_PRAYER_LABELS[key];
+  if (prayer.didPrayWithCell === true) return CELL_PRAYER_LABELS.prayed;
+  if (prayer.didPrayWithCell === false) return CELL_PRAYER_LABELS.not_prayed;
+
+  return "Not answered";
+};
+
+const buildCellActivityGroupsForDisplay = (cellData = {}) => {
+  const data = cellData ?? {};
+  const peopleTakenToCell = data.peopleTakenToCell || [];
+  const peopleTakenToCellGroups = data.peopleTakenToCellGroups?.length
+    ? data.peopleTakenToCellGroups
+    : peopleTakenToCell.length
+    ? [
+        {
+          cellName: peopleTakenToCell[0]?.cellName || "Cell not specified",
+          people: peopleTakenToCell,
+        },
+      ]
+    : [];
+
+  if (data.cellActivityGroups?.length) {
+    return data.cellActivityGroups.map((group, index) => ({
+      cellName: group.cellName || data.cells?.[index]?.cellName || "",
+      attendanceStatus:
+        group.attendanceStatus || data.cells?.[index]?.attendanceStatus || "",
+      people: group.people?.length
+        ? group.people
+        : peopleTakenToCellGroups[index]?.people || [],
+    }));
+  }
+
+  const cells = data.cells || [];
+  const groupCount = Math.max(
+    peopleTakenToCellGroups.length,
+    cells.length,
+    Number(data.numberOfCells || 0)
+  );
+
+  return Array.from({ length: groupCount }, (_, index) => {
+    const group = peopleTakenToCellGroups[index] || {};
+    const cell = cells[index] || {};
+
+    return {
+      cellName: group.cellName || cell.cellName || "",
+      attendanceStatus: group.attendanceStatus || cell.attendanceStatus || cell.attended,
+      people: group.people || [],
+    };
+  }).filter(
+    (group) =>
+      group.cellName ||
+      group.attendanceStatus ||
+      (group.people && group.people.length > 0)
+  );
+};
+
 const Section = ({ title, children }) => (
   <div
     style={{
@@ -245,21 +339,7 @@ const EvangelismContent = ({ report }) => {
     followUpData,
   } = report;
   const soulLabel = (status) => SOUL_STATUSES?.find((item) => item.value === status)?.label || status;
-  const peopleTakenToCell = cellData?.peopleTakenToCell || [];
-  const peopleTakenToCellGroups = cellData?.peopleTakenToCellGroups?.length
-    ? cellData.peopleTakenToCellGroups
-    : peopleTakenToCell.length
-    ? [
-        {
-          cellName: peopleTakenToCell[0]?.cellName || "Cell not specified",
-          people: peopleTakenToCell,
-        },
-      ]
-    : [];
-  const peopleTakenToCellCount = peopleTakenToCellGroups.reduce(
-    (total, group) => total + (group.people?.length || 0),
-    0
-  );
+  const cellActivityGroups = buildCellActivityGroupsForDisplay(cellData);
 
   return (
     <>
@@ -346,41 +426,25 @@ const EvangelismContent = ({ report }) => {
       )}
 
       {cellData && (
-        <Section title="Cell Meeting Attendance">
-          <Field label="Attended Cell" value={cellData.didAttendCell ? "Yes" : "No"} />
-          {cellData.didAttendCell &&
-            cellData.cells?.map((item, index) => (
-              <div
-                key={index}
-                style={{
-                  border: "1px solid #dbe3ee",
-                  borderRadius: 8,
-                  padding: 10,
-                  marginTop: 8,
-                  backgroundColor: "#ffffff",
-                }}
-              >
-                <div style={{ fontSize: 10, fontWeight: 700, marginBottom: 8, color: "#111827" }}>
-                  Cell {index + 1}
-                </div>
-                <Field label="Cell Name" value={item.cellName} />
-                <Field label="Meeting Days" value={item.meetingDays?.join(", ")} />
-                <Field label="Time Reported" value={item.reportTime} />
-                <Field label="Role Played" value={item.role} />
-              </div>
-            ))}
-        </Section>
-      )}
+        <Section title="Cell Activities">
+          <Field
+            label="How many Cells"
+            value={cellData.numberOfCells || cellActivityGroups.length}
+          />
 
-      {peopleTakenToCellGroups.length > 0 && (
-        <Section title={`People Taken to Cell Meeting (${peopleTakenToCellCount})`}>
-          {peopleTakenToCellGroups.map((group, groupIndex) => (
+          {cellActivityGroups.map((group, groupIndex) => (
             <div key={groupIndex} style={{ marginTop: groupIndex === 0 ? 0 : 10 }}>
               <TextBlock>
-                Cell: <strong>{group.cellName || "Cell not specified"}</strong>
+                Cell Group {groupIndex + 1}:{" "}
+                <strong>{group.cellName || "Cell not specified"}</strong>
               </TextBlock>
+              <Field
+                label="Attendance"
+                value={getCellAttendanceLabel(group.attendanceStatus)}
+              />
               {group.people?.length > 0 && (
                 <>
+                  <TextBlock>People taken to Cell</TextBlock>
                   <TableHead
                     cols={[
                       { label: "#", w: 0.3 },
@@ -403,6 +467,26 @@ const EvangelismContent = ({ report }) => {
               )}
             </div>
           ))}
+
+          {cellData.cellPrayer && (
+            <div
+              style={{
+                border: "1px solid #dbe3ee",
+                borderRadius: 8,
+                padding: 10,
+                marginTop: 10,
+                backgroundColor: "#ffffff",
+              }}
+            >
+              <div style={{ fontSize: 10, fontWeight: 700, marginBottom: 8, color: "#111827" }}>
+                Cell Prayer
+              </div>
+              <Field label="Prayer" value={getCellPrayerLabel(cellData.cellPrayer)} />
+              {cellData.cellPrayer.notApplicableReason && (
+                <Field label="N/A Reason" value={cellData.cellPrayer.notApplicableReason} />
+              )}
+            </div>
+          )}
         </Section>
       )}
 

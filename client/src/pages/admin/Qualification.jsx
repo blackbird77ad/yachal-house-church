@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
+  Building2,
   Calendar,
   CheckCircle,
   ChevronDown,
@@ -23,11 +24,19 @@ import {
   triggerManualProcessing,
 } from "../../services/metricsService";
 import { getPortalStatus } from "../../services/portalService";
+import { getBranches } from "../../services/branchService";
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
 import { ToastContainer, useToast } from "../../components/common/Toast";
+import { useAuth } from "../../hooks/useAuth";
 import { getWeekLabel } from "../../utils/formatDate";
 import { cn, getCriteriaStatus } from "../../utils/scoreHelpers";
+import {
+  canChooseBranchScope,
+  canManageAllBranches,
+  getBranchAllOptionLabel,
+  getOwnBranchLabel,
+} from "../../utils/branchAccess";
 
 const HISTORY_PERIODS = [
   { label: "Last 4 weeks", value: "4-weeks" },
@@ -87,8 +96,12 @@ const getServiceRoleBadgeClass = (category = "none") => {
 
 const Qualification = () => {
   const { toasts, toast, removeToast } = useToast();
+  const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState("current");
   const [weekRef, setWeekRef] = useState(new Date());
+  const [branches, setBranches] = useState([]);
+  const [branchFilter, setBranchFilter] = useState(() => searchParams.get("branchId") || "all");
 
   const [ranking, setRanking] = useState([]);
   const [qualified, setQualified] = useState([]);
@@ -115,6 +128,17 @@ const Qualification = () => {
   const [historyData, setHistoryData] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [expandedHistoryWeek, setExpandedHistoryWeek] = useState(null);
+  const hasAllBranchOversight = canManageAllBranches(user);
+  const canSelectBranches = canChooseBranchScope(user);
+  const branchParam = branchFilter && branchFilter !== "all" ? branchFilter : "";
+  const selectedBranch = branches.find((branch) => branch._id === branchParam);
+  const activeBranchLabel = !canSelectBranches
+    ? getOwnBranchLabel(user)
+    : branchParam && selectedBranch
+    ? selectedBranch.name
+    : hasAllBranchOversight
+    ? ""
+    : getBranchAllOptionLabel(user);
 
   useEffect(() => {
     getPortalStatus()
@@ -126,6 +150,21 @@ const Qualification = () => {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (!canSelectBranches) return;
+
+    let cancelled = false;
+    getBranches({ status: "active" })
+      .then(({ branches: nextBranches = [] }) => {
+        if (!cancelled) setBranches(nextBranches);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canSelectBranches]);
+
   const fetchCurrent = async (silent = false) => {
     if (!silent) {
       setLoading(true);
@@ -134,7 +173,8 @@ const Qualification = () => {
     }
 
     try {
-      const data = await getAllWorkersStatus();
+      const params = branchParam ? { branchId: branchParam } : {};
+      const data = await getAllWorkersStatus(params);
       setRanking(data.ranking || []);
       setQualified(data.qualified || []);
       setAlmostQualified(data.almostQualified || data.disqualified || []);
@@ -163,6 +203,7 @@ const Qualification = () => {
       }
 
       const params = { isLateSubmission: false };
+      if (branchParam) params.branchId = branchParam;
       if (from) params.dateFrom = from.toISOString();
       if (to) params.dateTo = to.toISOString();
 
@@ -203,13 +244,13 @@ const Qualification = () => {
     fetchCurrent();
     const interval = setInterval(() => fetchCurrent(true), 90000);
     return () => clearInterval(interval);
-  }, []);
+  }, [branchParam]);
 
   useEffect(() => {
     if (tab === "history" && historyPeriod !== "custom") {
       fetchHistory();
     }
-  }, [tab, historyPeriod]);
+  }, [tab, historyPeriod, branchParam]);
 
   useEffect(() => {
     const handleOutsideClick = (event) => {
@@ -226,8 +267,16 @@ const Qualification = () => {
     setProcessing(true);
 
     try {
-      await triggerManualProcessing({ weekReference: weekRef.toISOString() });
-      toast.success("Done", "Qualification calculated for all workers.");
+      await triggerManualProcessing({
+        weekReference: weekRef.toISOString(),
+        ...(branchParam ? { branchId: branchParam } : {}),
+      });
+      toast.success(
+        "Done",
+        branchParam
+          ? "Qualification recalculated. Showing the selected branch."
+          : "Qualification calculated for all workers."
+      );
       await fetchCurrent(true);
     } catch (error) {
       toast.error(
@@ -239,6 +288,19 @@ const Qualification = () => {
     }
   };
 
+  const handleBranchChange = (value) => {
+    setBranchFilter(value);
+    setExpandedId(null);
+    setExpandedHistoryWeek(null);
+    const nextParams = new URLSearchParams(searchParams);
+    if (value && value !== "all") {
+      nextParams.set("branchId", value);
+    } else {
+      nextParams.delete("branchId");
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
+
   const generateWhatsApp = (
     rankingList = ranking,
     qualifiedList = qualified,
@@ -246,7 +308,8 @@ const Qualification = () => {
     noSubmissionList = noSubmission,
     weekLabel = getWeekLabel(weekRef)
   ) => {
-    let text = `*Yahal House Qualification - ${weekLabel}*\n\n`;
+    const branchLabel = activeBranchLabel ? ` - ${activeBranchLabel}` : "";
+    let text = `*Yahal House Qualification${branchLabel} - ${weekLabel}*\n\n`;
 
     text += `*LIVE RANKING (${rankingList.length})*\n`;
     rankingList.forEach((item, index) => {
@@ -294,6 +357,7 @@ const Qualification = () => {
         "Rank",
         "Name",
         "Worker ID",
+        "Branch",
         "Department",
         "Score",
         "Cell People",
@@ -308,6 +372,7 @@ const Qualification = () => {
           startRank + index + 1,
           item.worker?.fullName || "",
           item.worker?.workerId || "ID pending",
+          item.worker?.branch?.name || "",
           formatDepartment(item.worker?.department),
           item.totalScore || 0,
           item.cellMeetingPeopleCount || 0,
@@ -393,6 +458,7 @@ const Qualification = () => {
             </p>
             <p className="text-xs text-gray-400 dark:text-slate-500">
               ID: {worker?.workerId || "ID pending"} - {formatDepartment(worker?.department)}
+              {worker?.branch?.name ? ` - ${worker.branch.name}` : ""}
             </p>
           </div>
 
@@ -584,15 +650,39 @@ const Qualification = () => {
           <h1 className="section-title">Qualification</h1>
           <p className="section-subtitle">
             {tab === "current"
-              ? `${getWeekLabel(weekRef)} - ${totalWorkers} approved workers`
+              ? `${getWeekLabel(weekRef)} - ${activeBranchLabel ? `${activeBranchLabel} - ` : ""}${totalWorkers} approved workers`
               : "Historical qualification records"}
           </p>
         </div>
 
-        {tab === "current" && (
-          <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
+          {canSelectBranches ? (
+            <div className="relative">
+              <Building2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <select
+                className="input-field w-48 pl-9 text-sm"
+                value={branchFilter}
+                onChange={(event) => handleBranchChange(event.target.value)}
+              >
+                <option value="all">All branches</option>
+                {branches.map((branch) => (
+                  <option key={branch._id} value={branch._id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+              <Building2 className="h-4 w-4" />
+              {user?.branch?.name || "Own branch"}
+            </div>
+          )}
+
+          {tab === "current" && (
+            <>
             <Link
-              to="/admin/service-roles"
+              to={branchParam ? `/admin/service-roles?branchId=${encodeURIComponent(branchParam)}` : "/admin/service-roles"}
               className="btn-outline text-sm flex items-center gap-1.5"
             >
               <Trophy className="w-4 h-4" />
@@ -663,8 +753,9 @@ const Qualification = () => {
               <Copy className="w-4 h-4" />
               {copied ? "Copied!" : "WhatsApp"}
             </button>
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-1 bg-gray-100 dark:bg-slate-800 rounded-xl p-1 w-fit">
@@ -1012,6 +1103,7 @@ const Qualification = () => {
                                       <p className="text-xs text-gray-400 dark:text-slate-500">
                                         ID: {item.worker?.workerId || "ID pending"} -{" "}
                                         {formatDepartment(item.worker?.department)}
+                                        {item.worker?.branch?.name ? ` - ${item.worker.branch.name}` : ""}
                                       </p>
                                     </div>
                                     <span className="text-sm font-bold text-gray-700 dark:text-slate-300">

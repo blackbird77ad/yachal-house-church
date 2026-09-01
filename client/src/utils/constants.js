@@ -89,7 +89,7 @@ export const QUALIFICATION_CRITERIA = {
 // Fellowship prayer: 10pts (min 2 hours)
 // Cell meeting attendance: required
 // People 12+ taken to cell meeting: 10pts max (2.5pts per person, capped at 4)
-// Cell prayer: 10pts (min 2 hours)
+// Cell prayer: 10pts (marked prayed)
 // People 12+ brought to church: 20pts max (5pts per person, capped at 4)
 // Total: 100pts
 };

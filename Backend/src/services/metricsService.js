@@ -121,6 +121,7 @@ const didAttendCellMeeting = (report) => {
 
 const didPrayWithCellForTwoHours = (report) => {
   const cellPrayer = report.cellData?.cellPrayer;
+  if (cellPrayer?.prayerStatus === "prayed") return true;
   if (
     cellPrayer?.didPrayWithCell === true &&
     Number(cellPrayer?.hours || 0) >= CRITERIA.MIN_CELL_PRAYER_HOURS

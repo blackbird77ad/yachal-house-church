@@ -11,16 +11,25 @@ import {
   LayoutGrid,
   List,
   Users,
+  Building2,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { getAllReports } from "../../services/reportService";
 import { getPortalStatus } from "../../services/portalService";
 import { getAllWorkers } from "../../services/workerService";
+import { getBranches } from "../../services/branchService";
 import Loader from "../../components/common/Loader";
 import { formatDateTime, getWeekLabel, getWeekReference, getPreviousWeekReference } from "../../utils/formatDate";
 import { REPORT_TYPES } from "../../utils/constants";
 import { useToast, ToastContainer } from "../../components/common/Toast";
+import { useAuth } from "../../hooks/useAuth";
 import { cn } from "../../utils/scoreHelpers";
+import {
+  canChooseBranchScope,
+  canManageAllBranches,
+  getBranchAllOptionLabel,
+  getOwnBranchLabel,
+} from "../../utils/branchAccess";
 
 const PERIODS = [
   { label: "This week", value: "this-week" },
@@ -110,9 +119,12 @@ const typeLabel = (type) =>
 
 const Reports = () => {
   const { toasts, toast, removeToast } = useToast();
+  const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [reports, setReports] = useState([]);
   const [workers, setWorkers] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [portalWeekReference, setPortalWeekReference] = useState(null);
 
   const [loadingBoot, setLoadingBoot] = useState(true);
@@ -126,6 +138,7 @@ const Reports = () => {
   const [typeFilter, setTypeFilter] = useState("all");
   const [period, setPeriod] = useState("this-week");
   const [workerFilter, setWorkerFilter] = useState("all");
+  const [branchFilter, setBranchFilter] = useState(() => searchParams.get("branchId") || "all");
   const [search, setSearch] = useState("");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -133,23 +146,44 @@ const Reports = () => {
   const [expandedWeeks, setExpandedWeeks] = useState({});
 
   const lastFetchKeyRef = useRef("");
+  const hasAllBranchOversight = canManageAllBranches(user);
+  const canSelectBranches = canChooseBranchScope(user);
+  const branchParam = branchFilter && branchFilter !== "all" ? branchFilter : "";
+  const selectedBranch = branches.find((branch) => branch._id === branchParam);
+  const activeBranchLabel = !canSelectBranches
+    ? getOwnBranchLabel(user)
+    : branchParam && selectedBranch
+    ? selectedBranch.name
+    : hasAllBranchOversight
+    ? ""
+    : getBranchAllOptionLabel(user);
 
   useEffect(() => {
     let cancelled = false;
 
     const boot = async () => {
+      setLoadingBoot(true);
       try {
-        const [portalRes, workerRes] = await Promise.all([
+        const workerParams = { status: "approved", limit: 500 };
+        if (branchParam) workerParams.branchId = branchParam;
+
+        const [portalRes, workerRes, branchRes] = await Promise.all([
           getPortalStatus().catch(() => null),
-          getAllWorkers({ status: "approved", limit: 500 }).catch(() => ({
+          getAllWorkers(workerParams).catch(() => ({
             workers: [],
           })),
+          canSelectBranches
+            ? getBranches({ status: "active" }).catch(() => ({ branches: [] }))
+            : Promise.resolve({ branches: [] }),
         ]);
 
         if (cancelled) return;
 
         setPortalWeekReference(portalRes?.weekReference || null);
         setWorkers(workerRes?.workers || []);
+        setBranches(branchRes?.branches || []);
+        setWorkerFilter("all");
+        lastFetchKeyRef.current = "";
       } finally {
         if (!cancelled) setLoadingBoot(false);
       }
@@ -160,7 +194,7 @@ const Reports = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [branchParam, canSelectBranches]);
 
   const buildParams = () => {
     const params = {
@@ -184,6 +218,10 @@ const Reports = () => {
 
     if (workerFilter !== "all") {
       params.workerId = workerFilter;
+    }
+
+    if (branchParam) {
+      params.branchId = branchParam;
     }
 
     if (period !== "all" && period !== "custom") {
@@ -245,6 +283,7 @@ const Reports = () => {
     weekTab,
     typeFilter,
     workerFilter,
+    branchParam,
     period,
     portalWeekReference,
   ]);
@@ -256,6 +295,18 @@ const Reports = () => {
   const retryLoad = async () => {
     lastFetchKeyRef.current = "";
     await fetchReportsNow({ force: true });
+  };
+
+  const handleBranchChange = (value) => {
+    setBranchFilter(value);
+    setWorkerFilter("all");
+    const nextParams = new URLSearchParams(searchParams);
+    if (value && value !== "all") {
+      nextParams.set("branchId", value);
+    } else {
+      nextParams.delete("branchId");
+    }
+    setSearchParams(nextParams, { replace: true });
   };
 
   const filtered = useMemo(() => {
@@ -296,6 +347,7 @@ const Reports = () => {
     const header = [[
       "Worker",
       "Worker ID",
+      "Branch",
       "Report Type",
       "Week",
       "Submitted At",
@@ -306,6 +358,7 @@ const Reports = () => {
     const data = rows.map((r) => [
       r.submittedBy?.fullName || "",
       r.submittedBy?.workerId || "",
+      r.submittedBy?.branch?.name || "",
       typeLabel(r.reportType),
       r.weekReference ? getWeekLabel(new Date(r.weekReference)) : "",
       r.submittedAt ? formatDateTime(r.submittedAt) : "",
@@ -355,6 +408,9 @@ const Reports = () => {
             <p className="text-xs text-gray-400 dark:text-slate-500">
               ID: {r.submittedBy?.workerId || "N/A"}
             </p>
+            <p className="text-xs text-gray-400 dark:text-slate-500">
+              {r.submittedBy?.branch?.name || "No branch"}
+            </p>
           </div>
         </div>
       </td>
@@ -401,6 +457,7 @@ const Reports = () => {
           <h1 className="section-title">Reports</h1>
           <p className="section-subtitle text-xs text-gray-400 dark:text-slate-500">
             {currentWeekLabel}
+            {activeBranchLabel ? ` - ${activeBranchLabel}` : ""}
           </p>
         </div>
 
@@ -540,6 +597,28 @@ const Reports = () => {
         )}
 
         <div className="flex flex-col sm:flex-row gap-3 pt-1 border-t border-gray-100 dark:border-slate-700">
+          {canSelectBranches ? (
+            <div className="relative sm:w-56">
+              <Building2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <select
+                className="input-field pl-9"
+                value={branchFilter}
+                onChange={(e) => handleBranchChange(e.target.value)}
+              >
+                <option value="all">{getBranchAllOptionLabel(user)}</option>
+                {branches.map((branch) => (
+                  <option key={branch._id} value={branch._id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+              <Building2 className="h-4 w-4" />
+              {getOwnBranchLabel(user)}
+            </div>
+          )}
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -607,6 +686,7 @@ const Reports = () => {
                       {r.submittedBy?.fullName}
                     </p>
                     <p className="text-xs text-gray-400">ID: {r.submittedBy?.workerId}</p>
+                    <p className="text-xs text-gray-400">{r.submittedBy?.branch?.name || "No branch"}</p>
                   </div>
                 </div>
 

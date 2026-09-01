@@ -1,4 +1,5 @@
 import Roster from "../models/rosterModel.js";
+import Branch from "../models/branchModel.js";
 import User from "../models/userModel.js";
 import { getStoredWeekQualificationSnapshot } from "../services/qualificationService.js";
 import {
@@ -12,6 +13,16 @@ import {
 import { createBulkNotification } from "../services/notificationService.js";
 import { sendRosterPublishedEmail } from "../services/emailService.js";
 import { sendPushToMany } from "../services/pushService.js";
+import {
+  ADMIN_ROLES,
+  assertCanAccessBranch,
+  canAccessAllBranches,
+  getAccessibleBranchIds,
+  getBranchScopeMeta,
+  getUserBranchId,
+  normalizeBranchId,
+  resolveBranchScope,
+} from "../utils/branchAccess.js";
 
 const toDateWithTime = (serviceDate, serviceTime = "09:00") => {
   const [hours = "09", minutes = "00"] = String(serviceTime || "09:00").split(":");
@@ -29,6 +40,71 @@ const buildRosterHeadline = (roster) => {
     ? `${serviceLabel} - ${roster.specialServiceName}`
     : serviceLabel;
 };
+
+const getRosterBranchId = (roster) =>
+  roster?.branch?._id?.toString?.() || roster?.branch?.toString?.() || "";
+
+const assertCanAccessRoster = (req, roster) => {
+  const rosterBranchId = getRosterBranchId(roster);
+  if (!rosterBranchId) return;
+  assertCanAccessBranch(req, rosterBranchId);
+};
+
+const resolveRosterBranchIdForWrite = async (req) => {
+  const requestedBranchId = normalizeBranchId(req.body?.branchId);
+
+  if (!canAccessAllBranches(req.user)) {
+    const accessibleBranchIds = getAccessibleBranchIds(req.user);
+
+    if (!accessibleBranchIds.length) {
+      const error = new Error("You need an assigned branch before creating a branch roster.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if (requestedBranchId) {
+      assertCanAccessBranch(req, requestedBranchId);
+      return requestedBranchId;
+    }
+
+    return accessibleBranchIds[0];
+  }
+
+  if (!requestedBranchId) return null;
+
+  const branch = await Branch.findById(requestedBranchId).select("_id status");
+  if (!branch) {
+    const error = new Error("Selected branch was not found.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (branch.status !== "active") {
+    const error = new Error("Selected branch is suspended.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return branch._id;
+};
+
+const applyRosterBranchScope = (req, filter = {}) => {
+  const scope = resolveBranchScope(req);
+
+  if (scope.branchIds?.length > 1) {
+    filter.branch = { $in: scope.branchIds };
+  } else if (scope.branchId) {
+    filter.branch = scope.branchId;
+  }
+
+  return { filter, scope };
+};
+
+const isWorkerAssignedToRoster = (roster, userId) =>
+  (roster.slots || []).some((slot) =>
+    (slot.assignments || []).some(
+      (assignment) => String(assignment.worker?._id || assignment.worker) === String(userId)
+    )
+  );
 
 const serializeRosterForWorker = (roster, userId) => {
   const myAssignments = [];
@@ -65,6 +141,7 @@ const serializeRosterForWorker = (roster, userId) => {
 
   return {
     _id: roster._id,
+    branch: roster.branch || null,
     weekReference: roster.weekReference,
     serviceType: roster.serviceType,
     specialServiceName: roster.specialServiceName || "",
@@ -92,8 +169,12 @@ export const getRosterBuilderData = async (req, res, next) => {
     rosterWeekReference.setUTCHours(0, 0, 0, 0);
     rankingWeekReference.setUTCHours(0, 0, 0, 0);
 
+    const branchScope = resolveBranchScope(req);
     const { qualified, disqualified, noSubmission, ranking } =
-      await getStoredWeekQualificationSnapshot(rankingWeekReference);
+      await getStoredWeekQualificationSnapshot(rankingWeekReference, {
+        branchId: branchScope.branchId,
+        branchIds: branchScope.branchIds,
+      });
 
     const excludePastor = (list) => list.filter((m) => m.worker?.workerId !== "001");
 
@@ -106,6 +187,7 @@ export const getRosterBuilderData = async (req, res, next) => {
       },
       rosterWeekReference,
       rankingWeekReference,
+      branchScope: getBranchScopeMeta(req, branchScope),
     });
   } catch (error) {
     next(error);
@@ -128,6 +210,7 @@ export const createOrUpdateRoster = async (req, res, next) => {
     const normalizedWeekReference = normalizeWeekReference(weekReference);
     const normalizedServiceDate = toDateWithTime(serviceDate, serviceTime);
 
+    const rosterBranchId = await resolveRosterBranchIdForWrite(req);
     let roster = rosterId ? await Roster.findById(rosterId) : null;
 
     if (rosterId && !roster) {
@@ -135,6 +218,11 @@ export const createOrUpdateRoster = async (req, res, next) => {
     }
 
     if (roster) {
+      assertCanAccessRoster(req, roster);
+    }
+
+    if (roster) {
+      roster.branch = rosterBranchId || undefined;
       roster.weekReference = normalizedWeekReference;
       roster.serviceType = serviceType;
       roster.serviceDate = normalizedServiceDate;
@@ -147,6 +235,7 @@ export const createOrUpdateRoster = async (req, res, next) => {
       await roster.save();
     } else {
       roster = await Roster.create({
+        branch: rosterBranchId || undefined,
         weekReference: normalizedWeekReference,
         serviceType,
         serviceDate: normalizedServiceDate,
@@ -170,14 +259,17 @@ export const createOrUpdateRoster = async (req, res, next) => {
 
 export const publishRoster = async (req, res, next) => {
   try {
-    const roster = await Roster.findById(req.params.rosterId).populate({
+    const roster = await Roster.findById(req.params.rosterId)
+      .populate("branch", "name code status")
+      .populate({
       path: "slots.assignments.worker",
-      select: "fullName email workerId department",
+      select: "fullName email workerId department branch",
     });
 
     if (!roster) {
       return res.status(404).json({ message: "Roster not found." });
     }
+    assertCanAccessRoster(req, roster);
 
     const isRepublish = roster.isPublished;
 
@@ -207,7 +299,13 @@ export const publishRoster = async (req, res, next) => {
       });
     });
 
-    const recipients = await User.find({ status: "approved" }).select(
+    const rosterBranchId = getRosterBranchId(roster);
+    const recipientFilter = { status: "approved" };
+    if (rosterBranchId) {
+      recipientFilter.branch = rosterBranchId;
+    }
+
+    const recipients = await User.find(recipientFilter).select(
       "_id email fullName notificationPreferences"
     );
     const inAppRecipients = recipients
@@ -271,16 +369,18 @@ export const getRosters = async (req, res, next) => {
     if (weekReference) filter.weekReference = new Date(weekReference);
     if (serviceType) filter.serviceType = serviceType;
     if (isPublished !== undefined) filter.isPublished = isPublished === "true";
+    const { filter: scopedFilter, scope } = applyRosterBranchScope(req, filter);
 
     const skip = (Number(page) - 1) * Number(limit);
     const [rosters, total] = await Promise.all([
-      Roster.find(filter)
+      Roster.find(scopedFilter)
+        .populate("branch", "name code status")
         .populate("createdBy", "fullName")
         .populate("publishedBy", "fullName")
         .sort({ publishedAt: -1, serviceDate: -1, createdAt: -1 })
         .skip(skip)
         .limit(Number(limit)),
-      Roster.countDocuments(filter),
+      Roster.countDocuments(scopedFilter),
     ]);
 
     res.status(200).json({
@@ -288,6 +388,7 @@ export const getRosters = async (req, res, next) => {
       total,
       page: Number(page),
       totalPages: Math.ceil(total / Number(limit)),
+      branchScope: getBranchScopeMeta(req, scope),
     });
   } catch (error) {
     next(error);
@@ -297,12 +398,27 @@ export const getRosters = async (req, res, next) => {
 export const getRosterById = async (req, res, next) => {
   try {
     const roster = await Roster.findById(req.params.rosterId)
+      .populate("branch", "name code status")
       .populate("slots.assignments.worker", "fullName workerId department")
       .populate("createdBy", "fullName")
       .populate("publishedBy", "fullName");
 
     if (!roster) {
       return res.status(404).json({ message: "Roster not found." });
+    }
+
+    if (ADMIN_ROLES.includes(req.user?.role)) {
+      assertCanAccessRoster(req, roster);
+    } else {
+      const rosterBranchId = getRosterBranchId(roster);
+      const userBranchId = getUserBranchId(req.user);
+      if (
+        rosterBranchId &&
+        rosterBranchId !== userBranchId &&
+        !isWorkerAssignedToRoster(roster, req.user._id)
+      ) {
+        return res.status(403).json({ message: "You can only view rosters for your branch." });
+      }
     }
 
     res.status(200).json({ roster });
@@ -314,14 +430,17 @@ export const getRosterById = async (req, res, next) => {
 export const getWhatsAppText = async (req, res, next) => {
   try {
     const roster = await Roster.findById(req.params.rosterId)
+      .populate("branch", "name code status")
       .populate("slots.assignments.worker", "fullName workerId");
 
     if (!roster) {
       return res.status(404).json({ message: "Roster not found." });
     }
+    assertCanAccessRoster(req, roster);
 
     const serviceDate = new Date(roster.serviceDate).toDateString();
     let text = `*YAHAL HOUSE DUTY ROSTER*\n`;
+    if (roster.branch?.name) text += `*Branch:* ${roster.branch.name}\n`;
     text += `*Service:* ${roster.serviceType.toUpperCase()}${roster.specialServiceName ? ` - ${roster.specialServiceName}` : ""}\n`;
     text += `*Date:* ${serviceDate}\n`;
     if (roster.notes) text += `*Note:* ${roster.notes}\n`;
@@ -347,14 +466,28 @@ export const getMyAssignment = async (req, res, next) => {
   try {
     const { page = 1, limit = 6 } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
+    const userBranchId = getUserBranchId(req.user);
+    const rosterFilter = {
+      isPublished: true,
+      $or: [
+        { branch: { $exists: false } },
+        { branch: null },
+        { "slots.assignments.worker": req.user._id },
+      ],
+    };
+
+    if (userBranchId) {
+      rosterFilter.$or.push({ branch: userBranchId });
+    }
 
     const [rosters, total] = await Promise.all([
-      Roster.find({ isPublished: true })
+      Roster.find(rosterFilter)
+        .populate("branch", "name code status")
         .sort({ publishedAt: -1, serviceDate: -1, createdAt: -1 })
         .populate("slots.assignments.worker", "fullName workerId department")
         .skip(skip)
         .limit(Number(limit)),
-      Roster.countDocuments({ isPublished: true }),
+      Roster.countDocuments(rosterFilter),
     ]);
 
     res.status(200).json({
@@ -375,6 +508,7 @@ export const resetRosterAssignments = async (req, res, next) => {
     if (!roster) {
       return res.status(404).json({ message: "Roster not found." });
     }
+    assertCanAccessRoster(req, roster);
 
     if (roster.isPublished) {
       return res.status(400).json({

@@ -1,16 +1,24 @@
 import { useState, useEffect, useRef } from "react";
 import {
+  Building2,
   Calendar,
   ChevronDown,
   ChevronUp,
   Download,
 } from "lucide-react";
 import axiosInstance from "../../utils/axiosInstance";
+import { getBranches } from "../../services/branchService";
 import { useAuth } from "../../hooks/useAuth";
 import Loader from "../../components/common/Loader";
 import Pagination from "../../components/common/Pagination";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import { cn } from "../../utils/scoreHelpers";
+import {
+  canChooseBranchScope,
+  canManageAllBranches,
+  getBranchAllOptionLabel,
+  getOwnBranchLabel,
+} from "../../utils/branchAccess";
 
 const TIMING_LABELS = {
   "early-60plus": {
@@ -50,6 +58,7 @@ const AttendanceHistory = () => {
   const { toasts, toast, removeToast } = useToast();
 
   const [sessions, setSessions] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalSessions, setTotalSessions] = useState(0);
@@ -58,11 +67,21 @@ const AttendanceHistory = () => {
   const [expandedAttendance, setExpandedAttendance] = useState({});
   const [loadingDetails, setLoadingDetails] = useState({});
   const [serviceFilter, setServiceFilter] = useState("all");
+  const [branchFilter, setBranchFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
   const lastFetchKeyRef = useRef("");
   const loadingListRef = useRef(false);
+  const hasAllBranchOversight = canManageAllBranches(user);
+  const canSelectBranches = canChooseBranchScope(user);
+  const branchParam = branchFilter && branchFilter !== "all" ? branchFilter : "";
+  const selectedBranch = branches.find((branch) => branch._id === branchParam);
+  const activeBranchLabel = !canSelectBranches
+    ? getOwnBranchLabel(user)
+    : branchParam && selectedBranch
+    ? selectedBranch.name
+    : getBranchAllOptionLabel(user);
 
   const fetchSessions = async ({ force = false } = {}) => {
     if (!isAdminLevel) {
@@ -70,7 +89,7 @@ const AttendanceHistory = () => {
       return;
     }
 
-    const fetchKey = JSON.stringify({ page, serviceFilter, dateFrom, dateTo });
+    const fetchKey = JSON.stringify({ page, serviceFilter, branchParam, dateFrom, dateTo });
     if (!force && fetchKey === lastFetchKeyRef.current) return;
     if (loadingListRef.current) return;
 
@@ -86,6 +105,7 @@ const AttendanceHistory = () => {
 
       if (dateFrom) params.append("dateFrom", dateFrom);
       if (dateTo) params.append("dateTo", `${dateTo}T23:59:59`);
+      if (branchParam) params.append("branchId", branchParam);
 
       const { data } = await axiosInstance.get(`/attendance/history?${params.toString()}`);
 
@@ -108,11 +128,30 @@ const AttendanceHistory = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [serviceFilter, dateFrom, dateTo]);
+  }, [serviceFilter, branchParam, dateFrom, dateTo]);
 
   useEffect(() => {
     fetchSessions();
-  }, [page, serviceFilter, dateFrom, dateTo]);
+  }, [page, serviceFilter, branchParam, dateFrom, dateTo]);
+
+  useEffect(() => {
+    if (!canSelectBranches) return;
+
+    let cancelled = false;
+    getBranches({ status: "active" })
+      .then(({ branches: nextBranches = [] }) => {
+        if (cancelled) return;
+        setBranches(nextBranches);
+        if (!hasAllBranchOversight && branchFilter === "all" && nextBranches.length > 0) {
+          setBranchFilter(nextBranches[0]._id);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [branchFilter, canSelectBranches, hasAllBranchOversight]);
 
   const fetchDetails = async (sessionId) => {
     if (expandedAttendance[sessionId]) {
@@ -202,11 +241,36 @@ const AttendanceHistory = () => {
 
       <div>
         <h1 className="section-title">Attendance History</h1>
-        <p className="section-subtitle">{sessions.length} sessions found</p>
+        <p className="section-subtitle">
+          {sessions.length} sessions found - {activeBranchLabel}
+        </p>
       </div>
 
       <div className="card p-4 space-y-3">
         <div className="flex flex-col sm:flex-row gap-3">
+          {canSelectBranches && (
+            <div className="sm:w-56">
+              <label className="form-label">Branch</label>
+              <div className="relative">
+                <Building2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <select
+                  className="input-field pl-9"
+                  value={branchFilter}
+                  onChange={(event) => setBranchFilter(event.target.value)}
+                >
+                  {hasAllBranchOversight && (
+                    <option value="all">{getBranchAllOptionLabel(user)}</option>
+                  )}
+                  {branches.map((branch) => (
+                    <option key={branch._id} value={branch._id}>
+                      {branch.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
           <div className="sm:w-44">
             <label className="form-label">Service Type</label>
             <select
@@ -312,6 +376,12 @@ const AttendanceHistory = () => {
                       ) : (
                         <span className="text-xs bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400 px-2 py-0.5 rounded-full">
                           {session.closedBy === "auto" ? "Auto-closed" : "Closed"}
+                        </span>
+                      )}
+
+                      {session.branch?.name && (
+                        <span className="text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full">
+                          {session.branch.name}
                         </span>
                       )}
                     </div>

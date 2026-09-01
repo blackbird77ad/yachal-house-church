@@ -41,6 +41,20 @@ const portalWindowSchema = new mongoose.Schema(
         qualifiedCount: { type: Number, default: 0 },
         disqualifiedCount: { type: Number, default: 0 },
       },
+      branchQualificationResults: {
+        type: Map,
+        of: {
+          inAppSentAt: { type: Date },
+          emailSentAt: { type: Date },
+          pushSentAt: { type: Date },
+          emailAttempts: { type: Number, default: 0 },
+          lastAttemptAt: { type: Date },
+          lastEmailError: { type: String, trim: true },
+          emailDeliveredTo: [{ type: String, trim: true, lowercase: true }],
+          qualifiedCount: { type: Number, default: 0 },
+          disqualifiedCount: { type: Number, default: 0 },
+        },
+      },
       frontDeskWeeklySummary: {
         inAppSentAt: { type: Date },
         emailSentAt: { type: Date },

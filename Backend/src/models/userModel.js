@@ -34,6 +34,29 @@ const userSchema = new mongoose.Schema(
       default: "worker",
     },
 
+    branch: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Branch",
+    },
+
+    managedBranches: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Branch",
+      },
+    ],
+
+    branchRole: {
+      type: String,
+      enum: ["member", "branch-admin"],
+      default: "member",
+    },
+
+    canViewAllBranches: {
+      type: Boolean,
+      default: true,
+    },
+
     status: {
       type: String,
       enum: ["pending", "approved", "suspended"],
@@ -127,6 +150,8 @@ const userSchema = new mongoose.Schema(
 userSchema.index({ role: 1 });
 userSchema.index({ status: 1 });
 userSchema.index({ department: 1 });
+userSchema.index({ branch: 1 });
+userSchema.index({ managedBranches: 1 });
 
 const User = mongoose.model("User", userSchema);
 

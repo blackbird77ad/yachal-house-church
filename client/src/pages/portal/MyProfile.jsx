@@ -2,11 +2,12 @@
 import { useAuth } from "../../hooks/useAuth";
 import { getMyProfile, updateMyProfile } from "../../services/workerService";
 import { changePassword } from "../../services/authService";
+import { getPublicBranches } from "../../services/branchService";
 import { usePushNotifications } from "../../hooks/usePushNotifications";
 import Loader from "../../components/common/Loader";
 import { useToast, ToastContainer } from "../../components/common/Toast";
 import { formatDate } from "../../utils/formatDate";
-import { User, Lock, Eye, EyeOff, Edit2, Save, X, Bell, Smartphone } from "lucide-react";
+import { Building2, User, Lock, Eye, EyeOff, Edit2, Save, X, Bell, Smartphone } from "lucide-react";
 
 const getNotificationPreferences = (preferences = {}) => {
   const normalized = {
@@ -29,10 +30,11 @@ const MyProfile = () => {
   const { toasts, toast, removeToast } = useToast();
 
   const [profile, setProfile] = useState(null);
+  const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [editMode, setEditMode] = useState(false);
-  const [form, setForm] = useState({ fullName: "", phone: "" });
+  const [form, setForm] = useState({ fullName: "", phone: "", branchId: "" });
   const [saving, setSaving] = useState(false);
 
   const [pwForm, setPwForm] = useState({
@@ -47,12 +49,17 @@ const MyProfile = () => {
   const [prefSaving, setPrefSaving] = useState("");
 
   useEffect(() => {
-    getMyProfile()
-      .then(({ worker }) => {
+    Promise.all([
+      getMyProfile(),
+      getPublicBranches().catch(() => ({ branches: [] })),
+    ])
+      .then(([{ worker }, branchRes]) => {
         setProfile(worker);
+        setBranches(branchRes?.branches || []);
         setForm({
           fullName: worker.fullName || "",
           phone: worker.phone || "",
+          branchId: worker.branch?._id || worker.branch || "",
         });
       })
       .catch(() => toast.error("Error", "Could not load profile."))
@@ -78,6 +85,7 @@ const MyProfile = () => {
     setForm({
       fullName: profile?.fullName || "",
       phone: profile?.phone || "",
+      branchId: profile?.branch?._id || profile?.branch || "",
     });
   };
 
@@ -92,6 +100,7 @@ const MyProfile = () => {
       const { worker } = await updateMyProfile({
         fullName: form.fullName.trim(),
         phone: form.phone.trim(),
+        branchId: form.branchId,
       });
 
       updateUser(worker);
@@ -333,6 +342,37 @@ const MyProfile = () => {
             ) : (
               <p className="text-sm text-gray-900 dark:text-slate-100 py-2">
                 {profile?.phone || "Not set"}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="form-label">Current Branch</label>
+            {editMode && branches.length > 0 ? (
+              <select
+                className="input-field"
+                value={form.branchId}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, branchId: e.target.value }))
+                }
+              >
+                <option value="">No branch selected</option>
+                {branches.map((branch) => (
+                  <option key={branch._id} value={branch._id}>
+                    {branch.name}
+                    {branch.location ? ` - ${branch.location}` : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-sm text-gray-900 dark:text-slate-100 py-2">
+                {profile?.branch?.name || "Not set"}
+              </p>
+            )}
+            {editMode && branches.length > 0 && (
+              <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                <Building2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                Admins will be notified and can edit this branch if needed.
               </p>
             )}
           </div>

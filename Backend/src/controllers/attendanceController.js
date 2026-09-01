@@ -9,6 +9,16 @@ import {
 } from "../services/emailService.js";
 import { createBulkNotification } from "../services/notificationService.js";
 import { sendPushToMany } from "../services/pushService.js";
+import {
+  ADMIN_ROLES,
+  assertCanAccessBranch,
+  canAccessAllBranches,
+  getAccessibleBranchIds,
+  getBranchScopeMeta,
+  getUserBranchId,
+  normalizeBranchId,
+  resolveBranchScope,
+} from "../utils/branchAccess.js";
 
 const FRONT_DESK_EMAIL_RETRY_INTERVAL_MS = 60 * 60 * 1000;
 const FRONT_DESK_REPORT_LOOKBACK_DAYS = 7;
@@ -17,6 +27,97 @@ const FRONT_DESK_INACTIVITY_MS = 4 * 60 * 60 * 1000;
 const normalizeEmail = (value = "") => value.toString().trim().toLowerCase();
 const getNextAutoCloseTime = (activityTime = new Date()) =>
   new Date(new Date(activityTime).getTime() + FRONT_DESK_INACTIVITY_MS);
+
+const getSessionBranchId = (session) =>
+  session?.branch?._id?.toString?.() || session?.branch?.toString?.() || "";
+
+const isAdminLevelUser = (user) => ADMIN_ROLES.includes(user?.role);
+
+const resolveSessionBranchIdForWrite = (req) => {
+  const requestedBranchId = normalizeBranchId(req.body?.branchId || req.query?.branchId);
+
+  if (canAccessAllBranches(req.user)) {
+    return requestedBranchId || null;
+  }
+
+  const accessibleBranchIds = getAccessibleBranchIds(req.user);
+
+  if (requestedBranchId) {
+    assertCanAccessBranch(req, requestedBranchId);
+    return requestedBranchId;
+  }
+
+  if (accessibleBranchIds.length > 0) {
+    return accessibleBranchIds[0];
+  }
+
+  return getUserBranchId(req.user) || null;
+};
+
+const assertCanAccessSession = (req, session) => {
+  const sessionBranchId = getSessionBranchId(session);
+  if (!sessionBranchId || canAccessAllBranches(req.user)) return;
+
+  if (isAdminLevelUser(req.user)) {
+    assertCanAccessBranch(req, sessionBranchId);
+    return;
+  }
+
+  if (getUserBranchId(req.user) !== sessionBranchId) {
+    const error = new Error("You can only access front desk sessions for your branch.");
+    error.statusCode = 403;
+    throw error;
+  }
+};
+
+const getActiveSessionFilter = (req) => {
+  const requestedBranchId = normalizeBranchId(req.query?.branchId);
+  const filter = { isOpen: true };
+
+  if (canAccessAllBranches(req.user)) {
+    if (requestedBranchId) filter.branch = requestedBranchId;
+    return filter;
+  }
+
+  if (isAdminLevelUser(req.user)) {
+    const accessibleBranchIds = getAccessibleBranchIds(req.user);
+    if (requestedBranchId) {
+      assertCanAccessBranch(req, requestedBranchId);
+      filter.branch = requestedBranchId;
+    } else if (accessibleBranchIds.length > 1) {
+      filter.branch = { $in: accessibleBranchIds };
+    } else if (accessibleBranchIds.length === 1) {
+      filter.branch = accessibleBranchIds[0];
+    } else {
+      filter.branch = "000000000000000000000000";
+    }
+    return filter;
+  }
+
+  const userBranchId = getUserBranchId(req.user);
+  filter.$or = [
+    { branch: { $exists: false } },
+    { branch: null },
+  ];
+
+  if (userBranchId) {
+    filter.$or.push({ branch: userBranchId });
+  }
+
+  return filter;
+};
+
+const applyAttendanceBranchScope = (req, filter = {}) => {
+  const scope = resolveBranchScope(req);
+
+  if (scope.branchIds?.length > 1) {
+    filter.branch = { $in: scope.branchIds };
+  } else if (scope.branchId) {
+    filter.branch = scope.branchId;
+  }
+
+  return { filter, scope };
+};
 
 const getPendingEmailRecipients = (recipients, deliveredTo = []) => {
   const delivered = new Set(deliveredTo.map((email) => normalizeEmail(email)));
@@ -93,13 +194,21 @@ const computeStats = async (sessionId) => {
 export const createSession = async (req, res, next) => {
   try {
     const { serviceType, specialServiceName, serviceDate, serviceStartTime, coSupervisorId } = req.body;
+    const sessionBranchId = resolveSessionBranchIdForWrite(req);
 
     const openTime = new Date();
     const start = new Date(serviceStartTime);
     const autoClose = getNextAutoCloseTime(openTime);
 
     // Close any previously open session and dispatch its report before replacing it.
-    const openSessions = await FrontDeskSession.find({ isOpen: true })
+    const openSessionFilter = { isOpen: true };
+    if (sessionBranchId) {
+      openSessionFilter.branch = sessionBranchId;
+    } else {
+      openSessionFilter.$or = [{ branch: { $exists: false } }, { branch: null }];
+    }
+
+    const openSessions = await FrontDeskSession.find(openSessionFilter)
       .populate("primarySupervisor", "fullName workerId email")
       .populate("coSupervisors", "fullName workerId email");
 
@@ -117,6 +226,7 @@ export const createSession = async (req, res, next) => {
     const { isDeputy, deputyFor } = req.body;
 
     const session = await FrontDeskSession.create({
+      branch: sessionBranchId || undefined,
       serviceType,
       specialServiceName: specialServiceName || "",
       serviceDate: new Date(serviceDate),
@@ -134,10 +244,20 @@ export const createSession = async (req, res, next) => {
     // If deputy, notify admins immediately
     if (isDeputy && deputyFor) {
       try {
-        const admins = await User.find({
+        const adminFilter = {
           status: "approved",
           role: { $in: ["pastor", "admin", "moderator"] },
-        }).select("_id email fullName");
+        };
+
+        if (sessionBranchId) {
+          adminFilter.$or = [
+            { canViewAllBranches: { $ne: false } },
+            { branch: sessionBranchId },
+            { managedBranches: sessionBranchId },
+          ];
+        }
+
+        const admins = await User.find(adminFilter).select("_id email fullName");
 
         await createBulkNotification(admins.map((a) => a._id), {
           type: "general",
@@ -165,6 +285,7 @@ export const createSession = async (req, res, next) => {
     await Attendance.create({
       worker: req.user._id,
       session: session._id,
+      branch: sessionBranchId || undefined,
       serviceType,
       serviceDate: new Date(serviceDate),
       checkInTime: openTime,
@@ -188,14 +309,21 @@ export const checkInWorker = async (req, res, next) => {
     if (!session || !session.isOpen) {
       return res.status(400).json({ message: "Front desk session is not open." });
     }
+    assertCanAccessSession(req, session);
+    const sessionBranchId = getSessionBranchId(session);
 
     // Find by workerId or name
     const isId = /^\d+$/.test(identifier?.trim());
+    const workerFilter = { status: "approved" };
+    if (sessionBranchId) {
+      workerFilter.branch = sessionBranchId;
+    }
+
     const worker = isId
-      ? await User.findOne({ workerId: identifier.trim(), status: "approved" })
+      ? await User.findOne({ ...workerFilter, workerId: identifier.trim() })
       : await User.findOne({
+          ...workerFilter,
           fullName: { $regex: identifier.trim(), $options: "i" },
-          status: "approved",
         });
 
     if (!worker) {
@@ -217,6 +345,7 @@ export const checkInWorker = async (req, res, next) => {
     const attendance = await Attendance.create({
       worker: worker._id,
       session: sessionId,
+      branch: sessionBranchId || undefined,
       serviceType: session.serviceType,
       serviceDate: session.serviceDate,
       checkInTime: now,
@@ -250,7 +379,8 @@ export const checkInWorker = async (req, res, next) => {
 // ── Get active session ────────────────────────────────────────────────────────
 export const getActiveSession = async (req, res, next) => {
   try {
-    const session = await FrontDeskSession.findOne({ isOpen: true })
+    const session = await FrontDeskSession.findOne(getActiveSessionFilter(req))
+      .populate("branch", "name code status")
       .populate("primarySupervisor", "fullName workerId")
       .populate("coSupervisors", "fullName workerId")
       .sort({ createdAt: -1 });
@@ -262,8 +392,14 @@ export const getActiveSession = async (req, res, next) => {
 // ── Get session attendance list ───────────────────────────────────────────────
 export const getSessionAttendance = async (req, res, next) => {
   try {
+    const session = await FrontDeskSession.findById(req.params.sessionId).select("branch");
+    if (!session) {
+      return res.status(404).json({ message: "Session not found." });
+    }
+    assertCanAccessSession(req, session);
+
     const attendance = await Attendance.find({ session: req.params.sessionId })
-      .populate("worker", "fullName workerId department")
+      .populate("worker", "fullName workerId department branch")
       .populate("loggedBy", "fullName")
       .sort({ checkInTime: 1 });
 
@@ -281,18 +417,26 @@ export const getAttendanceHistory = async (req, res, next) => {
       if (dateFrom) filter.serviceDate.$gte = new Date(dateFrom);
       if (dateTo)   filter.serviceDate.$lte = new Date(dateTo);
     }
+    const { filter: scopedFilter, scope } = applyAttendanceBranchScope(req, filter);
 
     const skip = (Number(page) - 1) * Number(limit);
     const [sessions, total] = await Promise.all([
-      FrontDeskSession.find(filter)
+      FrontDeskSession.find(scopedFilter)
+        .populate("branch", "name code status")
         .populate("primarySupervisor", "fullName workerId")
         .sort({ serviceDate: -1 })
         .skip(skip)
         .limit(Number(limit)),
-      FrontDeskSession.countDocuments(filter),
+      FrontDeskSession.countDocuments(scopedFilter),
     ]);
 
-    res.status(200).json({ sessions, total, page: Number(page), totalPages: Math.ceil(total / Number(limit)) });
+    res.status(200).json({
+      sessions,
+      total,
+      page: Number(page),
+      totalPages: Math.ceil(total / Number(limit)),
+      branchScope: getBranchScopeMeta(req, scope),
+    });
   } catch (error) { next(error); }
 };
 
@@ -307,6 +451,7 @@ export const closeSession = async (req, res, next) => {
       .populate("coSupervisors", "fullName workerId email");
 
     if (!session) return res.status(404).json({ message: "Session not found." });
+    assertCanAccessSession(req, session);
 
     // If already closed
     if (!session.isOpen) {
@@ -372,10 +517,21 @@ const sendReportToAdmins = async (session, stats, isAuto = false) => {
       session.reportDispatch.emailDeliveredTo = [];
     }
 
-    const admins = await User.find({
+    const sessionBranchId = getSessionBranchId(session);
+    const adminFilter = {
       status: "approved",
       role: { $in: ["pastor", "admin", "moderator"] },
-    }).select("_id email fullName");
+    };
+
+    if (sessionBranchId) {
+      adminFilter.$or = [
+        { canViewAllBranches: { $ne: false } },
+        { branch: sessionBranchId },
+        { managedBranches: sessionBranchId },
+      ];
+    }
+
+    const admins = await User.find(adminFilter).select("_id email fullName");
     const adminIds = admins.map((admin) => admin._id);
     const emailAdmins = admins.filter((admin) => isValidEmailAddress(admin.email));
 
@@ -487,13 +643,15 @@ export const replayRecentFrontDeskReportDispatches = async () => {
 export const getSessionReport = async (req, res, next) => {
   try {
     const session = await FrontDeskSession.findById(req.params.sessionId)
+      .populate("branch", "name code status")
       .populate("primarySupervisor", "fullName workerId department")
       .populate("coSupervisors", "fullName workerId department");
 
     if (!session) return res.status(404).json({ message: "Session not found." });
+    assertCanAccessSession(req, session);
 
     const attendance = await Attendance.find({ session: session._id })
-      .populate("worker", "fullName workerId department")
+      .populate("worker", "fullName workerId department branch")
       .populate("loggedBy", "fullName")
       .sort({ checkInTime: 1 });
 
@@ -506,13 +664,34 @@ export const getSessionReport = async (req, res, next) => {
 // ── Search worker for check-in ───────────────────────────────────────────────
 export const searchWorkerForCheckIn = async (req, res, next) => {
   try {
-    const { q } = req.query;
+    const { q, sessionId } = req.query;
     if (!q || q.length < 1) return res.status(200).json({ workers: [] });
+
+    const workerFilter = { status: "approved" };
+
+    if (sessionId) {
+      const session = await FrontDeskSession.findById(sessionId).select("branch");
+      if (!session) {
+        return res.status(404).json({ message: "Session not found." });
+      }
+      assertCanAccessSession(req, session);
+      const sessionBranchId = getSessionBranchId(session);
+      if (sessionBranchId) workerFilter.branch = sessionBranchId;
+    } else if (!canAccessAllBranches(req.user)) {
+      const accessibleBranchIds = getAccessibleBranchIds(req.user);
+      if (accessibleBranchIds.length > 1) {
+        workerFilter.branch = { $in: accessibleBranchIds };
+      } else if (accessibleBranchIds.length === 1) {
+        workerFilter.branch = accessibleBranchIds[0];
+      } else {
+        workerFilter.branch = "000000000000000000000000";
+      }
+    }
 
     const isId = /^\d+$/.test(q.trim());
     const workers = isId
-      ? await User.find({ workerId: q.trim(), status: "approved" }).select("fullName workerId department").limit(5)
-      : await User.find({ fullName: { $regex: q.trim(), $options: "i" }, status: "approved" }).select("fullName workerId department").limit(8);
+      ? await User.find({ ...workerFilter, workerId: q.trim() }).select("fullName workerId department branch").limit(5)
+      : await User.find({ ...workerFilter, fullName: { $regex: q.trim(), $options: "i" } }).select("fullName workerId department branch").limit(8);
 
     res.status(200).json({ workers });
   } catch (error) { next(error); }
